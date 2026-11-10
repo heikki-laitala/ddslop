@@ -142,3 +142,15 @@ func TestParallelNeedsEnoughAlignedSteps(t *testing.T) {
 		t.Errorf("got %d flows with only 4 aligned steps and MinSteps 5", len(flows))
 	}
 }
+
+func TestSharedInfrastructureNeedsMoreThanTwoFeatures(t *testing.T) {
+	// With 3 entry points, a quarter of them is less than one feature: a
+	// step one feature uses must not count as shared infrastructure.
+	g, entries := featureGraph(t)
+	opts := testOptions
+	opts.SharedFraction = 0.25
+
+	if flows := g.Parallel(entries, opts); len(flows) != 1 || len(flows[0].Steps) != 4 {
+		t.Errorf("got %d flows with SharedFraction 0.25, want the create/update flow with 4 steps", len(flows))
+	}
+}

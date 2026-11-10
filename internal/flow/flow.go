@@ -192,7 +192,7 @@ type ParallelOptions struct {
 	MinSteps       int     // least number of aligned steps for a parallel flow
 	MinCover       float64 // least share of the features' own code aligned
 	MinStepSim     float64 // least similarity of two aligned steps
-	SharedFraction float64 // steps reached by more than this share of entries are shared infrastructure
+	SharedFraction float64 // steps reached by more than this share of entries (and more than 2) are shared infrastructure
 }
 
 // ParallelFlow is a family of features that run the same pipeline through
@@ -235,7 +235,8 @@ func (g *Graph) Parallel(entries []int, opts ParallelOptions) []ParallelFlow {
 	}
 	comparable := map[int]bool{}
 	for u, n := range reach {
-		if g.Units[u].Nodes >= opts.MinNodes && float64(n) <= opts.SharedFraction*float64(len(entries)) {
+		shared := n > 2 && float64(n) > opts.SharedFraction*float64(len(entries))
+		if g.Units[u].Nodes >= opts.MinNodes && !shared {
 			comparable[u] = true
 		}
 	}
