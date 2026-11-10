@@ -478,7 +478,7 @@ func parseRust(path string, src []byte) (index.Parsed, error) {
 	for i := range units {
 		units[i].Signature = similarity.Signature(units[i].Seq)
 	}
-	return index.Parsed{Units: units, Traits: rust.Traits(src)}, err
+	return index.Parsed{Units: units, Traits: rust.Traits(src), Imports: rust.Imports(src)}, err
 }
 
 // extractorVersion identifies the running binary by its content, so any

@@ -267,10 +267,10 @@ func TestMissingFileFailsSync(t *testing.T) {
 	}
 }
 
-func TestTraitsAreStored(t *testing.T) {
+func TestTraitsAndImportsAreStored(t *testing.T) {
 	f := newFixture(t, map[string]string{"a.rs": "alpha"})
 	parse := func(path string, src []byte) (Parsed, error) {
-		return Parsed{Generated: true, Traits: []string{"LedgerApi", "HealthApi"}}, nil
+		return Parsed{Generated: true, Traits: []string{"LedgerApi", "HealthApi"}, Imports: map[string]string{"fill": "super::helpers::fill"}}, nil
 	}
 	if _, err := f.db.Sync(Options{Root: f.root, Paths: f.paths, Version: "v1", Parse: parse}); err != nil {
 		t.Fatal(err)
@@ -280,5 +280,8 @@ func TestTraitsAreStored(t *testing.T) {
 
 	if len(files) != 1 || fmt.Sprint(files[0].Traits) != "[LedgerApi HealthApi]" || !files[0].Generated {
 		t.Errorf("files = %+v, want a.rs generated with its two traits", files)
+	}
+	if got := files[0].Imports["fill"]; got != "super::helpers::fill" {
+		t.Errorf("imports = %v, want fill -> super::helpers::fill", files[0].Imports)
 	}
 }
