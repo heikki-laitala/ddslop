@@ -332,8 +332,12 @@ func WriteText(w io.Writer, r Report) error {
 			fmt.Fprintf(&b, "    %s (%s)\n", strings.Join(d.Values, " | "), label)
 		}
 	}
-	fmt.Fprintf(&b, "%d candidate(s) in %d file(s), %d function(s) analysed; skipped %d generated file(s) and %d test function(s)\n",
+	fmt.Fprintf(&b, "%d candidate(s) in %d file(s), %d function(s) analysed; skipped %d generated file(s) and %d test function(s)",
 		r.Summary.Candidates, r.Summary.Files, r.Summary.Units, r.Summary.GeneratedFiles, r.Summary.TestUnits)
+	if r.Summary.Baselined > 0 {
+		fmt.Fprintf(&b, "; %d known candidate(s) in the baseline", r.Summary.Baselined)
+	}
+	b.WriteString("\n")
 	_, err := io.WriteString(w, b.String())
 	return err
 }

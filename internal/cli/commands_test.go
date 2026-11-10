@@ -20,7 +20,7 @@ func TestHelpListsCommands(t *testing.T) {
 		if code != 0 {
 			t.Errorf("%s: exit code %d, want 0", arg, code)
 		}
-		for _, cmd := range []string{"check", "index", "init", "stats", "status", "uninstall", "version"} {
+		for _, cmd := range []string{"check", "baseline", "index", "init", "stats", "status", "uninstall", "version"} {
 			if !strings.Contains(stdout, "\n  "+cmd+" ") {
 				t.Errorf("%s: usage does not list %q:\n%s", arg, cmd, stdout)
 			}

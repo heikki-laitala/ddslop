@@ -101,6 +101,7 @@ type jsonReport struct {
 		TestUnits      int `json:"test_units"`
 		ParsedFiles    int `json:"parsed_files"`
 		UnchangedFiles int `json:"unchanged_files"`
+		Baselined      int `json:"baselined"`
 		Candidates     int `json:"candidates"`
 	} `json:"summary"`
 }

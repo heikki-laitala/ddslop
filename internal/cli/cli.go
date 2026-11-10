@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"runtime/debug"
 
+	"github.com/heikki-laitala/ddslop/internal/baseline"
 	"github.com/heikki-laitala/ddslop/internal/clone"
 	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
@@ -36,6 +37,7 @@ coding agents. Without a command, it runs check.
 
 Commands:
   check     report duplicated code (default)
+  baseline  record known duplication, so check --baseline reports only new
   index     build or refresh the index at <path>/.ddslop/index.db
   init      set ddslop up for coding agents (skill, instructions, .gitignore)
   stats     describe the index without updating it
@@ -73,6 +75,7 @@ type command func(args []string, stdout, stderr io.Writer) int
 // commands maps subcommand names to their implementations.
 var commands = map[string]command{
 	"check":     runCheck,
+	"baseline":  runBaseline,
 	"index":     runIndex,
 	"init":      runInit,
 	"stats":     runStats,
@@ -178,27 +181,42 @@ func runIndex(args []string, stdout, stderr io.Writer) int {
 	return exitClean
 }
 
-func runCheck(args []string, stdout, stderr io.Writer) int {
-	fs := newFlags("check", checkUsage, stderr)
+// analysisFlags registers the flags that decide what counts as duplication,
+// shared by check and baseline so both analyse the same way. The returned
+// function reads them after parsing.
+func analysisFlags(fs *flag.FlagSet) func() (options, error) {
 	minNodes := fs.Int("min-nodes", 50, "ignore functions with fewer syntax nodes than this")
 	minBlockNodes := fs.Int("min-block-nodes", 100, "ignore copied blocks inside functions with fewer syntax nodes than this (never below --min-nodes)")
 	minNearNodes := fs.Int("min-near-nodes", 150, "ignore near-miss copies of functions with fewer syntax nodes than this (never below --min-nodes)")
 	tests := fs.Bool("tests", false, "include test functions, test modules and test files")
 	minSim := fs.Float64("min-similarity", 0.8, "report near-miss copies at least this similar, above 0 and at most 1")
+	return func() (options, error) {
+		if *minSim <= 0 || *minSim > 1 {
+			return options{}, fmt.Errorf("--min-similarity %v is not above 0 and at most 1", *minSim)
+		}
+		return options{minNodes: *minNodes, minBlockNodes: *minBlockNodes, minNearNodes: *minNearNodes, minSim: *minSim, tests: *tests}, nil
+	}
+}
+
+func runCheck(args []string, stdout, stderr io.Writer) int {
+	fs := newFlags("check", checkUsage, stderr)
+	analysis := analysisFlags(fs)
 	format := fs.String("format", "", `output format, "text" or "json" (default: text on a terminal, json otherwise)`)
 	diff := fs.String("diff", "", "only report candidates touching lines changed since this Git ref (committed, staged, unstaged and untracked)")
+	baselinePath := fs.String("baseline", "", "do not report duplication already recorded in this baseline file (see ddslop baseline)")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
 
+	opts, err := analysis()
+	if err != nil {
+		return fail(stderr, err)
+	}
 	if *format == "" {
 		*format = "json"
 		if isTerminal(stdout) {
 			*format = "text"
 		}
-	}
-	if *minSim <= 0 || *minSim > 1 {
-		return fail(stderr, fmt.Errorf("--min-similarity %v is not above 0 and at most 1", *minSim))
 	}
 	if *format != "text" && *format != "json" {
 		return fail(stderr, fmt.Errorf("unknown format %q, want text or json", *format))
@@ -208,15 +226,24 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 
+	var known baseline.Baseline
+	if *baselinePath != "" {
+		if known, err = baseline.Load(*baselinePath); err != nil {
+			return fail(stderr, err)
+		}
+	}
 	var changes source.Changes
 	if *diff != "" {
 		if changes, err = source.ChangedLines(root, *diff); err != nil {
 			return fail(stderr, err)
 		}
 	}
-	r, err := check(root, options{minNodes: *minNodes, minBlockNodes: *minBlockNodes, minNearNodes: *minNearNodes, minSim: *minSim, tests: *tests})
+	r, err := check(root, opts)
 	if err != nil {
 		return fail(stderr, err)
+	}
+	if *baselinePath != "" {
+		r = baseline.Filter(r, known)
 	}
 	if *diff != "" {
 		r = report.KeepChanged(r, *diff, changes.Touches)
@@ -234,6 +261,51 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	}
 	return exitClean
 }
+
+const baselineUsage = `usage: ddslop baseline [flags] [path]
+
+Records the duplication found under path (default ".") in a baseline file,
+<path>/.ddslop-baseline.json by default. "ddslop check --baseline FILE"
+then reports only duplication that is not in it: commit the file to adopt
+ddslop on an existing codebase and gate CI on new duplication only. Use the
+same analysis flags as check. A known candidate whose copies shrink during
+cleanup stays known; a new copy of it is reported.
+
+Flags:
+`
+
+func runBaseline(args []string, stdout, stderr io.Writer) int {
+	fs := newFlags("baseline", baselineUsage, stderr)
+	analysis := analysisFlags(fs)
+	output := fs.String("output", "", "file to write (default <path>/.ddslop-baseline.json)")
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
+	}
+	opts, err := analysis()
+	if err != nil {
+		return fail(stderr, err)
+	}
+	root, err := rootArg(fs)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	path := *output
+	if path == "" {
+		path = filepath.Join(root, baselineFile)
+	}
+	r, err := check(root, opts)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if err := baseline.Write(path, baseline.FromReport(r)); err != nil {
+		return fail(stderr, err)
+	}
+	fmt.Fprintf(stdout, "wrote %d known candidate(s) to %s\n", len(r.Candidates), path)
+	return exitClean
+}
+
+// baselineFile is the default baseline, relative to the analysed root.
+const baselineFile = ".ddslop-baseline.json"
 
 // options are the analysis settings of one check.
 type options struct {
