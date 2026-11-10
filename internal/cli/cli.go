@@ -139,15 +139,20 @@ func rootArg(fs *flag.FlagSet) (string, error) {
 // version is set at build time with -ldflags "-X ...cli.version=...".
 var version = ""
 
-func runVersion(_ []string, stdout, _ io.Writer) int {
-	v := version
-	if v == "" {
-		v = "dev"
-		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-			v = info.Main.Version
-		}
+// versionString is the version stamped at build time, the module version
+// for go install, or "dev".
+func versionString() string {
+	if version != "" {
+		return version
 	}
-	fmt.Fprintf(stdout, "ddslop %s\n", v)
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
+}
+
+func runVersion(_ []string, stdout, _ io.Writer) int {
+	fmt.Fprintf(stdout, "ddslop %s\n", versionString())
 	return exitClean
 }
 
@@ -201,7 +206,7 @@ func analysisFlags(fs *flag.FlagSet) func() (options, error) {
 func runCheck(args []string, stdout, stderr io.Writer) int {
 	fs := newFlags("check", checkUsage, stderr)
 	analysis := analysisFlags(fs)
-	format := fs.String("format", "", `output format, "text" or "json" (default: text on a terminal, json otherwise)`)
+	format := fs.String("format", "", `output format, "text", "json" or "sarif" (default: text on a terminal, json otherwise)`)
 	diff := fs.String("diff", "", "only report candidates touching lines changed since this Git ref (committed, staged, unstaged and untracked)")
 	baselinePath := fs.String("baseline", "", "do not report duplication already recorded in this baseline file (see ddslop baseline)")
 	if code, ok := parseFlags(fs, args); !ok {
@@ -218,8 +223,8 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 			*format = "text"
 		}
 	}
-	if *format != "text" && *format != "json" {
-		return fail(stderr, fmt.Errorf("unknown format %q, want text or json", *format))
+	if *format != "text" && *format != "json" && *format != "sarif" {
+		return fail(stderr, fmt.Errorf("unknown format %q, want text, json or sarif", *format))
 	}
 	root, err := rootArg(fs)
 	if err != nil {
@@ -249,11 +254,15 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		r = report.KeepChanged(r, *diff, changes.Touches)
 	}
 
-	write := report.WriteJSON
-	if *format == "text" {
-		write = report.WriteText
+	switch *format {
+	case "text":
+		err = report.WriteText(stdout, r)
+	case "sarif":
+		err = report.WriteSARIF(stdout, r, versionString())
+	default:
+		err = report.WriteJSON(stdout, r)
 	}
-	if err := write(stdout, r); err != nil {
+	if err != nil {
 		return fail(stderr, err)
 	}
 	if len(r.Candidates) > 0 {
