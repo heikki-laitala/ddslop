@@ -10,7 +10,7 @@ COVER_PROFILE     := coverage.out
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build run test cover lint lint-go lint-md fmt tidy clean
+.PHONY: help build run test cover notices lint lint-go lint-md fmt tidy clean
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -30,6 +30,9 @@ cover: ## Run tests with coverage; fail below COVER_MIN percent (default 80)
 	echo "total coverage: $$total% (minimum $(COVER_MIN)%)"; \
 	awk -v t="$$total" -v m="$(COVER_MIN)" 'BEGIN { exit !(t + 0 >= m + 0) }' || \
 		{ echo "coverage $$total% is below $(COVER_MIN)%"; exit 1; }
+
+notices: ## Regenerate THIRD_PARTY_NOTICES.md from the compiled-in modules
+	scripts/notices.sh > THIRD_PARTY_NOTICES.md
 
 lint: lint-go lint-md ## Run all linters
 
