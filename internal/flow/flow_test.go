@@ -130,3 +130,39 @@ func TestSliceIsBreadthFirstDepthLimitedAndSkipsTests(t *testing.T) {
 		t.Errorf("slice = %v, want %s", got, want)
 	}
 }
+
+func TestPathCallsOnUnknownTypesDoNotFallBackToFreeFunctions(t *testing.T) {
+	g := Build([]unit.Unit{
+		fn("a/src/clock.rs", "now"),
+		fn("a/src/util.rs", "log"),
+		fn("a/src/h.rs", "handler",
+			path("Utc", "now"), path("chrono::Utc", "now"),
+			path("crate::util", "log"), path("super", "log")),
+	})
+
+	// Utc is a type defined elsewhere; crate::util and super are modules.
+	want := "[a/src/util.rs log]"
+	if got := callees(g, "a/src/h.rs handler"); got != want {
+		t.Errorf("handler calls %s, want %s", got, want)
+	}
+}
+
+func TestStandardMethodNamesAreNotResolvedByUniqueness(t *testing.T) {
+	g := Build([]unit.Unit{
+		fn("a/src/id.rs", "ModelId::as_ref"),
+		fn("a/src/ext.rs", "Extensions::len"),
+		fn("a/src/rare.rs", "Rare::settle_window"),
+		fn("a/src/h.rs", "Handler::run",
+			method("", "as_ref"), method("", "len"), method("", "settle_window")),
+		fn("a/src/id.rs", "ModelId::show", method("self", "as_ref")),
+	})
+
+	// x.as_ref() and v.len() are most likely std methods; settle_window is
+	// unique to this codebase. self.as_ref() is still the caller's own.
+	if got := callees(g, "a/src/h.rs Handler::run"); got != "[a/src/rare.rs Rare::settle_window]" {
+		t.Errorf("Handler::run calls %s, want only Rare::settle_window", got)
+	}
+	if got := callees(g, "a/src/id.rs ModelId::show"); got != "[a/src/id.rs ModelId::as_ref]" {
+		t.Errorf("ModelId::show calls %s, want its own as_ref", got)
+	}
+}

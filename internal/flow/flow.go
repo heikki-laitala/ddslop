@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
@@ -75,10 +76,16 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 		if cands := ix.owned[typ+"::"+c.Name]; len(cands) > 0 {
 			return pick(units, caller, cands)
 		}
-		return pick(units, caller, ix.free[c.Name]) // a module path: utils::log
+		if isModule(typ) {
+			return pick(units, caller, ix.free[c.Name]) // utils::log, crate::x::f
+		}
+		return -1 // a type defined elsewhere, such as Utc::now
 	case unit.MethodCall:
 		if c.Qualifier == "self" && owner != "" {
 			return pick(units, caller, ix.owned[owner+"::"+c.Name])
+		}
+		if stdMethods[c.Name] {
+			return -1 // most likely a standard-library method
 		}
 		return pick(units, caller, ix.methods[c.Name])
 	}
@@ -110,6 +117,12 @@ func pick(units []unit.Unit, caller unit.Unit, cands []int) int {
 		}
 	}
 	return -1
+}
+
+// isModule reports whether a path segment names a module rather than a
+// type: Rust modules are lower case, types upper case.
+func isModule(segment string) bool {
+	return segment != "" && !unicode.IsUpper(rune(segment[0]))
 }
 
 // crateOf returns the crate directory of a file: the path before /src/,
