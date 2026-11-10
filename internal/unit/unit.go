@@ -33,4 +33,7 @@ type Leaf struct {
 	Kind LeafKind
 	Text string
 	Line int
+	// Declares is true when this occurrence introduces a name inside the
+	// unit: the unit's own name, a parameter, or a local binding.
+	Declares bool
 }

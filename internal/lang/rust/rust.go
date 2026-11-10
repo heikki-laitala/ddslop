@@ -96,7 +96,7 @@ func (e *extractor) addFunction(n *sitter.Node, owner string) {
 		name = owner + "::" + name
 	}
 	s := shaper{src: e.src, h: fnv.New64a()}
-	s.visit(n)
+	s.visit(n, false)
 	e.units = append(e.units, unit.Unit{
 		File:      e.path,
 		Name:      name,
@@ -116,26 +116,59 @@ type shaper struct {
 	leaves []unit.Leaf
 }
 
-func (s *shaper) visit(n *sitter.Node) {
+func (s *shaper) visit(n *sitter.Node, declares bool) {
 	if n.IsExtra() {
 		return // comments
 	}
 	s.nodes++
 	if kind, ok := leafKinds[n.Kind()]; ok {
 		_, _ = s.h.Write(leafMarkers[kind])
+		text := n.Utf8Text(s.src)
 		s.leaves = append(s.leaves, unit.Leaf{
-			Kind: kind,
-			Text: n.Utf8Text(s.src),
-			Line: line(n.StartPosition()),
+			Kind:     kind,
+			Text:     text,
+			Line:     line(n.StartPosition()),
+			Declares: declares && kind == unit.Identifier && !isUpper(text),
 		})
 		return
 	}
 	_, _ = s.h.Write([]byte(n.Kind()))
 	_, _ = s.h.Write([]byte{0})
 	for i := uint(0); i < n.ChildCount(); i++ {
-		s.visit(n.Child(i))
+		child := n.Child(i)
+		field := n.FieldNameForChild(uint32(i))
+		s.visit(child, childDeclares(n.Kind(), declares, field, child.Kind()))
 	}
 	_, _ = s.h.Write(closeMarker)
+}
+
+// childDeclares reports whether a child sits in a position that introduces
+// names: the function name, parameter and binding patterns. Paths and
+// struct field names inside patterns never introduce names.
+func childDeclares(parent string, parentDeclares bool, field, child string) bool {
+	switch parent {
+	case "function_item":
+		return field == "name"
+	case "parameter", "let_declaration", "for_expression", "let_condition":
+		return field == "pattern"
+	case "closure_parameters":
+		return true
+	case "match_pattern":
+		return field != "condition"
+	case "tuple_struct_pattern", "struct_pattern":
+		return parentDeclares && field != "type"
+	case "field_pattern":
+		return parentDeclares && (field != "name" || child == "shorthand_field_identifier")
+	case "scoped_identifier", "scoped_type_identifier":
+		return false
+	}
+	return parentDeclares
+}
+
+// isUpper reports whether a name starts with an upper-case ASCII letter. In
+// Rust patterns such names are enum variants or constants, not bindings.
+func isUpper(name string) bool {
+	return name != "" && name[0] >= 'A' && name[0] <= 'Z'
 }
 
 // line converts a tree-sitter position to a 1-based line number.

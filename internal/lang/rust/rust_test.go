@@ -127,8 +127,8 @@ fn b(y: i64) -> i64 {
 	b := byName(t, units, "b")
 
 	want := []unit.Leaf{
-		{Kind: unit.Identifier, Text: "a", Line: 1},
-		{Kind: unit.Identifier, Text: "x", Line: 1},
+		{Kind: unit.Identifier, Text: "a", Line: 1, Declares: true},
+		{Kind: unit.Identifier, Text: "x", Line: 1, Declares: true},
 		{Kind: unit.Type, Text: "u32", Line: 1},
 		{Kind: unit.Type, Text: "u32", Line: 1},
 		{Kind: unit.Identifier, Text: "x", Line: 2},
@@ -147,6 +147,52 @@ fn b(y: i64) -> i64 {
 	}
 	if b.Leaves[5].Text != "2" || b.Leaves[2].Text != "i64" {
 		t.Errorf("b leaves not aligned with a: %+v", b.Leaves)
+	}
+}
+
+func TestDeclaringIdentifiersAreMarked(t *testing.T) {
+	src := `fn run(input: Vec<u32>, cfg: &Config) -> u32 {
+    let total = 0;
+    let (lo, hi) = cfg.bounds();
+    for item in input.iter() {
+        if let Some(v) = check(item) {
+            total += v;
+        }
+    }
+    match cfg.mode {
+        Mode::Fast(speed) if speed > lo => hi,
+        _ => total,
+    }
+    input.iter().map(|elem| elem + 1).sum::<u32>()
+}
+`
+	f := byName(t, mustUnits(t, src), "run")
+
+	declared := map[string]bool{}
+	used := map[string]bool{}
+	for _, l := range f.Leaves {
+		if l.Kind != unit.Identifier {
+			continue
+		}
+		if l.Declares {
+			declared[l.Text] = true
+		} else {
+			used[l.Text] = true
+		}
+	}
+
+	for _, name := range []string{"run", "input", "cfg", "total", "lo", "hi", "item", "v", "speed", "elem"} {
+		if !declared[name] {
+			t.Errorf("%q should be marked as declared", name)
+		}
+	}
+	for _, name := range []string{"bounds", "check", "Some", "mode", "iter", "map", "sum", "Mode", "Fast"} {
+		if declared[name] {
+			t.Errorf("%q is used, not declared, but was marked as declared", name)
+		}
+		if !used[name] {
+			t.Errorf("%q should appear as a used identifier", name)
+		}
 	}
 }
 
