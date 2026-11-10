@@ -11,7 +11,6 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
-	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
 const flowsUsage = `usage: ddslop flows [flags] [path]
@@ -85,23 +84,8 @@ func runFlows(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	traits := map[string]bool{}
-	var units []unit.Unit
-	for _, f := range files {
-		if f.Generated {
-			for _, t := range f.Traits {
-				traits[t] = true
-			}
-		}
-		for _, u := range f.Units {
-			if !u.Test {
-				units = append(units, u)
-			}
-		}
-	}
-
-	g := flow.Build(graphInputs(root, files), units)
-	r := flowsReport{Flows: []flowJSON{}, Summary: flowsSummary{Functions: len(units), Calls: g.Calls, ResolvedCalls: g.Resolved}}
+	g, traits := callGraph(root, files)
+	r := flowsReport{Flows: []flowJSON{}, Summary: flowsSummary{Functions: len(g.Units), Calls: g.Calls, ResolvedCalls: g.Resolved}}
 	for _, entry := range g.Entries(traits) {
 		var f flowJSON
 		for _, s := range treeOrder(g.Slice(entry, *depth)) {

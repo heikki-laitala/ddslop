@@ -19,6 +19,7 @@ var rules = []sarifRule{
 	{ID: duplicateConst, Short: "Constant declared again with the same name and value", Full: "The same constant is declared in several places. Keep one declaration, in a module the users share, and import it."},
 	{ID: inlinedConst, Short: "Constant's value written inline", Full: "A string literal repeats the value of a constant declared in the same crate. Use the constant (the target) instead of the literal."},
 	{ID: deadCode, Short: "Public function nothing uses", Full: "The function is public in a crate that is not published, and its name appears nowhere else in the code: no call, import, macro or comment. Delete it, unless it is meant for code outside the repository."},
+	{ID: passThrough, Short: "Wrapper that only forwards its parameters", Full: "The function's whole body calls another function (the target) with its own parameters, unchanged. Call the target directly and delete the wrapper, or rename the target if the wrapper's name is the better one."},
 }
 
 // ruleShort maps a candidate kind to its rule's short description.

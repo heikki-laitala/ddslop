@@ -47,6 +47,10 @@ type Unit struct {
 	// unit: a program's main, or a function whose attributes export it or
 	// register it, such as #[no_mangle], #[tokio::main] or #[get("/")].
 	External bool
+	// Forwards is set when the unit only passes its parameters on, in
+	// order and unchanged, to another function: the callee as written,
+	// such as "load", "super::load" or "self.load".
+	Forwards string
 }
 
 // CallKind says how a call names its callee.

@@ -420,13 +420,15 @@ func check(root string, opts options) (report.Report, error) {
 		reported = append(reported, set)
 	}
 	blocks := clone.BlockClones(units, max(opts.minBlockNodes, opts.minNodes), reported)
-	flows := parallelFlows(root, files, opts.minNodes)
+	g, traits := callGraph(root, files)
+	flows := parallelFlows(g, traits, opts.minNodes)
 	return report.Build("rust", report.Findings{
 		Groups: groups, NearMisses: nearMisses, Blocks: blocks, Flows: flows,
-		Structs: clone.Structs(structs, minStructFields),
-		Consts:  clone.Constants(consts),
-		Inlined: clone.InlinedConstants(consts, units, flow.CrateOf),
-		Dead:    simplify.Dead(units, wordCounts(files), internalCrates(root, files)),
+		Structs:  clone.Structs(structs, minStructFields),
+		Consts:   clone.Constants(consts),
+		Inlined:  clone.InlinedConstants(consts, units, flow.CrateOf),
+		Dead:     simplify.Dead(units, wordCounts(files), internalCrates(root, files)),
+		Wrappers: simplify.PassThrough(g),
 	}, summary), nil
 }
 
@@ -478,10 +480,10 @@ var parallelFlowOptions = flow.ParallelOptions{
 	SharedFraction: 0.25,
 }
 
-// parallelFlows finds features running the same pipeline. Entry points are
-// methods implementing traits declared in generated files; test code is
-// left out of the call graph.
-func parallelFlows(root string, files []index.File, minNodes int) []report.Flow {
+// callGraph builds the call graph of the non-test code and returns it with
+// the traits declared in generated files, whose implementations are the
+// features' entry points.
+func callGraph(root string, files []index.File) (*flow.Graph, map[string]bool) {
 	traits := map[string]bool{}
 	var units []unit.Unit
 	for _, f := range files {
@@ -496,7 +498,11 @@ func parallelFlows(root string, files []index.File, minNodes int) []report.Flow 
 			}
 		}
 	}
-	g := flow.Build(graphInputs(root, files), units)
+	return flow.Build(graphInputs(root, files), units), traits
+}
+
+// parallelFlows finds features running the same pipeline.
+func parallelFlows(g *flow.Graph, traits map[string]bool, minNodes int) []report.Flow {
 	opts := parallelFlowOptions
 	opts.MinNodes = minNodes
 	var out []report.Flow

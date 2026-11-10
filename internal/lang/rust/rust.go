@@ -291,7 +291,67 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 		Calls:     s.calls,
 		Public:    isPublic(n, e.src),
 		External:  (owner == "" && name == "main") || slices.ContainsFunc(attrs, isExternalAttr),
+		Forwards:  forwards(n, e.src),
 	})
+}
+
+// forwards returns the callee when a function's body is one call (possibly
+// awaited) passing the function's parameters on in order, each as is or
+// borrowed: fn f(a, b) { g(a, &b) }. Constructors (Self(x), Some(x)) and
+// calls on fields (self.inner.get(x)) do not count, and nor do functions
+// without parameters besides self.
+func forwards(fn *sitter.Node, src []byte) string {
+	params, body := fn.ChildByFieldName("parameters"), fn.ChildByFieldName("body")
+	if params == nil || body == nil || body.NamedChildCount() != 1 {
+		return ""
+	}
+	var names []string
+	for i := uint(0); i < params.NamedChildCount(); i++ {
+		p := params.NamedChild(i)
+		switch p.Kind() {
+		case "self_parameter", "line_comment", "block_comment":
+			continue
+		case "parameter":
+			if pat := p.ChildByFieldName("pattern"); pat != nil && pat.Kind() == "identifier" {
+				names = append(names, pat.Utf8Text(src))
+				continue
+			}
+		}
+		return "" // patterns, variadics: not a plain forward
+	}
+	expr := body.NamedChild(0)
+	for expr.Kind() == "expression_statement" || expr.Kind() == "await_expression" {
+		expr = expr.NamedChild(0)
+	}
+	if len(names) == 0 || expr.Kind() != "call_expression" {
+		return ""
+	}
+	callee, args := expr.ChildByFieldName("function"), expr.ChildByFieldName("arguments")
+	if callee == nil || args == nil || args.NamedChildCount() != uint(len(names)) {
+		return ""
+	}
+	switch callee.Kind() {
+	case "identifier", "scoped_identifier":
+		if isUpper(lastSegment(callee.Utf8Text(src))) {
+			return "" // a constructor
+		}
+	case "field_expression":
+		if v := callee.ChildByFieldName("value"); v == nil || v.Kind() != "self" {
+			return "" // delegation to a field
+		}
+	default:
+		return ""
+	}
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		a := args.NamedChild(i)
+		if a.Kind() == "reference_expression" {
+			a = a.ChildByFieldName("value")
+		}
+		if a == nil || a.Kind() != "identifier" || a.Utf8Text(src) != names[i] {
+			return ""
+		}
+	}
+	return callee.Utf8Text(src)
 }
 
 // isPublic reports whether an item is declared plain pub, visible outside

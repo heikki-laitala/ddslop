@@ -14,6 +14,7 @@ import (
 
 	"github.com/heikki-laitala/ddslop/internal/clone"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
+	"github.com/heikki-laitala/ddslop/internal/simplify"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -55,7 +56,8 @@ type Candidate struct {
 	// Steps are the aligned steps of a parallel flow.
 	Steps []Step `json:"steps,omitempty"`
 	// Target is the existing code to use instead of the occurrences, when
-	// there is one: the constant whose value is written inline.
+	// there is one: the constant whose value is written inline, or the
+	// function a wrapper calls.
 	Target *Occurrence `json:"target,omitempty"`
 }
 
@@ -117,6 +119,8 @@ const (
 	inlinedConst   = "inlined-constant"
 	deadCode       = "dead-code"
 	deleteDead     = "delete-dead"
+	passThrough    = "pass-through"
+	inlineWrapper  = "inline-wrapper"
 	extractFlow    = "extract-pipeline"
 	reuseExisting  = "reuse-existing"
 	extractCommon  = "extract-common"
@@ -141,6 +145,7 @@ type Findings struct {
 	Consts     []clone.ConstGroup
 	Inlined    []clone.InlinedConst
 	Dead       []unit.Unit
+	Wrappers   []simplify.Wrapper
 }
 
 // Flow is a family of features running the same pipeline through
@@ -162,7 +167,7 @@ type FlowStep struct {
 
 // Build turns findings into a report. Candidates are ranked by duplicated
 // nodes, largest first; on ties, they keep this order: groups, near misses,
-// block clones, flows, structs, constants, dead code. The summary's candidate count is filled in.
+// block clones, flows, structs, constants, dead code, wrappers. The summary's candidate count is filled in.
 func Build(language string, f Findings, summary Summary) Report {
 	candidates := make([]Candidate, 0, len(f.Groups)+len(f.NearMisses)+len(f.Blocks)+len(f.Flows))
 	for _, g := range f.Groups {
@@ -188,6 +193,12 @@ func Build(language string, f Findings, summary Summary) Report {
 	}
 	for _, u := range f.Dead {
 		candidates = append(candidates, single(language, deadCode, deleteDead, u))
+	}
+	for _, w := range f.Wrappers {
+		c := single(language, passThrough, inlineWrapper, w.Unit)
+		t := occurrence(w.Target)
+		c.Target = &t
+		candidates = append(candidates, c)
 	}
 	candidates = slices.DeleteFunc(candidates, mostlyParameters)
 	slices.SortStableFunc(candidates, func(a, b Candidate) int {

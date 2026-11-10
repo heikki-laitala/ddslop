@@ -157,3 +157,55 @@ impl S {
 		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestUnitsRecordWhatAWrapperForwardsTo(t *testing.T) {
+	src := `fn visible(principal: &str, token_id: u64) -> bool {
+    in_namespace(principal, token_id)
+}
+async fn decide(connection: &mut Conn, mode: Mode) -> Decision {
+    super::decide(&mut connection, &mode).await
+}
+impl Store {
+    fn stored(&self, record: Record) -> Op {
+        self.stored_record(record)
+    }
+    fn delegate(&self, x: u32) -> u32 {
+        self.inner.get(x)
+    }
+    fn new(bound: u64) -> Self {
+        Self(bound)
+    }
+    fn reordered(a: u32, b: u32) -> u32 {
+        add(b, a)
+    }
+    fn extra(a: u32) -> u32 {
+        add(a, 1)
+    }
+    fn converts(a: u32) -> u64 {
+        widen(a.into())
+    }
+    fn no_params() -> Clock {
+        now()
+    }
+    fn two_statements(a: u32) -> u32 {
+        log(a);
+        add(a)
+    }
+}
+`
+	units := mustUnits(t, src)
+	var got []string
+	for _, u := range units {
+		if u.Forwards != "" {
+			got = append(got, u.Name+" -> "+u.Forwards)
+		}
+	}
+	want := []string{
+		"visible -> in_namespace",
+		"decide -> super::decide",
+		"Store::stored -> self.stored_record",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("wrappers:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
