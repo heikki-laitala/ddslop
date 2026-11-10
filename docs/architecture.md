@@ -307,9 +307,10 @@ flowchart TB
 ### Units of comparison
 
 - Whole functions and methods.
-- Contiguous statement sequences inside blocks (sliding windows over sibling
-  statements, above a minimum size). Most copy-paste lives here, not at whole
-  function level.
+- Contiguous statement sequences inside blocks, found as maximal repeats by
+  the suffix array (see Candidate search) rather than by fixed sliding
+  windows, so each copied region is reported once at its full length. Most
+  copy-paste lives here, not at whole function level.
 - Type declarations (structs, interfaces, type aliases), handled by a separate
   detector (see below).
 
@@ -317,7 +318,7 @@ flowchart TB
 
 Comparing every pair of units is quadratic, so candidates are found by
 hashing. Because agents regenerate rather than copy, fuzzy (type 3) matching
-is part of the first version, not an extension. Candidate search has four
+is part of the first version, not an extension. Candidate search has five
 stages:
 
 1. **Canonicalisation.** Before hashing, each adapter rewrites equivalent
@@ -325,22 +326,51 @@ stages:
    commutative operators, inverted `if`/early-return, range and index loops
    where safe. Many near copies become exact copies here, and fall into the
    cheap path.
-2. **Exact hashing (types 1–2).** Hash each unit's canonical syntax tree with
-   identifiers and literals replaced by placeholders. Units sharing a hash are
-   candidate clones. Linear in code size.
-3. **MinHash + LSH over pq-gram shingles (type 3).** Each unit is broken
+2. **Exact hashing of whole units (types 1–2).** Hash each function's
+   canonical syntax tree with identifiers and literals replaced by
+   placeholders. Functions sharing a hash are candidate clones. Linear in code
+   size.
+3. **Maximal repeats with a suffix array (types 1–2, statement runs).**
+   Borrowed from `dupl`. Each file's canonical tree is serialised in
+   pre-order into one sequence of node kinds (identifiers and literals as
+   placeholders), with a unique separator between files. A suffix array plus
+   LCP array over the whole sequence yields every maximal repeated run in
+   O(n log n) time, at any length and without overlapping windows. `dupl`
+   uses a suffix tree; a suffix array gives the same repeats at a fraction of
+   the memory. Go's `index/suffixarray` does not expose the array or LCP, so
+   ddslop builds its own (prefix doubling plus Kasai's LCP algorithm).
+4. **MinHash + LSH over pq-gram shingles (type 3).** Each unit is broken
    into pq-grams: small overlapping tree fragments that keep local structure
    and order. A MinHash signature (128 hashes) estimates the Jaccard
    similarity of two units' shingle sets, and LSH banding (default 16 bands
    × 8 rows, threshold ≈ 0.7) only compares units likely to be similar. This
    replaces DECKARD-style node-count vectors, which ignore order and let
    unrelated functions with the same node mix collide.
-4. **Winnowing (partial matches).** MinHash compares whole units, but agents
-   often embed a copied block inside a larger, unrelated function. Winnowing
-   (the MOSS algorithm) keeps a guaranteed-representative sample of token
-   fingerprints per file. Matching fingerprints locate shared regions
+5. **Winnowing (near-miss partial matches).** MinHash compares whole units,
+   and the suffix array only finds exact repeats, but agents often embed a
+   slightly modified copied block inside a larger, unrelated function.
+   Winnowing (the MOSS algorithm) keeps a guaranteed-representative sample of
+   token fingerprints per file. Matching fingerprints locate shared regions
    regardless of the surrounding code; those regions become statement-run
    candidates.
+
+**Snapping to syntax units.** Also borrowed from `dupl`. A repeated run or
+shared region from stages 3 and 5 rarely starts and ends on statement
+boundaries. Each region is trimmed to the largest sequence of *complete*
+sibling statements (or a whole function) it covers; whatever is left after
+trimming is discarded if it falls below the minimum size. Without this step,
+ddslop would suggest extracting half an `if` block.
+
+**Size in syntax nodes, not lines.** Every size threshold is measured in
+syntax tree nodes (`--min-nodes`), which formatting cannot change; line
+counts are used only for display and for the "lines saved" part of the
+score. This is how `dupl` measures size too.
+
+What ddslop deliberately does *not* copy from `dupl`: it ignores identifier
+and literal values completely, so two blocks with the same shape but
+unrelated meaning match. ddslop also normalises values for matching, but
+anti-unification and scoring then look at the actual values, and candidates
+whose differences are too many to be parameters are dropped.
 
 Every candidate pair is then **verified** with an exact but expensive
 measure, run only on the few pairs LSH and winnowing propose:
@@ -361,15 +391,21 @@ for source code.
 ```mermaid
 flowchart LR
     units[Units] --> canon[Canonicalise]
-    canon --> hash[Exact hash]
+    canon --> hash[Exact hash of functions]
+    canon --> seq[Serialised node sequence]
+    seq --> sa[Suffix array + LCP]
+    sa --> repeats{Maximal repeats?}
     canon --> pq[pq-gram shingles]
     pq --> mh[MinHash signature]
     mh --> lsh{"Same LSH band?<br/>(≈ 0.7)"}
     tokens[Token stream per file] --> win[Winnowing fingerprints]
     win --> regions{Shared regions?}
+    repeats -- yes --> snap[Snap to complete statements]
+    regions -- yes --> snap
     hash -- same hash --> pairs[Candidate pairs]
+    snap -- "exact repeat ≥ min-nodes" --> pairs
+    snap -- "near-miss region" --> verify
     lsh -- yes --> verify{"Verify<br/>Zhang-Shasha /<br/>Smith-Waterman"}
-    regions -- yes --> verify
     verify -- "≥ min-similarity" --> pairs
     verify -- below --> drop[Discard]
     pairs --> groups[Clone groups]
@@ -456,7 +492,7 @@ duplication, and are dropped below a threshold.
 
 - Generated code (by header markers and configured paths).
 - Known idioms per language (for example Go's `if err != nil { return err }`).
-- Fragments below a minimum size.
+- Fragments below a minimum size, measured in syntax nodes (`--min-nodes`).
 - Tests are analysed separately with looser thresholds, since table-driven
   tests are intentionally repetitive.
 
@@ -650,7 +686,7 @@ Main flags of `check`:
 | `--diff <ref>` | off | only report candidates involving code changed since `<ref>` |
 | `--format` | `text` / `json` | `text`, `json`, `md`, `sarif` |
 | `--min-similarity` | `0.7` | drop candidates below this similarity |
-| `--min-lines` | `6` | drop fragments shorter than this |
+| `--min-nodes` | `50` | drop fragments with fewer syntax nodes than this (about 6–8 lines; to be tuned) |
 | `--fail-on` | `0` | exit 1 if any candidate scores above this; `never` to only report |
 | `--baseline` | `.ddslop-baseline.json` | ignore findings already recorded there |
 | `--scip` | none | SCIP index for precise flows |
@@ -674,7 +710,7 @@ entry points:
 
 ```yaml
 min-similarity: 0.75
-min-lines: 8
+min-nodes: 60
 exclude:
   - "**/*_gen.go"
   - "**/node_modules/**"
@@ -764,6 +800,8 @@ binary distribution), generated with `go-licenses` in the release pipeline.
 | Winnowing | MOSS winnowing over canonical token k-grams | ~80 lines |
 | Tree edit distance | Zhang-Shasha; APTED only if profiling demands it | ~150 lines |
 | Local alignment | Smith-Waterman over token sequences | ~60 lines |
+| Suffix array + LCP | prefix doubling and Kasai's LCP over serialised node kinds | ~100 lines |
+| Syntax-unit snapping | trim regions to complete sibling statements | ~80 lines |
 | Anti-unification, scope analysis, scoring | ddslop's core | most of the code |
 | SARIF writer | minimal SARIF 2.1.0 structs | ~100 lines |
 
@@ -820,7 +858,7 @@ Existing tools, for comparison and benchmarking rather than as dependencies:
 
 | Tool | Approach | Gap ddslop fills |
 | --- | --- | --- |
-| `mibk/dupl` (in golangci-lint) | suffix tree over serialised Go ASTs | Go only, ignores values, no suggestions |
+| `mibk/dupl` (in golangci-lint) | suffix tree over serialised Go ASTs | Go only, ignores values, no suggestions. ddslop borrows its maximal-repeat search (as a suffix array), syntax-unit snapping and node-based size |
 | jscpd | token-based, many languages | types 1–2 only, matches cross syntax boundaries |
 | PMD CPD | token-based | same as jscpd |
 | `mizchi/similarity` | tree-sitter + APTED (TSED) for TS and Rust | detection only; no refactoring candidates, agent output or flows |
@@ -889,7 +927,8 @@ flowchart TB
 ## Roadmap
 
 1. **v1, fragment layer as a linter:** tree-sitter adapters for all three
-   languages, canonicalisation, exact hashing, MinHash/LSH and winnowing,
+   languages, canonicalisation, exact hashing, suffix-array repeats with
+   syntax-unit snapping, MinHash/LSH and winnowing,
    verification, anti-unification, scope analysis, `reuse-existing` and
    `extract-common`. CLI with `check`, `baseline`, diff mode, config file,
    suppressions, exit codes, `text`/`json`/`md`/`sarif` output, release
