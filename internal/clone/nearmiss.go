@@ -2,28 +2,36 @@ package clone
 
 import (
 	"cmp"
+	"hash/fnv"
 	"slices"
 
 	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
-// NearMiss is a pair of units that are similar but not the same shape:
-// statements were added, removed or changed.
+// NearMiss is a family of units that are similar but not the same shape:
+// statements were added, removed or changed. Every member is a near miss
+// of the anchor.
 type NearMiss struct {
-	Units      [2]unit.Unit
-	Similarity float64
-	// MatchedNodes is how many syntax nodes the two units share.
+	// Units are the anchor first, then the members, each a near miss of it.
+	Units []unit.Unit
+	// Similarity holds, per unit, its similarity to the anchor.
+	Similarity []float64
+	// MatchedNodes is how many syntax nodes the members share with the
+	// anchor, summed over members.
 	MatchedNodes int
-	// Agreement is the share of aligned leaves whose values agree: equal,
-	// or a name each unit declares itself. Copies agree on most values;
-	// unrelated code with a similar structure does not.
+	// Agreement is the lowest share, over members, of aligned leaves whose
+	// values agree with the anchor's: equal, or a name each declares
+	// itself. Copies agree on most values; unrelated code with a similar
+	// structure does not.
 	Agreement float64
-	// Differences are values that differ at positions the alignment matched.
+	// Differences are values that differ at anchor positions aligned in
+	// every member, one value per unit.
 	Differences []Difference
-	// Unmatched holds, per unit, line ranges containing code that has no
-	// counterpart in the other unit.
-	Unmatched [2][]LineRange
+	// Unmatched holds, per unit, line ranges of code without a counterpart:
+	// for a member, code the anchor lacks; for the anchor, code missing from
+	// at least one member.
+	Unmatched [][]LineRange
 }
 
 // minAgreement is the least value agreement a near miss needs. Measured on
@@ -36,11 +44,18 @@ const minAgreement = 0.7
 // LineRange is an inclusive range of lines.
 type LineRange struct{ Start, End int }
 
-// NearMisses finds pairs of units with different shapes whose similarity is
-// at least minSim and whose values agree at least minAgreement, ignoring
-// units smaller than minNodes. Each shape is
-// represented by its first unit, so a group of exact copies yields one pair,
-// not one per copy. Pairs are ordered by shared size, largest first, then by
+// pair is a verified near miss between representatives a < b.
+type pair struct {
+	a, b    int
+	matches []similarity.Match
+	sim     float64
+}
+
+// NearMisses finds families of units with different shapes that are near
+// misses of each other: similarity at least minSim and values agreeing at
+// least minAgreement, ignoring units smaller than minNodes. Each shape is
+// represented by its first unit, so a group of exact copies takes part
+// once. Families are ordered by shared size, largest first, then by
 // location.
 func NearMisses(units []unit.Unit, minNodes int, minSim float64) []NearMiss {
 	reps := representatives(units, minNodes)
@@ -52,25 +67,42 @@ func NearMisses(units []unit.Unit, minNodes int, minSim float64) []NearMiss {
 		}
 	}
 
-	var out []NearMiss
-	for _, p := range similarity.Candidates(sigs) {
-		a, b := reps[p[0]], reps[p[1]]
-		matches, sim, ok := similarity.Align(a.Seq, b.Seq, minSim)
+	pairs := map[[2]int]pair{}
+	var edges []edge
+	for _, c := range similarity.Candidates(sigs) {
+		a, b := reps[c[0]], reps[c[1]]
+		matches, sim, ok := alignUnits(a, b, minSim)
 		if !ok {
 			continue
 		}
-		if nm := nearMiss(a, b, matches, sim); nm.Agreement >= minAgreement {
-			out = append(out, nm)
+		nm := nearMiss(a, []unit.Unit{b}, [][]similarity.Match{matches}, []float64{sim})
+		if nm.Agreement < minAgreement {
+			continue
 		}
+		pairs[c] = pair{c[0], c[1], matches, sim}
+		edges = append(edges, edge{c[0], c[1], nm.MatchedNodes})
+	}
+
+	var out []NearMiss
+	for _, f := range cluster(len(reps), edges) {
+		members := make([]unit.Unit, len(f.members))
+		alignments := make([][]similarity.Match, len(f.members))
+		sims := make([]float64, len(f.members))
+		for i, m := range f.members {
+			members[i] = reps[m]
+			p := pairs[[2]int{min(f.anchor, m), max(f.anchor, m)}]
+			alignments[i], sims[i] = p.matches, p.sim
+			if p.a != f.anchor {
+				alignments[i] = flip(p.matches)
+			}
+		}
+		out = append(out, nearMiss(reps[f.anchor], members, alignments, sims))
 	}
 	slices.SortFunc(out, func(x, y NearMiss) int {
 		if c := cmp.Compare(y.MatchedNodes, x.MatchedNodes); c != 0 {
 			return c
 		}
-		if c := compareLocation(x.Units[0], y.Units[0]); c != 0 {
-			return c
-		}
-		return compareLocation(x.Units[1], y.Units[1])
+		return compareLocation(x.Units[0], y.Units[0])
 	})
 	return out
 }
@@ -93,43 +125,165 @@ func representatives(units []unit.Unit, minNodes int) []unit.Unit {
 	return reps
 }
 
-func nearMiss(a, b unit.Unit, matches []similarity.Match, sim float64) NearMiss {
-	nm := NearMiss{Units: [2]unit.Unit{a, b}, Similarity: sim}
+// valueSlack is how much lower the similarity of two units' names and
+// values may be than their structural similarity before value anchoring is
+// given up. Near misses agree on at least minAgreement of their values.
+const valueSlack = 0.2
 
-	leafA, leafB := leafIndexes(a.Seq), leafIndexes(b.Seq)
-	matchedA := make([]bool, len(a.Seq))
-	matchedB := make([]bool, len(b.Seq))
-	var rows [][]int
-	for _, m := range matches {
-		matchedA[m.A], matchedB[m.B] = true, true
-		if a.Seq[m.A] != unit.Close {
-			nm.MatchedNodes++
-		}
-		if leafA[m.A] >= 0 {
-			rows = append(rows, []int{leafA[m.A], leafB[m.B]})
-		}
+// alignUnits aligns two units. The structure sequences decide whether the
+// units are similar, and that similarity is returned. When code repeats
+// the same statement structure, many alignments are equally long and a
+// structural one may pair the wrong statements, so the matches are built
+// differently: equal names and values (in order) anchor the alignment, and
+// the stretches between anchors are aligned on structure, which pairs
+// renamed and changed values (see alignGap). If names and values differ too
+// much to anchor, the structural alignment is used.
+func alignUnits(a, b unit.Unit, minSim float64) ([]similarity.Match, float64, bool) {
+	structural, sim, ok := similarity.Align(a.Seq, b.Seq, minSim)
+	if !ok {
+		return nil, 0, false
 	}
-	nm.Differences = differences([]unit.Unit{a, b}, rows)
-	nm.Agreement = agreement(a, b, rows)
-	nm.Unmatched = [2][]LineRange{unmatchedLines(a, matchedA), unmatchedLines(b, matchedB)}
-	return nm
+	posA, valA := leafValues(a)
+	posB, valB := leafValues(b)
+	anchors, _, ok := similarity.Align(valA, valB, max(minSim-valueSlack, 0))
+	if !ok {
+		return structural, sim, true
+	}
+
+	var out []similarity.Match
+	prevA, prevB := -1, -1
+	prevLineA, prevLineB := a.StartLine, b.StartLine
+	fill := func(endA, endB, nextLineA, nextLineB int) {
+		out = append(out, alignGap(a, b, prevA+1, endA, prevB+1, endB, prevLineA, prevLineB, nextLineA, nextLineB)...)
+	}
+	for _, anchor := range anchors {
+		m := similarity.Match{A: posA[anchor.A], B: posB[anchor.B]}
+		fill(m.A, m.B, a.SeqLines[m.A], b.SeqLines[m.B])
+		out = append(out, m)
+		prevA, prevB = m.A, m.B
+		prevLineA, prevLineB = a.SeqLines[m.A], b.SeqLines[m.B]
+	}
+	fill(len(a.Seq), len(b.Seq), a.EndLine, b.EndLine)
+	return out, sim, true
 }
 
-// agreement is the share of aligned leaf pairs whose values agree: equal
-// text, or an identifier each unit declares itself (a local rename).
-func agreement(a, b unit.Unit, rows [][]int) float64 {
-	if len(rows) == 0 {
-		return 1
+// alignGap aligns the stretch [startA, endA) of a with [startB, endB) of b,
+// which lies between two anchors. It holds the tail of the statement on the
+// previous anchor's line, the differing code, and the head of the statement
+// on the next anchor's line. So the common prefix on the previous anchor's
+// lines and the common suffix on the next anchor's lines are matched first,
+// and only the middle is aligned on structure.
+func alignGap(a, b unit.Unit, startA, endA, startB, endB, prevLineA, prevLineB, nextLineA, nextLineB int) []similarity.Match {
+	var out []similarity.Match
+	for startA < endA && startB < endB && a.Seq[startA] == b.Seq[startB] &&
+		a.SeqLines[startA] == prevLineA && b.SeqLines[startB] == prevLineB {
+		out = append(out, similarity.Match{A: startA, B: startB})
+		startA++
+		startB++
 	}
-	declA, declB := declaredNames(a), declaredNames(b)
-	agree := 0
-	for _, row := range rows {
-		la, lb := a.Leaves[row[0]], b.Leaves[row[1]]
-		if la.Text == lb.Text || (la.Kind == unit.Identifier && declA[la.Text] && declB[lb.Text]) {
-			agree++
+	var suffix []similarity.Match
+	for endA > startA && endB > startB && a.Seq[endA-1] == b.Seq[endB-1] &&
+		a.SeqLines[endA-1] == nextLineA && b.SeqLines[endB-1] == nextLineB {
+		endA--
+		endB--
+		suffix = append(suffix, similarity.Match{A: endA, B: endB})
+	}
+	middle, _, _ := similarity.Align(a.Seq[startA:endA], b.Seq[startB:endB], 0)
+	for _, m := range middle {
+		out = append(out, similarity.Match{A: startA + m.A, B: startB + m.B})
+	}
+	slices.Reverse(suffix)
+	return append(out, suffix...)
+}
+
+// leafValues returns the Seq positions of a unit's leaves and a symbol per
+// leaf for its kind and text.
+func leafValues(u unit.Unit) (positions []int, values []uint32) {
+	leaf := 0
+	for i, sym := range u.Seq {
+		if !unit.IsLeaf(sym) {
+			continue
+		}
+		h := fnv.New32a()
+		_, _ = h.Write([]byte{byte(sym)})
+		_, _ = h.Write([]byte(u.Leaves[leaf].Text))
+		positions = append(positions, i)
+		values = append(values, h.Sum32())
+		leaf++
+	}
+	return positions, values
+}
+
+// flip swaps the sides of an alignment.
+func flip(matches []similarity.Match) []similarity.Match {
+	out := make([]similarity.Match, len(matches))
+	for i, m := range matches {
+		out[i] = similarity.Match{A: m.B, B: m.A}
+	}
+	return out
+}
+
+// nearMiss builds a family from an anchor, its members and each member's
+// alignment with the anchor (A indexes the anchor, B the member).
+func nearMiss(anchor unit.Unit, members []unit.Unit, alignments [][]similarity.Match, sims []float64) NearMiss {
+	nm := NearMiss{
+		Units:      append([]unit.Unit{anchor}, members...),
+		Similarity: append([]float64{1}, sims...),
+		Agreement:  1,
+		Unmatched:  make([][]LineRange, len(members)+1),
+	}
+
+	anchorLeaves := leafIndexes(anchor.Seq)
+	declAnchor := declaredNames(anchor)
+	// matchedBy[i] counts the members aligning anchor symbol i.
+	matchedBy := make([]int, len(anchor.Seq))
+	// leafIn[m][l] is member m's leaf aligned with anchor leaf l, or -1.
+	leafIn := make([][]int, len(members))
+	for m, member := range members {
+		memberLeaves := leafIndexes(member.Seq)
+		matched := make([]bool, len(member.Seq))
+		leafIn[m] = slices.Repeat([]int{-1}, len(anchor.Leaves))
+		declMember := declaredNames(member)
+		agree, leaves := 0, 0
+		for _, match := range alignments[m] {
+			matched[match.B] = true
+			matchedBy[match.A]++
+			if anchor.Seq[match.A] != unit.Close {
+				nm.MatchedNodes++
+			}
+			if l := anchorLeaves[match.A]; l >= 0 {
+				leafIn[m][l] = memberLeaves[match.B]
+				la, lb := anchor.Leaves[l], member.Leaves[memberLeaves[match.B]]
+				leaves++
+				if la.Text == lb.Text || (la.Kind == unit.Identifier && declAnchor[la.Text] && declMember[lb.Text]) {
+					agree++
+				}
+			}
+		}
+		if leaves > 0 {
+			nm.Agreement = min(nm.Agreement, float64(agree)/float64(leaves))
+		}
+		nm.Unmatched[m+1] = unmatchedLines(member, matched)
+	}
+
+	inAll := make([]bool, len(anchor.Seq))
+	for i, n := range matchedBy {
+		inAll[i] = n == len(members)
+	}
+	nm.Unmatched[0] = unmatchedLines(anchor, inAll)
+
+	var rows [][]int
+	for l := range anchor.Leaves {
+		row := []int{l}
+		for m := range members {
+			row = append(row, leafIn[m][l])
+		}
+		if !slices.Contains(row, -1) {
+			rows = append(rows, row)
 		}
 	}
-	return float64(agree) / float64(len(rows))
+	nm.Differences = differences(nm.Units, rows)
+	return nm
 }
 
 // leafIndexes maps each Seq position to its leaf index, or -1.

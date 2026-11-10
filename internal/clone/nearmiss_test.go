@@ -73,8 +73,8 @@ func TestNearMissFindsCopyWithExtraStatementAndChangedValue(t *testing.T) {
 	if nm.Units[0].File != "a.rs" || nm.Units[1].File != "b.rs" {
 		t.Errorf("pair = %s, %s; want a.rs then b.rs", nm.Units[0].File, nm.Units[1].File)
 	}
-	if nm.Similarity >= 1 || nm.Similarity < 0.8 {
-		t.Errorf("similarity = %v, want in [0.8, 1)", nm.Similarity)
+	if nm.Similarity[1] >= 1 || nm.Similarity[1] < 0.8 {
+		t.Errorf("similarity = %v, want in [0.8, 1)", nm.Similarity[1])
 	}
 	// a.rs is wholly contained in b.rs (the changed literal still aligns as
 	// a literal), so they share all of a.rs and less than all of b.rs.
@@ -143,11 +143,11 @@ func lookalike() unit.Unit {
 // pairOf aligns two units directly, bypassing LSH and filters.
 func pairOf(t *testing.T, a, b unit.Unit) NearMiss {
 	t.Helper()
-	matches, sim, ok := similarity.Align(a.Seq, b.Seq, 0.5)
+	matches, sim, ok := alignUnits(a, b, 0.5)
 	if !ok {
 		t.Fatalf("%s and %s do not align", a.File, b.File)
 	}
-	return nearMiss(a, b, matches, sim)
+	return nearMiss(a, []unit.Unit{b}, [][]similarity.Match{matches}, []float64{sim})
 }
 
 func TestNearMissAgreementSeparatesCopiesFromLookalikes(t *testing.T) {
@@ -164,11 +164,90 @@ func TestNearMissAgreementSeparatesCopiesFromLookalikes(t *testing.T) {
 
 func TestNearMissesDropLookalikes(t *testing.T) {
 	a := build("a.rs", 1, body(0, "", "")...)
-	if sim := pairOf(t, a, lookalike()).Similarity; sim < 0.8 {
+	if sim := pairOf(t, a, lookalike()).Similarity[1]; sim < 0.8 {
 		t.Fatalf("lookalike similarity = %v; the test needs it above the 0.8 threshold", sim)
 	}
 
 	if got := NearMisses([]unit.Unit{a, lookalike()}, 20, 0.8); len(got) != 0 {
 		t.Errorf("got %d near misses, want none: the lookalike shares structure but not values", len(got))
+	}
+}
+
+func TestNearMissFamilyAroundAnchor(t *testing.T) {
+	a := build("a.rs", 1, body(0, "", "")...)
+	b := build("b.rs", 1, body(6, "call i=log l=\"debug\" }", "")...)
+	cLines := body(0, "", "42")
+	cLines = append(cLines[:5], cLines[6:]...) // drop statement 5 (line 6)
+	c := build("c.rs", 1, cLines...)
+
+	got := NearMisses([]unit.Unit{c, b, a}, 20, 0.8)
+
+	if len(got) != 1 {
+		t.Fatalf("got %d candidates, want one family", len(got))
+	}
+	f := got[0]
+	var files []string
+	for _, u := range f.Units {
+		files = append(files, u.File)
+	}
+	if fmt.Sprint(files) != "[a.rs b.rs c.rs]" {
+		t.Fatalf("family = %v, want anchor a.rs then b.rs, c.rs", files)
+	}
+	if f.Similarity[0] != 1 || f.Similarity[1] >= 1 || f.Similarity[2] >= 1 {
+		t.Errorf("similarities = %v, want 1 for the anchor and below 1 for members", f.Similarity)
+	}
+	// The anchor's statement 5 (line 6) is missing from c.rs; b.rs adds a
+	// statement on line 8; c.rs has nothing the anchor lacks.
+	if fmt.Sprint(f.Unmatched) != "[[{6 6}] [{8 8}] []]" {
+		t.Errorf("unmatched = %v, want [[{6 6}] [{8 8}] []]", f.Unmatched)
+	}
+	var literal *Difference
+	for i, d := range f.Differences {
+		if d.Kind == unit.Literal {
+			literal = &f.Differences[i]
+		}
+	}
+	if literal == nil || fmt.Sprint(literal.Values) != "[3 3 42]" {
+		t.Errorf("differences = %+v, want the literal 3 | 3 | 42 across the family", f.Differences)
+	}
+	if f.MatchedNodes != a.Nodes+c.Nodes {
+		t.Errorf("matched nodes = %d, want %d (all of a.rs with b.rs, all of c.rs with a.rs)", f.MatchedNodes, a.Nodes+c.Nodes)
+	}
+}
+
+func TestAlignmentKeepsValuesTogetherAcrossRepeatedStatements(t *testing.T) {
+	// Every statement has the same structure, so a structure-only alignment
+	// may pair statement 5 of a.rs with statement 6 of c.rs and so on,
+	// misaligning every value after the deletion.
+	a := build("a.rs", 1, body(0, "", "")...)
+	cLines := body(0, "", "")
+	cLines = append(cLines[:5], cLines[6:]...) // drop statement 5 (line 6)
+	c := build("c.rs", 1, cLines...)
+
+	nm := pairOf(t, a, c)
+
+	if nm.Agreement != 1 {
+		t.Errorf("agreement = %v, want 1: c.rs only lacks a statement", nm.Agreement)
+	}
+	if fmt.Sprint(nm.Unmatched) != "[[{6 6}] []]" {
+		t.Errorf("unmatched = %v, want only a.rs statement 5 on line 6", nm.Unmatched)
+	}
+	if len(nm.Differences) != 0 {
+		t.Errorf("differences = %+v, want none", nm.Differences)
+	}
+}
+
+func TestAlignmentStillPairsRenamedValues(t *testing.T) {
+	a := build("a.rs", 1, body(0, "", "")...)
+	var renamed []string
+	for _, line := range body(6, "call i=log l=\"debug\" }", "") {
+		renamed = append(renamed, strings.ReplaceAll(line, "d=handler", "d=other_handler"))
+	}
+	b := build("b.rs", 1, renamed...)
+
+	nm := pairOf(t, a, b)
+
+	if len(nm.Differences) != 1 || fmt.Sprint(nm.Differences[0].Values) != "[handler other_handler]" || !nm.Differences[0].Local {
+		t.Errorf("differences = %+v, want the local rename handler | other_handler", nm.Differences)
 	}
 }

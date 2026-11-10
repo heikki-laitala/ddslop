@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,6 +73,7 @@ type jsonReport struct {
 			Name           string   `json:"name"`
 			StartLine      int      `json:"start_line"`
 			EndLine        int      `json:"end_line"`
+			Similarity     float64  `json:"similarity"`
 			UnmatchedLines [][2]int `json:"unmatched_lines"`
 		} `json:"occurrences"`
 		Differences []struct {
@@ -459,5 +461,50 @@ func TestCheckTextFormatShowsNearMiss(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("text output is missing %q:\n%s", want, stdout)
 		}
+	}
+}
+
+// usersChecked is users with an extra check on line 5.
+const usersChecked = `pub fn load_checked(db: &Db, user_id: u64) -> Result<User, Error> {
+    let row = db.query("SELECT * FROM users WHERE id = $1", &[&user_id])?;
+    let name: String = row.get(0);
+    let email: String = row.get(1);
+    ensure_valid_email(&email)?;
+    if name.is_empty() {
+        return Err(Error::NotFound(user_id));
+    }
+    Ok(User { name, email })
+}
+`
+
+func TestCheckReportsNearMissFamilyAsOneCandidate(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": usersLogged, "c.rs": usersChecked})
+
+	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	r := decode(t, stdout)
+	if len(r.Candidates) != 1 {
+		t.Fatalf("got %d candidates, want one family", len(r.Candidates))
+	}
+	c := r.Candidates[0]
+	var files []string
+	for _, o := range c.Occurrences {
+		files = append(files, o.File)
+	}
+	if strings.Join(files, " ") != "a.rs b.rs c.rs" || c.Score.Occurrences != 3 {
+		t.Fatalf("occurrences = %v (score %d), want anchor a.rs then b.rs, c.rs", files, c.Score.Occurrences)
+	}
+	if c.Occurrences[0].Similarity != 1 || c.Occurrences[1].Similarity >= 1 || c.Occurrences[2].Similarity >= 1 {
+		t.Errorf("occurrence similarities = %v, %v, %v; want 1 for the anchor, below 1 for members",
+			c.Occurrences[0].Similarity, c.Occurrences[1].Similarity, c.Occurrences[2].Similarity)
+	}
+	if c.Similarity != min(c.Occurrences[1].Similarity, c.Occurrences[2].Similarity) {
+		t.Errorf("candidate similarity = %v, want the lowest member similarity", c.Similarity)
+	}
+	if fmt.Sprint(c.Occurrences[1].UnmatchedLines) != "[[3 3]]" || fmt.Sprint(c.Occurrences[2].UnmatchedLines) != "[[5 5]]" {
+		t.Errorf("unmatched lines = %v and %v, want [[3 3]] and [[5 5]]", c.Occurrences[1].UnmatchedLines, c.Occurrences[2].UnmatchedLines)
 	}
 }

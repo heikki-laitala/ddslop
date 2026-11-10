@@ -52,8 +52,12 @@ type Occurrence struct {
 	Name      string `json:"name"`
 	StartLine int    `json:"start_line"`
 	EndLine   int    `json:"end_line"`
-	// UnmatchedLines are line ranges of code with no counterpart in the
-	// other copy of a near miss.
+	// Similarity is a near-miss member's similarity to the first
+	// occurrence, the family's anchor.
+	Similarity float64 `json:"similarity,omitempty"`
+	// UnmatchedLines are line ranges of near-miss code without a
+	// counterpart: for a member, code the anchor lacks; for the anchor,
+	// code missing from at least one member.
 	UnmatchedLines [][2]int `json:"unmatched_lines,omitempty"`
 }
 
@@ -145,27 +149,31 @@ func groupCandidate(language string, g clone.Group) Candidate {
 }
 
 func nearMissCandidate(language string, nm clone.NearMiss) Candidate {
-	a, b := nm.Units[0], nm.Units[1]
+	anchor := nm.Units[0]
 	c := Candidate{
-		Fingerprint: fmt.Sprintf("%s:%016x-%016x", language, a.Shape, b.Shape),
+		Fingerprint: fmt.Sprintf("%s:%016x~%d", language, anchor.Shape, len(nm.Units)),
 		Language:    language,
 		Kind:        nearMiss,
-		Similarity:  math.Round(nm.Similarity*1000) / 1000,
-		Occurrences: []Occurrence{occurrence(a), occurrence(b)},
+		Similarity:  1,
+		Occurrences: make([]Occurrence, len(nm.Units)),
 		Score: Score{
-			Nodes:           a.Nodes,
-			Lines:           a.EndLine - a.StartLine + 1,
-			Occurrences:     2,
+			Nodes:           anchor.Nodes,
+			Lines:           anchor.EndLine - anchor.StartLine + 1,
+			Occurrences:     len(nm.Units),
 			DuplicatedNodes: nm.MatchedNodes,
 		},
 	}
-	for i, ranges := range nm.Unmatched {
-		for _, r := range ranges {
-			c.Occurrences[i].UnmatchedLines = append(c.Occurrences[i].UnmatchedLines, [2]int{r.Start, r.End})
+	for i, u := range nm.Units {
+		o := occurrence(u)
+		o.Similarity = math.Round(nm.Similarity[i]*1000) / 1000
+		c.Similarity = min(c.Similarity, o.Similarity)
+		for _, r := range nm.Unmatched[i] {
+			o.UnmatchedLines = append(o.UnmatchedLines, [2]int{r.Start, r.End})
 		}
+		c.Occurrences[i] = o
 	}
 	c.Differences, c.Suggestion = differences(nm.Differences)
-	// Code present in only one copy has to become optional in a shared
+	// Code present in only some copies has to become optional in a shared
 	// function, so a near miss is never a plain reuse.
 	c.Suggestion.Action = extractCommon
 	return c
