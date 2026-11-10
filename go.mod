@@ -3,6 +3,7 @@ module github.com/heikki-laitala/ddslop
 go 1.25.0
 
 require (
+	github.com/mattn/go-sqlite3 v1.14.53
 	github.com/tree-sitter/go-tree-sitter v0.25.0
 	github.com/tree-sitter/tree-sitter-rust v0.24.2
 )
