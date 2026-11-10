@@ -344,3 +344,24 @@ func TestBlocksListStatementsWithPositions(t *testing.T) {
 		t.Errorf("warn statement leaves start with %q and count %d, want warn and 2", got, warn.LeafEnd-warn.LeafStart)
 	}
 }
+
+func TestTestModulesListsOutOfLineCfgTestModules(t *testing.T) {
+	src := `pub mod realtime;
+
+#[cfg(test)]
+mod real_ledger;
+
+#[cfg(test)]
+pub(crate) mod fixture;
+
+#[cfg(test)]
+mod inline {
+    fn helper() {}
+}
+
+mod production;
+`
+	if got := fmt.Sprint(TestModules([]byte(src))); got != "[real_ledger fixture]" {
+		t.Errorf("TestModules = %s, want [real_ledger fixture]", got)
+	}
+}

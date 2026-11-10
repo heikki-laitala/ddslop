@@ -474,3 +474,31 @@ func CrateName(cargoToml []byte) string {
 	}
 	return strings.ReplaceAll(name, "-", "_")
 }
+
+// TestModules returns the names of the modules a file declares out of
+// line under #[cfg(test)] ("#[cfg(test)] mod name;"): their files hold
+// test code.
+//
+// Only declarations at the top level of the file are considered.
+func TestModules(src []byte) []string {
+	var names []string
+	_ = parse(src, func(root *sitter.Node) {
+		var attrs []string
+		for i := uint(0); i < root.ChildCount(); i++ {
+			child := root.Child(i)
+			switch {
+			case child.Kind() == "attribute_item":
+				attrs = append(attrs, child.Utf8Text(src))
+				continue
+			case child.IsExtra():
+				continue
+			case child.Kind() == "mod_item" && child.ChildByFieldName("body") == nil && slices.ContainsFunc(attrs, isCfgTest):
+				if name := child.ChildByFieldName("name"); name != nil {
+					names = append(names, name.Utf8Text(src))
+				}
+			}
+			attrs = nil
+		}
+	})
+	return names
+}
