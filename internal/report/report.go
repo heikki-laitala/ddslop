@@ -31,6 +31,9 @@ type Summary struct {
 	ParsedFiles    int `json:"parsed_files"`
 	UnchangedFiles int `json:"unchanged_files"`
 	Candidates     int `json:"candidates"`
+	// Diff is the Git ref of diff mode: only candidates touching lines
+	// changed since it are reported.
+	Diff string `json:"diff,omitempty"`
 }
 
 // Candidate is one refactoring candidate: a group of copies, what differs
@@ -60,6 +63,9 @@ type Occurrence struct {
 	// counterpart: for a member, code the anchor lacks; for the anchor,
 	// code missing from at least one member.
 	UnmatchedLines [][2]int `json:"unmatched_lines,omitempty"`
+	// Changed is set in diff mode when the occurrence overlaps changed
+	// lines: the copy the change introduced or touched.
+	Changed bool `json:"changed,omitempty"`
 }
 
 // Difference is one set of values that differ between the copies.
@@ -126,6 +132,29 @@ func Build(language string, groups []clone.Group, nearMisses []clone.NearMiss, b
 	}
 	summary.Candidates = len(candidates)
 	return Report{Candidates: candidates, Summary: summary}
+}
+
+// KeepChanged marks the occurrences that overlap a change and keeps only
+// the candidates with at least one, renumbering them in order.
+func KeepChanged(r Report, base string, touches func(file string, start, end int) bool) Report {
+	kept := []Candidate{}
+	for _, c := range r.Candidates {
+		changed := false
+		for i, o := range c.Occurrences {
+			if touches(o.File, o.StartLine, o.EndLine) {
+				c.Occurrences[i].Changed = true
+				changed = true
+			}
+		}
+		if changed {
+			c.ID = fmt.Sprintf("c%d", len(kept)+1)
+			kept = append(kept, c)
+		}
+	}
+	r.Candidates = kept
+	r.Summary.Candidates = len(kept)
+	r.Summary.Diff = base
+	return r
 }
 
 func groupCandidate(language string, g clone.Group) Candidate {
@@ -262,6 +291,9 @@ func WriteText(w io.Writer, r Report) error {
 					}
 				}
 				fmt.Fprintf(&b, " (unmatched: %s)", strings.Join(ranges, ", "))
+			}
+			if o.Changed {
+				b.WriteString(" (changed)")
 			}
 			b.WriteString("\n")
 		}

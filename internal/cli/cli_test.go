@@ -75,6 +75,7 @@ type jsonReport struct {
 			EndLine        int      `json:"end_line"`
 			Similarity     float64  `json:"similarity"`
 			UnmatchedLines [][2]int `json:"unmatched_lines"`
+			Changed        bool     `json:"changed"`
 		} `json:"occurrences"`
 		Differences []struct {
 			Kind   string   `json:"kind"`

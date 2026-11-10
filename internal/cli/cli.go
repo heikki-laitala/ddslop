@@ -56,7 +56,13 @@ inside larger functions. Generated files are skipped, and so is test code
 unless --tests is given. Extracted functions are kept in an index at
 <path>/.ddslop/index.db so unchanged files are not parsed again. Files are
 parsed on half the CPU cores; set DDSLOP_INDEX_THREADS to change that.
-Exits 0 when nothing is found, 1 when candidates are found, 2 on error.
+
+With --diff <ref>, the whole repository is still analysed, but only
+candidates touching lines changed since ref are reported, and the changed
+occurrences are marked: use it to check what a change introduced, for
+example "--diff HEAD" for uncommitted work or "--diff origin/main" in a
+pull request. Exits 0 when nothing is found, 1 when candidates are found,
+2 on error.
 
 Flags:
 `
@@ -179,6 +185,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	tests := fs.Bool("tests", false, "include test functions, test modules and test files")
 	minSim := fs.Float64("min-similarity", 0.8, "report near-miss copies at least this similar, above 0 and at most 1")
 	format := fs.String("format", "", `output format, "text" or "json" (default: text on a terminal, json otherwise)`)
+	diff := fs.String("diff", "", "only report candidates touching lines changed since this Git ref (committed, staged, unstaged and untracked)")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
@@ -200,9 +207,18 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 
+	var changes source.Changes
+	if *diff != "" {
+		if changes, err = source.ChangedLines(root, *diff); err != nil {
+			return fail(stderr, err)
+		}
+	}
 	r, err := check(root, options{minNodes: *minNodes, minBlockNodes: *minBlockNodes, minSim: *minSim, tests: *tests})
 	if err != nil {
 		return fail(stderr, err)
+	}
+	if *diff != "" {
+		r = report.KeepChanged(r, *diff, changes.Touches)
 	}
 
 	write := report.WriteJSON
