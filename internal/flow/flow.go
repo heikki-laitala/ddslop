@@ -241,12 +241,19 @@ func (g *Graph) Parallel(entries []int, opts ParallelOptions) []ParallelFlow {
 		}
 	}
 	similar := g.similarPairs(comparable, opts.MinStepSim)
+	sets := make([]map[int]bool, len(entries))
+	for i, sl := range sliceOf {
+		sets[i] = make(map[int]bool, len(sl))
+		for _, u := range sl {
+			sets[i][u] = true
+		}
+	}
 
 	pairs := map[[2]int]pairing{}
 	var edges []clone.Edge
 	for i := range entries {
 		for j := i + 1; j < len(entries); j++ {
-			p := g.matchSteps(sliceOf[i], sliceOf[j], comparable, similar)
+			p := g.matchSteps(sliceOf[i], sliceOf[j], sets[i], sets[j], comparable, similar)
 			if len(p.steps) >= opts.MinSteps && p.cover >= opts.MinCover {
 				pairs[[2]int{i, j}] = p
 				edges = append(edges, clone.Edge{A: i, B: j, Weight: p.matched})
@@ -284,9 +291,15 @@ type match struct {
 	sim  float64
 }
 
-// similarPairs returns the similarity of every pair of comparable units at
-// least minSim similar, keyed both ways. Candidates come from MinHash LSH.
-func (g *Graph) similarPairs(comparable map[int]bool, minSim float64) map[[2]int]float64 {
+// neighbour is a unit similar to another, with their similarity.
+type neighbour struct {
+	unit int
+	sim  float64
+}
+
+// similarPairs returns, per comparable unit, the comparable units at least
+// minSim similar to it, in unit order. Candidates come from MinHash LSH.
+func (g *Graph) similarPairs(comparable map[int]bool, minSim float64) map[int][]neighbour {
 	ids := make([]int, 0, len(comparable))
 	for u := range comparable {
 		ids = append(ids, u)
@@ -299,26 +312,20 @@ func (g *Graph) similarPairs(comparable map[int]bool, minSim float64) map[[2]int
 			sigs[i] = similarity.Signature(g.Units[u].Seq)
 		}
 	}
-	out := map[[2]int]float64{}
+	out := map[int][]neighbour{}
 	for _, c := range similarity.Candidates(sigs) {
 		a, b := ids[c[0]], ids[c[1]]
 		if s, ok := similarity.Similar(g.Units[a].Seq, g.Units[b].Seq, minSim); ok {
-			out[[2]int{a, b}], out[[2]int{b, a}] = s, s
+			out[a] = append(out[a], neighbour{b, s})
+			out[b] = append(out[b], neighbour{a, s})
 		}
 	}
 	return out
 }
 
 // matchSteps matches the own comparable steps of two slices greedily, most
-// similar first.
-func (g *Graph) matchSteps(a, b []int, comparable map[int]bool, similar map[[2]int]float64) pairing {
-	inA, inB := map[int]bool{}, map[int]bool{}
-	for _, u := range a {
-		inA[u] = true
-	}
-	for _, u := range b {
-		inB[u] = true
-	}
+// similar first. inA and inB are the slices as sets.
+func (g *Graph) matchSteps(a, b []int, inA, inB map[int]bool, comparable map[int]bool, similar map[int][]neighbour) pairing {
 	own := func(units []int, other map[int]bool) ([]int, int) {
 		var out []int
 		nodes := 0
@@ -331,7 +338,7 @@ func (g *Graph) matchSteps(a, b []int, comparable map[int]bool, similar map[[2]i
 		return out, nodes
 	}
 	aOwn, aNodes := own(a, inB)
-	bOwn, bNodes := own(b, inA)
+	_, bNodes := own(b, inA)
 
 	type cand struct {
 		a, b int
@@ -339,9 +346,9 @@ func (g *Graph) matchSteps(a, b []int, comparable map[int]bool, similar map[[2]i
 	}
 	var cands []cand
 	for _, x := range aOwn {
-		for _, y := range bOwn {
-			if s, ok := similar[[2]int{x, y}]; ok {
-				cands = append(cands, cand{x, y, s})
+		for _, nb := range similar[x] {
+			if inB[nb.unit] && !inA[nb.unit] {
+				cands = append(cands, cand{x, nb.unit, nb.sim})
 			}
 		}
 	}
