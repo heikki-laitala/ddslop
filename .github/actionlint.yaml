@@ -1,0 +1,6 @@
+# actionlint's list of GitHub-hosted runner labels lags behind GitHub:
+# ubuntu-26.04 is generally available (actions/runner-images#14747) but not
+# yet known to actionlint v1.7.12. Remove this once actionlint knows it.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
