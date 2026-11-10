@@ -24,6 +24,8 @@ type Summary struct {
 	GeneratedFiles int `json:"generated_files"`
 	Units          int `json:"units"`
 	TestUnits      int `json:"test_units"`
+	ParsedFiles    int `json:"parsed_files"`
+	UnchangedFiles int `json:"unchanged_files"`
 	Candidates     int `json:"candidates"`
 }
 

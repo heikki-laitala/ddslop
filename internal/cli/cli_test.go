@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Two functions with the same structure: names, a literal and a called
@@ -93,6 +94,8 @@ type jsonReport struct {
 		GeneratedFiles int `json:"generated_files"`
 		Units          int `json:"units"`
 		TestUnits      int `json:"test_units"`
+		ParsedFiles    int `json:"parsed_files"`
+		UnchangedFiles int `json:"unchanged_files"`
 		Candidates     int `json:"candidates"`
 	} `json:"summary"`
 }
@@ -313,5 +316,48 @@ func TestCheckSkipsTestsUnlessAsked(t *testing.T) {
 	r = decode(t, stdout)
 	if r.Summary.Units != 3 || r.Summary.TestUnits != 0 || len(r.Candidates) != 1 || len(r.Candidates[0].Occurrences) != 3 {
 		t.Errorf("with --tests: summary = %+v, candidates = %d; want all 3 units in one candidate", r.Summary, len(r.Candidates))
+	}
+}
+
+func TestCheckReusesTheIndexOnTheSecondRun(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": orders})
+
+	_, first, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+	code, second, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+
+	if _, err := os.Stat(filepath.Join(root, ".ddslop", "index.db")); err != nil {
+		t.Errorf("index database not created: %v", err)
+	}
+	r1, r2 := decode(t, first), decode(t, second)
+	if r1.Summary.ParsedFiles != 2 || r1.Summary.UnchangedFiles != 0 {
+		t.Errorf("first run summary = %+v, want 2 parsed files", r1.Summary)
+	}
+	if r2.Summary.ParsedFiles != 0 || r2.Summary.UnchangedFiles != 2 {
+		t.Errorf("second run summary = %+v, want 2 unchanged files", r2.Summary)
+	}
+	if code != 1 || len(r2.Candidates) != 1 || len(r2.Candidates[0].Differences) != len(r1.Candidates[0].Differences) {
+		t.Errorf("second run found %d candidates (exit %d), want the same single candidate", len(r2.Candidates), code)
+	}
+}
+
+func TestCheckSeesEditsAfterIndexing(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": orders})
+	if code, _, _ := run("check", "--format", "json", "--min-nodes", "20", root); code != 1 {
+		t.Fatalf("first run exit code = %d, want 1", code)
+	}
+
+	p := filepath.Join(root, "b.rs")
+	if err := os.WriteFile(p, []byte(unrelated), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Minute)
+	if err := os.Chtimes(p, later, later); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+	r := decode(t, stdout)
+	if code != 0 || len(r.Candidates) != 0 || r.Summary.ParsedFiles != 1 {
+		t.Errorf("after edit: exit %d, %d candidates, summary %+v; want 0, none, 1 file parsed", code, len(r.Candidates), r.Summary)
 	}
 }

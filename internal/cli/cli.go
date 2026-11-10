@@ -2,6 +2,8 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/heikki-laitala/ddslop/internal/clone"
+	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
 	"github.com/heikki-laitala/ddslop/internal/report"
 	"github.com/heikki-laitala/ddslop/internal/source"
@@ -27,7 +30,8 @@ const usage = `usage: ddslop [check] [flags] [path]
 
 Finds duplicated Rust functions under path (default ".") and proposes
 refactoring candidates. Generated files are skipped, and so is test code
-unless --tests is given. Exits 0 when nothing is found, 1 when candidates
+unless --tests is given. Extracted functions are kept in an index at
+<path>/.ddslop/index.db so unchanged files are not parsed again. Exits 0 when nothing is found, 1 when candidates
 are found, 2 on error.
 
 Flags:
@@ -91,27 +95,38 @@ func Run(args []string, stdout, stderr io.Writer) int {
 }
 
 func check(root string, minNodes int, tests bool) (report.Report, error) {
-	files, err := source.Files(root, ".rs")
+	paths, err := source.Files(root, ".rs")
 	if err != nil {
 		return report.Report{}, err
 	}
+	version, err := extractorVersion()
+	if err != nil {
+		return report.Report{}, err
+	}
+	db, err := index.Open(filepath.Join(root, indexPath))
+	if err != nil {
+		return report.Report{}, err
+	}
+	defer func() { _ = db.Close() }()
+
+	stats, err := db.Sync(index.Options{Root: root, Paths: paths, Version: version, Parse: parseRust})
+	if err != nil {
+		return report.Report{}, err
+	}
+	files, err := db.Files()
+	if err != nil {
+		return report.Report{}, err
+	}
+
+	summary := report.Summary{ParsedFiles: stats.Parsed, UnchangedFiles: stats.Unchanged}
 	var units []unit.Unit
-	var summary report.Summary
 	for _, f := range files {
-		src, err := os.ReadFile(filepath.Join(root, f)) //nolint:gosec // reading files under the analysed root is the point
-		if err != nil {
-			return report.Report{}, err
-		}
-		if rust.IsGenerated(src) {
+		if f.Generated {
 			summary.GeneratedFiles++
 			continue
 		}
 		summary.Files++
-		fileUnits, err := rust.Units(f, src)
-		if err != nil {
-			return report.Report{}, fmt.Errorf("%s: %w", f, err)
-		}
-		for _, u := range fileUnits {
+		for _, u := range f.Units {
 			if u.Test && !tests {
 				summary.TestUnits++
 				continue
@@ -121,6 +136,36 @@ func check(root string, minNodes int, tests bool) (report.Report, error) {
 	}
 	summary.Units = len(units)
 	return report.Build("rust", clone.Groups(units, minNodes), summary), nil
+}
+
+// indexPath is where the index lives, relative to the analysed root.
+const indexPath = ".ddslop/index.db"
+
+func parseRust(path string, src []byte) (index.Parsed, error) {
+	if rust.IsGenerated(src) {
+		return index.Parsed{Generated: true}, nil
+	}
+	units, err := rust.Units(path, src)
+	return index.Parsed{Units: units}, err
+}
+
+// extractorVersion identifies the running binary by its content, so any
+// rebuild that changes how units are extracted invalidates the index.
+func extractorVersion() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	f, err := os.Open(exe) //nolint:gosec // the running executable's own path
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func fail(stderr io.Writer, err error) int {

@@ -12,3 +12,6 @@ coverage.*
 .idea/
 .vscode/
 .DS_Store
+
+# ddslop index (generated per repo)
+.ddslop/
