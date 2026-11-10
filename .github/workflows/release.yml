@@ -97,3 +97,10 @@ jobs:
           files: |
             artifacts/*.tar.gz
             artifacts/checksums.txt
+
+  verify:
+    name: Verify release
+    needs: release
+    uses: ./.github/workflows/verify-release.yml
+    with:
+      tag: ${{ github.ref_name }}

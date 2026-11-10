@@ -1,0 +1,60 @@
+name: Verify release
+
+# Installs a published release the way users do, with the one-line
+# installer from main, on fresh runners, and checks that it works. Runs
+# after every release, or by hand for any release tag.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to install, such as v2026.11.10_0
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Install (${{ matrix.os }})
+    # Release downloads need no login only once the repository is public.
+    if: ${{ !github.event.repository.private }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, macos-latest]
+    env:
+      TAG: ${{ inputs.tag }}
+      INSTALLER: https://raw.githubusercontent.com/heikki-laitala/ddslop/main/install.sh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Install the release and set it up for Claude Code
+        run: |
+          project="$RUNNER_TEMP/project"
+          mkdir -p "$project" && cd "$project" && git init -q
+          curl -sSfL "$INSTALLER" | bash -s -- --version "$TAG" --dir "$RUNNER_TEMP/bin" --claude
+          test -f .claude/skills/ddslop/SKILL.md || { echo "init did not install the skill" >&2; exit 1; }
+          grep -q '^## ddslop' CLAUDE.md || { echo "init did not write the CLAUDE.md section" >&2; exit 1; }
+
+      - name: Check the version
+        run: |
+          got="$("$RUNNER_TEMP/bin/ddslop" version)"
+          test "$got" = "ddslop $TAG" || { echo "installed '$got', want 'ddslop $TAG'" >&2; exit 1; }
+
+      - name: Smoke test the installed binary
+        run: scripts/smoke-test.sh "$RUNNER_TEMP/bin/ddslop"
+
+      - name: Install the latest release
+        run: |
+          curl -sSfL "$INSTALLER" | bash -s -- --no-interactive --dir "$RUNNER_TEMP/latest"
+          "$RUNNER_TEMP/latest/ddslop" version
