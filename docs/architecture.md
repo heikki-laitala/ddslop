@@ -600,8 +600,30 @@ graph comes from the best source available, in this order:
    toolchain on `PATH` (it runs `go list`), which any CI building a Go
    project already has. If loading fails, ddslop falls back to step 3.
 3. **Name-based approximation from tree-sitter** for everything else.
-   Calls are resolved by name and import; ambiguous method calls link to all
-   candidates. Flow results from this source are marked `confidence: low`.
+
+As built for Rust (name-based; no SCIP or rust-analyzer yet): the adapter
+records each function's calls (free `foo()`, path `Type::foo()`, method
+`x.foo()`, with `self` receivers marked) and, for trait impls, the trait.
+Resolution is conservative: an ambiguous call stays unresolved rather
+than linking to every candidate, because a wrong edge pollutes every slice
+that crosses it.
+
+- Free calls prefer the caller's file, then a unique function in its
+  crate, then a unique one anywhere.
+- `Type::f` matches methods of `Type` (generics ignored), `Self::f` the
+  caller's type. Other paths fall back to free functions only when the
+  qualifier is a module (lower case), so `Utc::now()` does not resolve to
+  a repository function named `now`.
+- `self.m()` resolves to the caller's type. `x.m()` resolves only when one
+  method of that name exists, and never for common standard-library method
+  names (`as_ref`, `len`, `push`, `find`, `collect`, ...): on
+  a large Rust codebase, resolving those by uniqueness put `ModelId::as_ref`
+  into 80 feature slices.
+- Calls inside macros are not visible.
+
+On a large Rust codebase, 84% of free calls to repository functions
+resolve; most unresolved method and path calls are standard-library calls
+whose names the repository also defines.
 
 ### Entry points
 
@@ -614,6 +636,14 @@ registration:
 
 Also supported: explicit entry points (`--entry pkg.Func`), and a generic
 fallback (exported functions with no callers).
+
+As built: entry points are methods implementing a trait declared in a
+generated file, which covers OpenAPI-generated server traits (the index
+keeps each file's declared traits, including generated files'). On
+a large Rust codebase that finds 189 entry points, including the 81
+operations of its development mock ledger. `ddslop flows` lists each entry
+point and its slice (breadth first, `--depth`, default 6; test code is left
+out), as text or JSON.
 
 ### Slice extraction
 
