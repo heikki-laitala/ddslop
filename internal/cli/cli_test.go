@@ -546,7 +546,7 @@ const syncOrders = `fn sync_orders(client: &Client, orders: &[Order], extra: u32
 func TestCheckReportsCopiedBlocksInsideFunctions(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": syncUsers, "b.rs": syncOrders})
 
-	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", "--min-block-nodes", "20", root)
 
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1", code)
@@ -577,11 +577,23 @@ func TestCheckReportsCopiedBlocksInsideFunctions(t *testing.T) {
 func TestCheckTextFormatShowsBlockClone(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": syncUsers, "b.rs": syncOrders})
 
-	_, stdout, _ := run("check", "--format", "text", "--min-nodes", "20", root)
+	_, stdout, _ := run("check", "--format", "text", "--min-nodes", "20", "--min-block-nodes", "20", root)
 
 	for _, want := range []string{"c1 block-clone: 2 copies of 6 lines", "a.rs:6-11 sync_users", "b.rs:5-10 sync_orders"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("text output is missing %q:\n%s", want, stdout)
 		}
+	}
+}
+
+func TestCheckBlockClonesNeedMoreNodesByDefault(t *testing.T) {
+	// The copied run is about 50 nodes: enough for a function clone, below
+	// the default 100 a block needs to be worth a helper.
+	root := repo(t, map[string]string{"a.rs": syncUsers, "b.rs": syncOrders})
+
+	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+
+	if code != 0 || len(decode(t, stdout).Candidates) != 0 {
+		t.Errorf("exit code = %d with candidates, want no block clone below --min-block-nodes 100", code)
 	}
 }
