@@ -20,6 +20,7 @@ design changes.
 - `make run ARGS="..."`
 - `make test`
 - `make cover`: tests with coverage, fails below 80% (`COVER_MIN=...` to override)
+- `make notices`: regenerate `THIRD_PARTY_NOTICES.md` after changing dependencies
 - `make lint`: Go and Markdown (`make lint-go`, `make lint-md`)
 - `make fmt`
 - `make help`: list all targets
