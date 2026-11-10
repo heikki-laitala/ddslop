@@ -250,6 +250,9 @@ func (s *shaper) recordCall(n *sitter.Node) {
 		if field := fn.ChildByFieldName("field"); field != nil {
 			c.Name = field.Utf8Text(s.src)
 		}
+		if value := fn.ChildByFieldName("value"); value != nil && value.Kind() == "self" {
+			c.Qualifier = "self"
+		}
 	default:
 		return // closures and other callees are not resolved by name
 	}

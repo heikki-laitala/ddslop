@@ -14,6 +14,7 @@ const callsSrc = `impl LedgerApi for Ledger {
         let c = self.store.get(b);
         Self::finish(c).await;
         utils::log::<u32>(c);
+        self.audit(c);
         let v = vec![missed(c)];
         v.len()
     }
@@ -22,6 +23,7 @@ const callsSrc = `impl LedgerApi for Ledger {
 impl Ledger {
     fn finish(c: u32) {}
 }
+
 
 fn helper(x: u32) -> u32 {
     x
@@ -51,7 +53,8 @@ func TestCallsAreRecordedInSourceOrder(t *testing.T) {
 	create := byName(t, mustUnits(t, callsSrc), "Ledger::create")
 
 	got := fmt.Sprint(callStrings(create))
-	want := "[free helper @3 path Accounts::create @4 method get @5 path Self::finish @6 path utils::log @7 method len @9]"
+	// self.audit records self as its receiver; self.store.get does not.
+	want := "[free helper @3 path Accounts::create @4 method get @5 path Self::finish @6 path utils::log @7 method self::audit @8 method len @10]"
 	if got != want {
 		t.Errorf("calls =\n  %s\nwant\n  %s\n(calls inside vec![...] are not visible)", got, want)
 	}

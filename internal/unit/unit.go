@@ -54,7 +54,8 @@ const (
 // approximate: dynamic dispatch and calls inside macros are not seen.
 type Call struct {
 	Kind CallKind
-	// Qualifier is the path before the name of a path call, as written.
+	// Qualifier is the path before the name of a path call, as written,
+	// or "self" for a method called on self.
 	Qualifier string
 	Name      string
 	Line      int
