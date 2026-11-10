@@ -100,7 +100,7 @@ func runFlows(args []string, stdout, stderr io.Writer) int {
 	r := flowsReport{Flows: []flowJSON{}, Summary: flowsSummary{Functions: len(units), Calls: g.Calls, ResolvedCalls: g.Resolved}}
 	for _, entry := range g.Entries(traits) {
 		var f flowJSON
-		for _, s := range g.Slice(entry, *depth) {
+		for _, s := range treeOrder(g.Slice(entry, *depth)) {
 			u := g.Units[s.Unit]
 			step := stepJSON{File: u.File, Name: u.Name, StartLine: u.StartLine, EndLine: u.EndLine, Depth: s.Depth}
 			if s.Caller >= 0 {
@@ -138,4 +138,24 @@ func writeFlowsText(w io.Writer, r flowsReport) error {
 		r.Summary.Entries, r.Summary.ResolvedCalls, r.Summary.Calls)
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// treeOrder orders a breadth-first slice depth first, each function right
+// after the function that called it, so indentation by depth reads as a
+// call tree. Callees keep their call order.
+func treeOrder(steps []flow.Step) []flow.Step {
+	children := map[int][]flow.Step{}
+	for _, s := range steps[1:] {
+		children[s.Caller] = append(children[s.Caller], s)
+	}
+	out := make([]flow.Step, 0, len(steps))
+	var visit func(s flow.Step)
+	visit = func(s flow.Step) {
+		out = append(out, s)
+		for _, c := range children[s.Unit] {
+			visit(c)
+		}
+	}
+	visit(steps[0])
+	return out
 }

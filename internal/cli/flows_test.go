@@ -89,7 +89,8 @@ func TestFlowsFollowsEntryPointsOfGeneratedTraits(t *testing.T) {
 	for _, s := range r.Flows[0].Steps {
 		steps = append(steps, s.Name+"<-"+s.Caller)
 	}
-	want := "Api::create<- validate<-Api::create Store::save<-Api::create Api::audit<-Api::create normalise<-validate"
+	// Depth first: each function follows the one that called it.
+	want := "Api::create<- validate<-Api::create normalise<-validate Store::save<-Api::create Api::audit<-Api::create"
 	if strings.Join(steps, " ") != want {
 		t.Errorf("steps = %v\nwant %s", steps, want)
 	}
@@ -114,5 +115,26 @@ func TestFlowsTextAndDepth(t *testing.T) {
 	}
 	if strings.Contains(stdout, "normalise") {
 		t.Errorf("--depth 1 followed calls two levels deep:\n%s", stdout)
+	}
+}
+
+func TestFlowsTextNestsEachFunctionUnderItsCaller(t *testing.T) {
+	root := repo(t, map[string]string{
+		"api/src/generated/server.rs": generatedAPI,
+		"svc/src/ledger.rs":           ledgerImpl,
+		"svc/src/store.rs":            storeImpl,
+	})
+
+	_, stdout, _ := run("flows", "--format", "text", root)
+
+	// validate calls normalise, so normalise belongs right under validate,
+	// before the entry's next callee, not after the last depth-1 function.
+	want := "Api::create (svc/src/ledger.rs:4-8)\n" +
+		"  validate (svc/src/ledger.rs:17-19)\n" +
+		"    normalise (svc/src/ledger.rs:21-23)\n" +
+		"  Store::save (svc/src/store.rs:4-4)\n" +
+		"  Api::audit (svc/src/ledger.rs:12-14)\n"
+	if !strings.Contains(stdout, want) {
+		t.Errorf("flows text is not a call tree:\n%s\nwant it to contain:\n%s", stdout, want)
 	}
 }
