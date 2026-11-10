@@ -61,6 +61,7 @@ reported, and the changed copies are marked `"changed": true`.
 | `renamed-clone` | same structure, different names, types or values | `extract-common` with the differences as parameters |
 | `near-miss` | similar functions with statements added, removed or changed, as a family around an anchor | `extract-common`; `unmatched_lines` show code only some copies have |
 | `block-clone` | a run of statements repeated inside larger functions | `extract-common` into a helper |
+| `parallel-flow` | features whose call graphs run the same pipeline through different functions, step by step | `extract-pipeline`: one generic handler or service with the varying steps as parameters |
 
 Each candidate lists its occurrences and its differences. A difference
 marked `"local": true` is a name each copy declares itself and needs no

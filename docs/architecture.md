@@ -689,6 +689,31 @@ Labelling is fuzzy and is where an LLM excels. ddslop extracts and aligns
 slices precisely and includes the raw steps in its output, so the consuming
 agent can make the final semantic call.
 
+As built, without role labels: two features are compared on their *own*
+steps. Steps both reach are reuse, not duplication, and steps reached by
+more than a quarter of all features (and more than two) are shared
+infrastructure, so neither counts; steps under `--min-nodes` are ignored.
+Similar step pairs come from MinHash LSH over the slice functions,
+verified with structural similarity of at least 0.7. Each pair of
+features matches its own steps greedily, most similar first. A pair with
+at least 4 matched steps covering at least a fifth of its own code is
+parallel, and parallel pairs are grouped into families with the same star
+clustering as near misses. `check` reports each family as a
+`parallel-flow` candidate: the entry points as occurrences, `steps` with
+the function playing each role in every feature and its similarity to the
+anchor's, and an `extract-pipeline` suggestion. Diff mode keeps a flow when
+any step changed.
+
+On a large Rust codebase this found 6 families, all real: 11
+`Management` write operations sharing a handler -> authorise ->
+fingerprint -> read receipt -> build event -> interpret -> refuse pipeline
+(17 aligned steps), 7 history and finance listings, the three `OwnerApi`
+operations (54% coverage), 4 control updates, and `settle_attempt` with
+`submit_late_evidence` (9 steps). A single matched step is already a near
+miss, which is why 4 steps are required; coverage stays low even for real
+families because each feature also has steps of its own. Feature
+comparison adds about 0.35 s to a warm check there.
+
 ### Uses of the call graph in the fragment layer
 
 - Ranking: code reachable from many entry points is a higher-value fix.
