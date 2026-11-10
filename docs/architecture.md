@@ -339,13 +339,18 @@ stages:
    uses a suffix tree; a suffix array gives the same repeats at a fraction of
    the memory. Go's `index/suffixarray` does not expose the array or LCP, so
    ddslop builds its own (prefix doubling plus Kasai's LCP algorithm).
-4. **MinHash + LSH over pq-gram shingles (type 3).** Each unit is broken
-   into pq-grams: small overlapping tree fragments that keep local structure
-   and order. A MinHash signature (128 hashes) estimates the Jaccard
-   similarity of two units' shingle sets, and LSH banding (default 16 bands
-   × 8 rows, threshold ≈ 0.7) only compares units likely to be similar. This
-   replaces DECKARD-style node-count vectors, which ignore order and let
-   unrelated functions with the same node mix collide.
+4. **MinHash + LSH over structure-sequence shingles (type 3).** Each unit's
+   syntax tree is flattened in pre-order into a structure sequence: a symbol
+   per node kind, a close symbol after each node's children, and a symbol
+   per blanked-out leaf kind. Edit distance on such a bracketed sequence
+   closely tracks tree edit distance and is far simpler to compute. Each
+   unit is broken into shingles of 4 consecutive symbols; a MinHash
+   signature (128 hashes, computed while indexing) estimates the Jaccard
+   similarity of two units' shingle sets, and LSH banding (16 bands × 8
+   rows, threshold ≈ 0.7) only proposes units likely to be similar. Shingles
+   of 4 rather than 8 symbols keep a pair with one inserted statement well
+   above the threshold. This replaces both pq-grams and DECKARD-style
+   node-count vectors, which ignore order.
 5. **Winnowing (near-miss partial matches).** MinHash compares whole units,
    and the suffix array only finds exact repeats, but agents often embed a
    slightly modified copied block inside a larger, unrelated function.
@@ -372,17 +377,40 @@ unrelated meaning match. ddslop also normalises values for matching, but
 anti-unification and scoring then look at the actual values, and candidates
 whose differences are too many to be parameters are dropped.
 
-Every candidate pair is then **verified** with an exact but expensive
-measure, run only on the few pairs LSH and winnowing propose:
+Every candidate pair is then **verified**, in parallel, run only on the
+pairs LSH proposes:
 
-- **Tree edit distance** (Zhang-Shasha) for whole units, normalised to a
-  0–1 similarity as in TSED.
-- **Smith-Waterman local alignment** over canonical tokens for partial
-  regions, which tolerates gaps.
+- **Similarity** is `2·LCS/(len(a) + len(b))` of the two structure
+  sequences, computed with Myers' diff algorithm bounded by the threshold,
+  so dissimilar pairs stop early. Pairs whose lengths alone rule out the
+  threshold are rejected without aligning. `--min-similarity` (default
+  0.8) sets the threshold.
+- **Value-anchored alignment.** Code often repeats one statement structure,
+  so many alignments are equally long and a structural one may pair the
+  wrong statements. The matches are therefore anchored on equal names and
+  values (in order); between anchors, the tail of the previous anchor's
+  line and the head of the next anchor's line are matched first, and the
+  rest is aligned on structure, which pairs renamed and changed values.
+- **Value agreement.** The share of aligned names and values that are equal
+  or consistent local renames must be at least 0.7. Measured on a
+  735k-line Rust codebase, pairs from 0.7 up were real copies, while pairs
+  below 0.4 were unrelated code sharing common Rust structure (match tables,
+  `Default` and `Display` impls). Without this filter, structure alone
+  reported thousands of such pairs.
 
-Both produce the node alignment that anti-unification needs next, so the
-work is reused. The final similarity is reported per candidate (`similarity`
-in the output) and filtered by `--min-similarity`.
+The alignment gives the differences (values at aligned positions) and the
+unmatched lines (code without a counterpart), which is what anti-unification
+needs next.
+
+**Near-miss families.** Verified pairs are clustered: the function with
+the most near-miss edges anchors its neighbours, so every member is a
+verified near miss of its anchor, and leftovers pair with their heaviest
+neighbour. One shape is represented by one function, so a group of exact
+copies takes part once. A family is reported as one candidate. On the same
+codebase this turned 3,883 near-miss pairs into 504 candidates.
+
+Partial-region verification (Smith-Waterman for winnowing regions) comes
+with winnowing.
 
 File-level fuzzy hashes such as ssdeep or TLSH are deliberately not used:
 they work on raw bytes, which is too coarse and too sensitive to formatting
@@ -395,7 +423,7 @@ flowchart LR
     canon --> seq[Serialised node sequence]
     seq --> sa[Suffix array + LCP]
     sa --> repeats{Maximal repeats?}
-    canon --> pq[pq-gram shingles]
+    canon --> pq[4-symbol shingles of structure sequence]
     pq --> mh[MinHash signature]
     mh --> lsh{"Same LSH band?<br/>(≈ 0.7)"}
     tokens[Token stream per file] --> win[Winnowing fingerprints]
@@ -405,8 +433,8 @@ flowchart LR
     hash -- same hash --> pairs[Candidate pairs]
     snap -- "exact repeat ≥ min-nodes" --> pairs
     snap -- "near-miss region" --> verify
-    lsh -- yes --> verify{"Verify<br/>Zhang-Shasha /<br/>Smith-Waterman"}
-    verify -- "≥ min-similarity" --> pairs
+    lsh -- yes --> verify{"Verify<br/>bounded Myers +<br/>value agreement"}
+    verify -- "≥ min-similarity,<br/>agreement ≥ 0.7" --> fam[Near-miss families]
     verify -- below --> drop[Discard]
     pairs --> groups[Clone groups]
 ```
@@ -665,18 +693,27 @@ Every JSON candidate is self-contained:
 }
 ```
 
-- `kind` is `exact-clone` (no differences) or `renamed-clone`.
+- `kind` is `exact-clone` (no differences), `renamed-clone` (same
+  structure, different names or values) or `near-miss` (statements added,
+  removed or changed).
+- `similarity` is 1 for exact and renamed copies. A near-miss family lists
+  its anchor first; each occurrence has its own `similarity` to the anchor
+  and `unmatched_lines`: for a member, code the anchor lacks; for the
+  anchor, code missing from at least one member. The candidate's
+  `similarity` is the lowest in the family. Differences cover the anchor
+  positions aligned in every member.
 - Each difference is one tuple of values, one per occurrence, with the lines
   where it occurs in each copy. `local` differences are names every copy
   declares itself (its own name, parameters, local bindings): renames that
   need no parameter. Every other difference is a likely parameter.
 - `suggestion.action` is `reuse-existing` when no parameters are needed and
-  `extract-common` otherwise.
+  `extract-common` otherwise; always `extract-common` for near misses, whose
+  unmatched code has to become optional.
 - The report also has a `summary` with `files`, `generated_files`, `units`,
   `test_units` and `candidates`.
 
-Planned additions: `similarity` (for near-miss matches), typed parameter
-lists and a `target` location for the shared code.
+Planned additions: typed parameter lists and a `target` location for the
+shared code.
 
 Flow candidates additionally list each slice's entry point and aligned steps.
 Candidates are ordered by score. The `fingerprint` is stable across runs and
@@ -704,7 +741,7 @@ Main flags of `check`:
 | --- | --- | --- |
 | `--diff <ref>` | off | only report candidates involving code changed since `<ref>` |
 | `--format` | `text` / `json` | `text`, `json`, `md`, `sarif` |
-| `--min-similarity` | `0.7` | drop candidates below this similarity |
+| `--min-similarity` | `0.8` | drop near misses below this similarity |
 | `--min-nodes` | `50` | drop fragments with fewer syntax nodes than this (about 6–8 lines; to be tuned) |
 | `--tests` | off | include test code, which is skipped by default |
 | `--fail-on` | `0` | exit 1 if any candidate scores above this; `never` to only report |
@@ -845,9 +882,10 @@ binary distribution), generated with `go-licenses` in the release pipeline.
 | Component | Approach | Size estimate |
 | --- | --- | --- |
 | MinHash + LSH banding | 128 seeded hashes, configurable bands and rows | ~150 lines |
-| pq-gram shingling | Augsten et al. pq-grams over the adapter's neutral tree | ~100 lines |
+| Structure sequence | pre-order node kinds, close and leaf symbols | ~60 lines |
 | Winnowing | MOSS winnowing over canonical token k-grams | ~80 lines |
-| Tree edit distance | Zhang-Shasha; APTED only if profiling demands it | ~150 lines |
+| Sequence alignment | Myers' diff bounded by the threshold, with traceback | ~150 lines |
+| Near-miss families | value-anchored alignment, agreement, star clustering | ~300 lines |
 | Local alignment | Smith-Waterman over token sequences | ~60 lines |
 | Suffix array + LCP | prefix doubling and Kasai's LCP over serialised node kinds | ~100 lines |
 | Syntax-unit snapping | trim regions to complete sibling statements | ~80 lines |
@@ -876,12 +914,13 @@ MinHash and LSH:
 | `dgryski/go-minhash` | also bottom-k sketches | small, low activity | rejected |
 | `FrogoAI/lsh` | newer, string dedup focus | string-oriented, not tree shingles | rejected |
 
-Tree edit distance:
+Similarity verification:
 
 | Option | Pros | Cons | Verdict |
 | --- | --- | --- | --- |
-| **Zhang-Shasha in-house** | simple, well documented, adequate on verified candidate pairs | O(n²)-ish worst cases on big functions | **selected** |
-| APTED port | fastest exact algorithm | large, intricate port | later, if profiling demands |
+| **Myers' diff on structure sequences** | O((n+m)·D), bounded by the threshold so dissimilar pairs stop early; gives the alignment | approximates tree edit distance | **selected** |
+| Zhang-Shasha tree edit distance | exact on trees | O(n²) and more per pair; no early exit | rejected after the sequence approach worked |
+| APTED port | fastest exact tree edit distance | large, intricate port | rejected |
 | C++ `tree-similarity` via cgo | reference APTED | more cgo, C++ toolchain | rejected |
 
 Call graph:
@@ -986,8 +1025,11 @@ flowchart TB
 Done so far (Rust only): function units with shape hashes, exact and
 renamed clone groups, differences with local-rename detection, generated
 file and test code skipping, `check` with text and JSON output and exit
-codes, and the SQLite index with parallel parsing. On a 735k-line Rust
-codebase: about 4.7 seconds without an index, 0.4 seconds with one.
+codes, the SQLite index with parallel parsing, and near-miss families
+(structure sequences, MinHash/LSH, bounded Myers verification,
+value-anchored alignment, agreement filter, clustering). On a 735k-line
+Rust codebase: about 0.8 seconds with an index. Storing sequences and
+signatures grew the index from 25 MB to about 100 MB.
 
 1. **v1, fragment layer as a linter:** tree-sitter adapters for all three
    languages, canonicalisation, exact hashing, suffix-array repeats with
