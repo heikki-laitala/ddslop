@@ -480,13 +480,13 @@ template shared by all occurrences, with *holes* where they differ.
 
 ```mermaid
 flowchart TB
-    a["Occurrence A<br/>row := db.Get(&quot;users&quot;, userID)<br/>if row == nil { return ErrNotFound }"]
-    b["Occurrence B<br/>row := db.Get(&quot;orders&quot;, orderID)<br/>if row == nil { return ErrNotFound }"]
+    a["Occurrence A<br/>row := db.Get('users', userID)<br/>if row == nil { return ErrNotFound }"]
+    b["Occurrence B<br/>row := db.Get('orders', orderID)<br/>if row == nil { return ErrNotFound }"]
     a --> au[Anti-unify]
     b --> au
     au --> t["Template<br/>row := db.Get(H1, H2)<br/>if row == nil { return ErrNotFound }"]
-    t --> h1["H1: &quot;users&quot; | &quot;orders&quot;<br/>literal → value parameter"]
-    t --> h2["H2: userID | orderID<br/>outer variable → value parameter"]
+    t --> h1["H1: 'users' or 'orders'<br/>literal → value parameter"]
+    t --> h2["H2: userID or orderID<br/>outer variable → value parameter"]
 ```
 
 Hole classification:
