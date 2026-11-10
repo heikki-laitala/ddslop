@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
+	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/baseline"
 	"github.com/heikki-laitala/ddslop/internal/clone"
@@ -360,7 +362,7 @@ func check(root string, opts options) (report.Report, error) {
 		return report.Report{}, err
 	}
 	defer func() { _ = db.Close() }()
-	files, err := db.Files()
+	files, err := loadFiles(db)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -465,6 +467,48 @@ func parallelFlows(root string, files []index.File, minNodes int) []report.Flow 
 	return out
 }
 
+// loadFiles reads the indexed files and marks the files of out-of-line
+// test modules ("#[cfg(test)] mod name;" in a parent file) as test code:
+// their functions become test units and their imports are not
+// dependencies. Submodules of a test module are test code too.
+func loadFiles(db *index.DB) ([]index.File, error) {
+	files, err := db.Files()
+	if err != nil {
+		return nil, err
+	}
+	testFiles := map[string]bool{}
+	var testDirs []string
+	for _, f := range files {
+		for _, m := range f.TestModules {
+			dir := filepath.Join(moduleDir(f.Path), m)
+			testFiles[dir+".rs"] = true
+			testDirs = append(testDirs, dir+string(filepath.Separator))
+		}
+	}
+	for i, f := range files {
+		test := testFiles[f.Path] || slices.ContainsFunc(testDirs, func(d string) bool { return strings.HasPrefix(f.Path, d) })
+		if !test {
+			continue
+		}
+		files[i].Imports = nil
+		for j := range f.Units {
+			files[i].Units[j].Test = true
+		}
+	}
+	return files, nil
+}
+
+// moduleDir is the directory holding the files of a Rust file's
+// submodules: next to lib.rs, main.rs and mod.rs, else in a directory
+// named after the file.
+func moduleDir(path string) string {
+	switch filepath.Base(path) {
+	case "lib.rs", "main.rs", "mod.rs":
+		return filepath.Dir(path)
+	}
+	return strings.TrimSuffix(path, ".rs")
+}
+
 // indexPath is where the index lives, relative to the analysed root.
 const indexPath = ".ddslop/index.db"
 
@@ -478,7 +522,7 @@ func parseRust(path string, src []byte) (index.Parsed, error) {
 	for i := range units {
 		units[i].Signature = similarity.Signature(units[i].Seq)
 	}
-	parsed := index.Parsed{Units: units, Traits: rust.Traits(src)}
+	parsed := index.Parsed{Units: units, Traits: rust.Traits(src), TestModules: rust.TestModules(src)}
 	if !rust.IsTestPath(path) {
 		// Test files' imports are not dependencies of the code.
 		parsed.Imports = rust.Imports(src)

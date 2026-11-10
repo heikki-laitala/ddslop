@@ -159,7 +159,7 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	defer func() { _ = db.Close() }()
-	files, err := db.Files()
+	files, err := loadFiles(db)
 	if err != nil {
 		return fail(stderr, err)
 	}
