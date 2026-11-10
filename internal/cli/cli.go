@@ -26,7 +26,7 @@ const (
 const usage = `usage: ddslop [check] [flags] [path]
 
 Finds duplicated Rust functions under path (default ".") and proposes
-refactoring candidates. Exits 0 when nothing is found, 1 when candidates
+refactoring candidates. Generated files are skipped. Exits 0 when nothing is found, 1 when candidates
 are found, 2 on error.
 
 Flags:
@@ -94,19 +94,25 @@ func check(root string, minNodes int) (report.Report, error) {
 		return report.Report{}, err
 	}
 	var units []unit.Unit
+	var summary report.Summary
 	for _, f := range files {
 		src, err := os.ReadFile(filepath.Join(root, f)) //nolint:gosec // reading files under the analysed root is the point
 		if err != nil {
 			return report.Report{}, err
 		}
+		if rust.IsGenerated(src) {
+			summary.GeneratedFiles++
+			continue
+		}
+		summary.Files++
 		fileUnits, err := rust.Units(f, src)
 		if err != nil {
 			return report.Report{}, fmt.Errorf("%s: %w", f, err)
 		}
 		units = append(units, fileUnits...)
 	}
-	groups := clone.Groups(units, minNodes)
-	return report.Build("rust", groups, len(files), len(units)), nil
+	summary.Units = len(units)
+	return report.Build("rust", clone.Groups(units, minNodes), summary), nil
 }
 
 func fail(stderr io.Writer, err error) int {

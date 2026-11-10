@@ -20,9 +20,10 @@ type Report struct {
 
 // Summary says how much was analysed.
 type Summary struct {
-	Files      int `json:"files"`
-	Units      int `json:"units"`
-	Candidates int `json:"candidates"`
+	Files          int `json:"files"`
+	GeneratedFiles int `json:"generated_files"`
+	Units          int `json:"units"`
+	Candidates     int `json:"candidates"`
 }
 
 // Candidate is one refactoring candidate: a group of copies, what differs
@@ -85,11 +86,13 @@ var leafKindNames = map[unit.LeafKind]string{
 	unit.Literal:    kindLiteral,
 }
 
-// Build turns clone groups, already in ranking order, into a report.
-func Build(language string, groups []clone.Group, files, units int) Report {
+// Build turns clone groups, already in ranking order, into a report. The
+// summary's candidate count is filled in from the groups.
+func Build(language string, groups []clone.Group, summary Summary) Report {
+	summary.Candidates = len(groups)
 	r := Report{
 		Candidates: make([]Candidate, 0, len(groups)),
-		Summary:    Summary{Files: files, Units: units, Candidates: len(groups)},
+		Summary:    summary,
 	}
 	for i, g := range groups {
 		r.Candidates = append(r.Candidates, candidate(i+1, language, g))
@@ -165,8 +168,8 @@ func WriteText(w io.Writer, r Report) error {
 			fmt.Fprintf(&b, "    %s (%s)\n", strings.Join(d.Values, " | "), label)
 		}
 	}
-	fmt.Fprintf(&b, "%d candidate(s) in %d file(s), %d function(s) analysed\n",
-		r.Summary.Candidates, r.Summary.Files, r.Summary.Units)
+	fmt.Fprintf(&b, "%d candidate(s) in %d file(s), %d function(s) analysed, %d generated file(s) skipped\n",
+		r.Summary.Candidates, r.Summary.Files, r.Summary.Units, r.Summary.GeneratedFiles)
 	_, err := io.WriteString(w, b.String())
 	return err
 }
