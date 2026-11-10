@@ -2,33 +2,33 @@ package clone
 
 import "slices"
 
-// edge is a verified near miss between nodes a and b, weighted by the
-// number of nodes they share.
-type edge struct{ a, b, weight int }
+// Edge connects nodes A and B with a weight, such as the number of nodes
+// two near misses share.
+type Edge struct{ A, B, Weight int }
 
-// family is an anchor and the members that are each a near miss of it.
-type family struct {
-	anchor  int
-	members []int
+// Family is an anchor and the members that each have an edge to it.
+type Family struct {
+	Anchor  int
+	Members []int
 }
 
 type neighbour struct{ node, weight int }
 
-// cluster groups nodes into families around anchors. It repeatedly takes
+// Cluster groups nodes into families around anchors. It repeatedly takes
 // the node with the most edges to unclustered nodes as an anchor (ties: the
 // larger total weight, then the lower index) and makes those neighbours
 // its members, so every member has a verified edge to its anchor. A node
 // left over, whose neighbours were all clustered, forms a pair with its
 // heaviest neighbour; the lower index anchors the pair.
-func cluster(n int, edges []edge) []family {
+func Cluster(n int, edges []Edge) []Family {
 	adj := make([][]neighbour, n)
 	for _, e := range edges {
-		adj[e.a] = append(adj[e.a], neighbour{e.b, e.weight})
-		adj[e.b] = append(adj[e.b], neighbour{e.a, e.weight})
+		adj[e.A] = append(adj[e.A], neighbour{e.B, e.Weight})
+		adj[e.B] = append(adj[e.B], neighbour{e.A, e.Weight})
 	}
 	used := make([]bool, n)
 
-	var out []family
+	var out []Family
 	for {
 		best, bestDeg, bestWeight := -1, 0, 0
 		for v := range n {
@@ -60,7 +60,7 @@ func cluster(n int, edges []edge) []family {
 		for _, m := range members {
 			used[m] = true
 		}
-		out = append(out, family{anchor: best, members: members})
+		out = append(out, Family{Anchor: best, Members: members})
 	}
 
 	for v := range n {
@@ -73,7 +73,7 @@ func cluster(n int, edges []edge) []family {
 				heaviest = nb
 			}
 		}
-		out = append(out, family{anchor: min(v, heaviest.node), members: []int{max(v, heaviest.node)}})
+		out = append(out, Family{Anchor: min(v, heaviest.node), Members: []int{max(v, heaviest.node)}})
 	}
 	return out
 }

@@ -88,28 +88,28 @@ func NearMisses(units []unit.Unit, minNodes int, minSim float64, threads int) []
 	})
 
 	pairs := map[[2]int]pair{}
-	var edges []edge
+	var edges []Edge
 	for i, p := range verified {
 		if p != nil {
 			pairs[candidates[i]] = *p
-			edges = append(edges, edge{p.a, p.b, weights[i]})
+			edges = append(edges, Edge{p.a, p.b, weights[i]})
 		}
 	}
 
 	var out []NearMiss
-	for _, f := range cluster(len(reps), edges) {
-		members := make([]unit.Unit, len(f.members))
-		alignments := make([][]similarity.Match, len(f.members))
-		sims := make([]float64, len(f.members))
-		for i, m := range f.members {
+	for _, f := range Cluster(len(reps), edges) {
+		members := make([]unit.Unit, len(f.Members))
+		alignments := make([][]similarity.Match, len(f.Members))
+		sims := make([]float64, len(f.Members))
+		for i, m := range f.Members {
 			members[i] = reps[m]
-			p := pairs[[2]int{min(f.anchor, m), max(f.anchor, m)}]
+			p := pairs[[2]int{min(f.Anchor, m), max(f.Anchor, m)}]
 			alignments[i], sims[i] = p.matches, p.sim
-			if p.a != f.anchor {
+			if p.a != f.Anchor {
 				alignments[i] = flip(p.matches)
 			}
 		}
-		out = append(out, nearMiss(reps[f.anchor], members, alignments, sims))
+		out = append(out, nearMiss(reps[f.Anchor], members, alignments, sims))
 	}
 	slices.SortFunc(out, func(x, y NearMiss) int {
 		if c := cmp.Compare(y.MatchedNodes, x.MatchedNodes); c != 0 {
