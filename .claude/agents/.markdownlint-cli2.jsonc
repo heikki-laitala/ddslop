@@ -1,0 +1,10 @@
+// Agent definitions open with a frontmatter block followed by prose, so the "first line
+// must be a top-level heading" rule does not apply to them. Scoped here rather than
+// disabled repository-wide.
+{
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD041": false
+  }
+}

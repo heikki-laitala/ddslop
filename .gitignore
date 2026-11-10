@@ -1,0 +1,14 @@
+# Binaries
+/ddslop
+/bin/
+*.exe
+*.test
+*.out
+
+# Coverage
+coverage.*
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
