@@ -53,8 +53,7 @@ your coding agent. Options: `--claude`, `--codex`, `--copilot` (set up
 without asking), `--dir DIR`, `--version V` (a release tag such as
 `v2026.11.10_0`), `--no-interactive`.
 
-<details>
-<summary>Build from source</summary>
+### From source
 
 Needs Go 1.25 and a C compiler, since tree-sitter and SQLite are C:
 
@@ -63,8 +62,6 @@ go install github.com/heikki-laitala/ddslop@latest
 ```
 
 or clone the repository and run `make build` (binary in `bin/ddslop`).
-
-</details>
 
 ## Quick start
 
