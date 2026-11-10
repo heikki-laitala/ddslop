@@ -34,6 +34,9 @@ type Summary struct {
 	// Diff is the Git ref of diff mode: only candidates touching lines
 	// changed since it are reported.
 	Diff string `json:"diff,omitempty"`
+	// Baselined counts candidates suppressed because the baseline file
+	// already knows them.
+	Baselined int `json:"baselined,omitempty"`
 }
 
 // Candidate is one refactoring candidate: a group of copies, what differs
@@ -135,11 +138,25 @@ func Build(language string, groups []clone.Group, nearMisses []clone.NearMiss, b
 	return Report{Candidates: candidates, Summary: summary}
 }
 
+// Keep returns the report with only the candidates keep accepts,
+// renumbered in order. keep may update the candidate it is given.
+func Keep(r Report, keep func(c *Candidate) bool) Report {
+	kept := []Candidate{}
+	for _, c := range r.Candidates {
+		if keep(&c) {
+			c.ID = fmt.Sprintf("c%d", len(kept)+1)
+			kept = append(kept, c)
+		}
+	}
+	r.Candidates = kept
+	r.Summary.Candidates = len(kept)
+	return r
+}
+
 // KeepChanged marks the occurrences that overlap a change and keeps only
 // the candidates with at least one, renumbering them in order.
 func KeepChanged(r Report, base string, touches func(file string, start, end int) bool) Report {
-	kept := []Candidate{}
-	for _, c := range r.Candidates {
+	r = Keep(r, func(c *Candidate) bool {
 		changed := false
 		for i, o := range c.Occurrences {
 			if touches(o.File, o.StartLine, o.EndLine) {
@@ -147,13 +164,8 @@ func KeepChanged(r Report, base string, touches func(file string, start, end int
 				changed = true
 			}
 		}
-		if changed {
-			c.ID = fmt.Sprintf("c%d", len(kept)+1)
-			kept = append(kept, c)
-		}
-	}
-	r.Candidates = kept
-	r.Summary.Candidates = len(kept)
+		return changed
+	})
 	r.Summary.Diff = base
 	return r
 }
