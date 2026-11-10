@@ -173,7 +173,8 @@ func sumPositive(nums []int) int {
 | --- | --- | --- | --- |
 | Flow-level | a sequence of steps across several functions | every endpoint does decode → validate → query → respond | flow layer |
 | Structural | type declarations | `UserDTO` and `UserResponse` with the same fields | duplicate type detector |
-| Literal | constant values | the same timeout or URL in many files | repeated literal detector |
+| Literal | constant values | the same constant declared in two services, or a constant's value written out again | constant detectors |
+| Simplification | not a copy, but code to remove or flatten | an unused public helper, a wrapper that only forwards, a trait with one implementation | simplification detectors |
 
 ### Summary
 
@@ -184,8 +185,8 @@ func sumPositive(nums []int) int {
 | 3 | added, removed or changed statements | LSH + tree edit distance | medium | v1 |
 | 4 | the implementation itself | stdlib catalogue, flow layer, embeddings | high | v2 and later |
 | Flow-level | which functions, same steps | call graph + slice alignment | high | Go prototype, then v2 |
-| Structural | type names | field-set comparison | low | v2 |
-| Literal | location only | literal index | low | v2 |
+| Structural | type names | field-name sets | low | built (Rust) |
+| Literal | location only | constant and literal index | low | built (Rust) |
 
 ## How it works
 
@@ -357,7 +358,12 @@ stages:
    function, so block clones need `--min-block-nodes` (default 100, never
    below `--min-nodes`): on a 735k-line Rust codebase, block clones from 100
    nodes up were clearly worth fixing, while most smaller ones were 3-5
-   line repeats.
+   line repeats. A smaller block is still reported when it is copied often:
+   at least 25 nodes, and its copies duplicate 400 nodes or more in all (as
+   much as a 100-node block in five places). There these were 17 shared
+   idioms worth a helper, such as a 46-node connection guard in 27
+   methods; below 400 they were mostly two or three copies of ordinary
+   statements.
 4. **MinHash + LSH over structure-sequence shingles (type 3).** Each unit's
    syntax tree is flattened in pre-order into a structure sequence: a symbol
    per node kind, a close symbol after each node's children, and a symbol
@@ -535,8 +541,16 @@ flowchart TB
   the most common and cheapest fix for AI duplication.
 - `extract-common`: no occurrence is canonical. Extract a new shared function
   from the template.
-- `delete-dead`: one occurrence has no callers (stale version). Delete it.
+- `delete-dead`: a public function nothing uses (see below). Delete it.
 - `extract-pipeline`: produced by the flow layer (see below).
+- `inline-wrapper`: a function that only forwards its parameters; call
+  its target directly.
+- `remove-trait`: a trait with one implementation; make its methods the
+  type's own.
+
+As built, `reuse-existing` and `extract-common` follow from the
+differences (a candidate with parameters is `extract-common`), and the
+other actions belong to one candidate kind each.
 
 ### Scoring
 
@@ -575,12 +589,75 @@ duplication, and are dropped below a threshold.
 
 ### Additional detectors
 
-- **Duplicate types:** structs and interfaces compared by field set (names
-  and types, order-insensitive), independent of type name.
-- **Repeated literals:** the same non-trivial string or number literal across
-  files, suggesting a shared constant.
-- **Stdlib reinvention:** a small, curated catalogue of patterns per language
-  (for example, a loop returning true on match → `slices.Contains`).
+These work on declarations other than functions, which the Rust adapter
+collects in the same pass as the units: structs with named fields,
+module-level `const` and `static` items, trait declarations, trait impls
+and the names of all declared types. Each was measured on a 735k-line
+Rust codebase before it was built.
+
+- **Duplicate types** (`duplicate-type`): structs declaring the same field
+  names, in any order, with three fields or more. Field types that differ
+  are listed as differences, so the usual parameter rule applies: a pair
+  that differs in most of its types is dropped as shape similarity. Two
+  fields matched mostly by coincidence (host and port); from three fields
+  on, 31 candidates remained, mostly one type copied into several
+  services, or a wire type mirroring a domain type.
+- **Duplicate constants** (`duplicate-constant`): constants declared with
+  the same name and value. The same value alone is no evidence (64 and
+  1000 are everywhere); the same name too means a copy. Macro values
+  (`include_str!("x")` means a different file per crate) and `const _`
+  assertions are left out. 63 candidates, such as a size limit declared
+  in two services.
+- **Inlined constants** (`inlined-constant`): a string literal repeating
+  the value of a string constant of the same crate, with the constant as
+  the candidate's `target`. Repeated literals in general were noise (JSON
+  keys, Redis commands); a literal matching a named constant is the
+  constant's meaning written out again. Short plain words (`"status"`,
+  `"model"`) still matched unrelated keys, so a value needs 10 characters
+  or anything besides letters, digits and underscores. 41 candidates,
+  such as a Redis field name the code writes out 25 times next to its
+  constant.
+- **Stdlib reinvention** (planned): a small, curated catalogue of patterns
+  per language (for example, a loop returning true on match →
+  `slices.Contains`).
+
+### Simplification detectors
+
+`internal/simplify` reports code that is not a copy but can be removed or
+flattened, the other half of cleaning up generated code:
+
+- **Dead code** (`dead-code`, `delete-dead`): a public function whose name
+  appears nowhere but in its own declaration. Every identifier-like word of
+  every source file is counted, comments, strings, macros, generated and
+  test files included, so a name mentioned anywhere (a call, a `use`, a
+  `#[serde(default = "f")]`, a doc link) counts as used; this is
+  conservative and needs no name resolution. The compiler already reports
+  private functions, and it found none there; what it cannot see is a
+  public function of a workspace library, so only those are reported, and
+  only in crates that are not published (`publish = false`, directly or
+  through `publish.workspace = true`): a published crate's public items
+  are its API. Trait methods and functions with attributes that may call
+  them from outside (`#[no_mangle]`, `#[tokio::main]`, route macros; lint,
+  inline, doc, cfg and tracing attributes do not count) are left out. 6
+  candidates, each verified with grep.
+- **Pass-through wrappers** (`pass-through`, `inline-wrapper`): a function
+  whose body is one call, possibly awaited, passing its parameters on in
+  order, as is or borrowed. Constructors (`Self(x)`), delegation to a field
+  (`self.inner.get(x)`) and trait methods are not wrappers. The callee is
+  resolved through the call graph and becomes the `target`; a wrapper
+  around a library function (`serde_json::to_string`) gives it a domain
+  name and is left out, and so is a call the graph resolves back to the
+  wrapper itself (`super::f` from `f`). 15 candidates. Wrappers that fix a
+  generic type parameter of their target are deliberate; the skill tells
+  agents to keep them.
+- **Single-implementation traits** (`single-impl-trait`, `remove-trait`):
+  a trait declared once and implemented once, for a type the code declares
+  itself. Left out: traits a test double also implements (the reason the
+  trait exists), extension traits on foreign types, blanket impls, and
+  public traits of published crates. 3 of 71 traits.
+
+A further idea, generic parameters only ever instantiated with one type,
+needs type inference and is not planned.
 
 ## Flow layer
 
@@ -737,7 +814,9 @@ comparison adds about 0.35 s to a warm check there.
 ### Uses of the call graph in the fragment layer
 
 - Ranking: code reachable from many entry points is a higher-value fix.
-- `delete-dead` suggestions: code unreachable from any entry point.
+- `inline-wrapper` targets: the function a wrapper forwards to.
+- `delete-dead` suggestions: code unreachable from any entry point (built
+  instead as a word count, which needs no resolution; see above).
 - Choosing the canonical occurrence for `reuse-existing` (most callers).
 - Placement: the deepest module shared by all callers.
 
@@ -819,9 +898,16 @@ Every JSON candidate is self-contained:
 
 - `kind` is `exact-clone` (no differences), `renamed-clone` (same
   structure, different names or values), `near-miss` (statements added,
-  removed or changed) or `block-clone` (a run of statements repeated inside
+  removed or changed), `block-clone` (a run of statements repeated inside
   larger functions; occurrence lines are the run's lines, and the
-  suggestion is always `extract-common`).
+  suggestion is always `extract-common`), `parallel-flow`,
+  `duplicate-type`, `duplicate-constant`, `inlined-constant` (the
+  constant, then each inline use), `dead-code`, `pass-through` or
+  `single-impl-trait` (the trait, then its impl block). See the
+  additional and simplification detectors above.
+- `target`, when present, is existing code to use instead: the constant
+  an `inlined-constant` repeats, or the function a `pass-through` wrapper
+  calls.
 - `similarity` is 1 for exact and renamed copies. A near-miss family lists
   its anchor first; each occurrence has its own `similarity` to the anchor
   and `unmatched_lines`: for a member, code the anchor lacks; for the
@@ -838,8 +924,7 @@ Every JSON candidate is self-contained:
 - The report also has a `summary` with `files`, `generated_files`, `units`,
   `test_units` and `candidates`.
 
-Planned additions: typed parameter lists and a `target` location for the
-shared code.
+Planned addition: typed parameter lists.
 
 Flow candidates additionally list each slice's entry point and aligned steps.
 Candidates are ordered by score. The `fingerprint` is stable across runs and
@@ -1157,8 +1242,11 @@ not touch the algorithms.
 ## Package layout
 
 Implemented so far: `main.go`, `internal/cli`, `internal/unit`,
-`internal/lang/rust`, `internal/clone`, `internal/source`,
-`internal/index` and `internal/report`. The rest is planned.
+`internal/lang/rust`, `internal/clone` (which also holds the type and
+constant detectors), `internal/simplify`, `internal/flow`,
+`internal/similarity`, `internal/source`, `internal/index`,
+`internal/baseline`, `internal/integrate` and `internal/report`. The rest
+is planned.
 
 ```text
 main.go              entry point; calls internal/cli (kept at the root so
@@ -1170,7 +1258,8 @@ internal/parse/      tree-sitter parsing and unit extraction
 internal/clone/      hashing, LSH, verification, grouping
 internal/unify/      anti-unification and hole classification
 internal/refactor/   scope analysis, control flow, placement, scoring
-internal/detect/     type, literal and stdlib detectors
+internal/detect/     stdlib detector
+internal/simplify/   dead code, pass-through wrappers, single-impl traits
 internal/flow/       symbol index, call graph, entry points, slices
 internal/similarity/ MinHash/LSH, pq-grams, winnowing, Zhang-Shasha, Smith-Waterman
 internal/report/     text, JSON, Markdown and SARIF output
@@ -1212,6 +1301,14 @@ seconds with an index, 886 candidates (74 exact, 190 renamed, 502
 near-miss families, 120 block clones). Storing sequences and signatures
 grew the index from 25 MB to about 100 MB. Remaining for the fragment
 layer: winnowing for near-miss blocks, canonicalisation, scope analysis.
+
+Since then: the flow layer by name (parallel flows), baselines, diff mode,
+SARIF, the type and constant detectors, the simplification detectors and
+frequent small block clones. On the same codebase, warm: about 1.3
+seconds, 713 candidates (60 exact, 166 renamed, 189 near-miss families,
+131 block clones, 8 parallel flows, 31 duplicate types, 63 duplicate and
+41 inlined constants, 6 dead functions, 15 wrappers, 3 single-implementation
+traits).
 
 1. **v1, fragment layer as a linter:** tree-sitter adapters for all three
    languages, canonicalisation, exact hashing, suffix-array repeats with

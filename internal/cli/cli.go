@@ -56,11 +56,14 @@ Run "ddslop <command> -h" for a command's flags.
 
 const checkUsage = `usage: ddslop check [flags] [path]
 
-Finds duplicated Rust functions under path (default ".") and proposes
+Finds duplicated Rust code under path (default ".") and proposes
 refactoring candidates: exact copies, renamed copies, near-miss copies
-with added, removed or changed statements, and copied blocks of statements
-inside larger functions. Generated files are skipped, and so is test code
-unless --tests is given. Extracted functions are kept in an index at
+with added, removed or changed statements, copied blocks of statements
+inside larger functions, features running the same pipeline, structs with
+the same fields, constants declared twice or written inline, unused public
+functions of unpublished crates, wrappers that only forward their
+parameters, and traits with a single implementation. Generated files are
+skipped, and so is test code unless --tests is given. Extracted functions are kept in an index at
 <path>/.ddslop/index.db so unchanged files are not parsed again. Files are
 parsed on half the CPU cores; set DDSLOP_INDEX_THREADS to change that.
 

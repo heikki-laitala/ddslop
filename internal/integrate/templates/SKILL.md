@@ -1,6 +1,6 @@
 ---
 name: ddslop
-description: Finds duplicated code (exact, renamed and near-miss copies, and copied blocks inside functions) and proposes refactoring candidates. Use before finishing a code change, when asked to clean up, deduplicate or "deslop" code, and before writing a new helper, to reuse existing code instead of adding another copy.
+description: Finds duplicated code (exact, renamed and near-miss copies, copied blocks, duplicated types and constants) and code to simplify (unused public helpers, pass-through wrappers, single-implementation traits), and proposes refactoring candidates. Use before finishing a code change, when asked to clean up, deduplicate or "deslop" code, and before writing a new helper, to reuse existing code instead of adding another copy.
 {{- if .Claude}}
 allowed-tools: Bash(ddslop *), Read, Grep, Glob
 {{- end}}
@@ -10,7 +10,9 @@ allowed-tools: Bash(ddslop *), Read, Grep, Glob
 
 ddslop is a duplicate-code linter for Rust (Go and TypeScript are planned).
 It reports refactoring candidates as JSON, with exact file paths and line
-ranges, what differs between the copies, and a suggested action.
+ranges, what differs between the copies, and a suggested action. It also
+reports code to simplify: unused public helpers, wrappers that only
+forward their arguments, and traits with a single implementation.
 
 ## When to run it
 
@@ -56,6 +58,8 @@ per occurrence) and `suggestion`.
   they need no parameter. Every other difference is a parameter of the
   shared code.
 - `suggestion.parameters` counts those parameters.
+- `target`, when present, is existing code to use instead of the
+  occurrences.
 
 What to do per `kind`:
 
@@ -76,6 +80,32 @@ What to do per `kind`:
   Extract one pipeline (a generic handler or service) and pass the varying
   steps in, rather than deduplicating each step on its own. This is a
   larger refactor: propose it before doing it.
+- `duplicate-type`: structs with the same field names. Keep one type and
+  use it everywhere. Differences list field types that differ; when one
+  struct is a wire format (serde) and the other a domain type, converting
+  between them at the boundary can be deliberate: skip those.
+- `duplicate-constant` (`reuse-existing`): the same constant declared again.
+  Keep one declaration in a module every user can import, and delete the
+  others.
+- `inlined-constant` (`reuse-existing`): the first occurrence is a constant
+  (also the `target`); the others are string literals repeating its value
+  in the same crate. Replace the literals with the constant, widening its
+  visibility (`pub(crate)`) if needed. Skip a literal that only happens to
+  be spelled the same with another meaning.
+- `dead-code` (`delete-dead`): a public function of an unpublished crate
+  whose name appears nowhere else in the repository. Delete it, and
+  anything only it used. Keep it if it is meant for code outside the
+  repository.
+- `pass-through` (`inline-wrapper`): the function only passes its
+  parameters to the `target`. Call the target directly and delete the
+  wrapper, or rename the target if the wrapper's name is better. Keep
+  wrappers that fix a generic type of their target, or that are a public
+  entry point to private code.
+- `single-impl-trait` (`remove-trait`): the occurrences are the trait and
+  its only impl block. Move the methods into an inherent impl of the type
+  and replace `dyn Trait` and `impl Trait` uses with the type. Keep the
+  trait if it is a seam for tests you are about to write, or a second
+  implementation is planned.
 
 ## Rules
 

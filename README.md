@@ -3,7 +3,10 @@
 ddslop finds duplicated code and proposes refactoring candidates. It is
 built for code written by AI agents, which regenerate rather than copy:
 helpers re-implemented instead of reused, near-identical functions from
-separate sessions, and blocks of statements copied into larger functions.
+separate sessions, blocks of statements copied into larger functions,
+types and constants declared again. It also finds code to simplify:
+unused public helpers, wrappers that only forward their arguments, and
+traits with a single implementation.
 
 Its output is meant for coding agents (Claude Code, Codex, Copilot): JSON
 with exact file paths and line ranges, what differs between the copies,
@@ -66,12 +69,19 @@ reported, and the changed copies are marked `"changed": true`.
 | `near-miss` | similar functions with statements added, removed or changed, as a family around an anchor | `extract-common`; `unmatched_lines` show code only some copies have |
 | `block-clone` | a run of statements repeated inside larger functions | `extract-common` into a helper |
 | `parallel-flow` | features whose call graphs run the same pipeline through different functions, step by step | `extract-pipeline`: one generic handler or service with the varying steps as parameters |
+| `duplicate-type` | structs declaring the same field names (three or more) | `reuse-existing`: keep one type; `extract-common` when field types differ, listed as differences |
+| `duplicate-constant` | a constant declared again with the same name and value | `reuse-existing`: keep one declaration and import it |
+| `inlined-constant` | a string literal repeating the value of a constant in the same crate | `reuse-existing`: use the constant (the `target`) |
+| `dead-code` | a public function of an unpublished crate whose name appears nowhere else | `delete-dead` |
+| `pass-through` | a function whose body only passes its parameters on to another workspace function | `inline-wrapper`: call the `target` directly |
+| `single-impl-trait` | a trait implemented once, for one of the code's own types, with no test double | `remove-trait`: make its methods the type's own |
 
 Each candidate lists its occurrences and its differences. A difference
 marked `"local": true` is a name each copy declares itself and needs no
 parameter; every other difference is a parameter of the shared code. A
 `parallel-flow` candidate also lists its `steps`: for each role in the
-pipeline, the function that plays it in every feature.
+pipeline, the function that plays it in every feature. A `target` is
+existing code to use instead of the occurrences.
 
 ```json
 {
@@ -97,7 +107,9 @@ To keep the list worth acting on, ddslop leaves out:
   their header comments);
 - test code: test functions, `#[cfg(test)]` modules (inline or in their
   own file), `tests/`, `benches/` and `tests.rs` (`--tests` includes it);
-- small functions and blocks (see the size flags below);
+- small functions and blocks (see the size flags below), unless a small
+  block is copied often enough to add up (25 nodes or more, 400
+  duplicated nodes in all);
 - near misses whose names and values mostly differ, and candidates that
   would be mostly parameters: code that shares a shape, not logic.
 
@@ -229,7 +241,10 @@ sequence with names and values blanked out:
 - copied blocks are maximal repeats of statements, found with a suffix
   array;
 - parallel flows compare features' call-graph slices step by step,
-  ignoring code they share and code most features reach.
+  ignoring code they share and code most features reach;
+- types are compared by field names, constants by name and value, and
+  dead code is a public name that no source file mentions anywhere else,
+  comments and macros included.
 
 See [docs/architecture.md](docs/architecture.md) for the design and the
 measurements behind the thresholds.
