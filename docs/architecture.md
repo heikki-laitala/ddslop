@@ -712,7 +712,7 @@ Main flags of `check`:
 | `--scip` | none | SCIP index for precise flows |
 | `--config` | `.ddslop.yaml` | configuration file |
 | `--lang` | all | restrict to `go`, `ts`, `rust` |
-| `-j` | CPU count | parallel workers |
+| `DDSLOP_INDEX_THREADS` (environment) | half the cores | files parsed in parallel |
 
 ### Exit codes
 
@@ -760,6 +760,34 @@ untracked-but-not-ignored), so `.gitignore` is respected without a parser.
 Outside Git it walks the directory and applies only the configured excludes.
 Vendored and generated code is skipped by default.
 
+### Index
+
+Parsing is the expensive step, so extracted units are kept in a SQLite
+database at `<path>/.ddslop/index.db` and only new or changed files are
+parsed again. The design follows pruner's incremental indexer, which has
+been used in practice:
+
+- Two tables: `files` (path, mtime, size, generated flag, and the file's
+  units as one gob-encoded blob) and `metadata` (key/value). Grouping happens
+  in memory, so units are not split into their own table.
+- A file is unchanged when its mtime (nanoseconds) and size both match the
+  stored ones. pruner compares whole-second mtimes; nanoseconds plus size
+  also catch an edit in the same second as the last run.
+- Each run classifies files as new, modified, unchanged or deleted, parses
+  the new and modified ones, and writes all changes in one transaction (WAL
+  journal, `synchronous=NORMAL`). If any file cannot be read or parsed,
+  nothing is written and the previous index stays.
+- Changed files are parsed in parallel on half the CPU cores, at least one,
+  so a run from an editor or agent hook leaves CPU headroom.
+  `DDSLOP_INDEX_THREADS` overrides the count.
+- `metadata.version` holds the SHA-256 of the ddslop binary. A different
+  binary clears the index, because a new extractor may produce different
+  units. This is the one addition to pruner's design.
+
+Repositories should add `.ddslop/` to `.gitignore`. On a 735k-line Rust
+codebase (915 files, 12 cores): about 4.7 seconds without an index, 0.4
+seconds with one, 0.4 seconds after changing one file.
+
 ### CI example
 
 ```yaml
@@ -799,6 +827,7 @@ Selection criteria, driven by the single-binary linter goal:
 | Grammars | `github.com/tree-sitter/tree-sitter-go`, `tree-sitter-typescript` (TS + TSX), `tree-sitter-rust`, each via `bindings/go` | MIT | Official grammars, compiled into the binary. |
 | Go call graph | `golang.org/x/tools` (`go/packages`, `go/callgraph/vta`) | BSD-3-Clause | Precise Go call graph in-process; maintained by the Go team. |
 | SCIP reading | SCIP Go bindings (`scip-code/scip`, formerly `sourcegraph/scip`) | Apache-2.0 | Only to read optional `--scip` indexes. Verify the canonical import path when adding. |
+| Index | `github.com/mattn/go-sqlite3` | MIT | SQLite for the index of extracted units. Needs cgo, which tree-sitter already requires. |
 | Hashing | standard library `hash/fnv` | BSD-3-Clause (Go) | Stable 64-bit hash for shapes and fingerprints. Switch to `github.com/cespare/xxhash/v2` (MIT) only if profiling shows hashing matters. |
 | Concurrency | `golang.org/x/sync/errgroup` | BSD-3-Clause | Bounded parallel parsing and analysis. |
 | Config | `go.yaml.in/yaml/v3` | MIT and Apache-2.0 | Maintained continuation of `gopkg.in/yaml.v3`. |
@@ -910,8 +939,8 @@ not touch the algorithms.
 ## Package layout
 
 Implemented so far: `main.go`, `internal/cli`, `internal/unit`,
-`internal/lang/rust`, `internal/clone`, `internal/source` and
-`internal/report`. The rest is planned.
+`internal/lang/rust`, `internal/clone`, `internal/source`,
+`internal/index` and `internal/report`. The rest is planned.
 
 ```text
 main.go              entry point; calls internal/cli (kept at the root so
@@ -930,6 +959,7 @@ internal/report/     text, JSON, Markdown and SARIF output
 internal/config/     .ddslop.yaml loading and flag merging
 internal/baseline/   fingerprints, baseline file, suppressions
 internal/source/     file discovery (git ls-files) and diff ranges (git diff)
+internal/index/      SQLite index of extracted units, parallel parsing
 ```
 
 ```mermaid
@@ -956,8 +986,8 @@ flowchart TB
 Done so far (Rust only): function units with shape hashes, exact and
 renamed clone groups, differences with local-rename detection, generated
 file and test code skipping, `check` with text and JSON output and exit
-codes. First run on a 735k-line Rust codebase: 877 files analysed in about
-11 seconds, single-threaded.
+codes, and the SQLite index with parallel parsing. On a 735k-line Rust
+codebase: about 4.7 seconds without an index, 0.4 seconds with one.
 
 1. **v1, fragment layer as a linter:** tree-sitter adapters for all three
    languages, canonicalisation, exact hashing, suffix-array repeats with
