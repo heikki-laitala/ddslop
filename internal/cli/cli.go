@@ -36,6 +36,7 @@ coding agents. Without a command, it runs check.
 
 Commands:
   check     report duplicated code (default)
+  index     build or refresh the index at <path>/.ddslop/index.db
   version   print the version
   help      show this help
 
@@ -62,6 +63,7 @@ type command func(args []string, stdout, stderr io.Writer) int
 // commands maps subcommand names to their implementations.
 var commands = map[string]command{
 	"check":   runCheck,
+	"index":   runIndex,
 	"version": runVersion,
 }
 
@@ -132,6 +134,36 @@ func runVersion(_ []string, stdout, _ io.Writer) int {
 	return exitClean
 }
 
+const indexUsage = `usage: ddslop index [path]
+
+Builds or refreshes the index of extracted functions at
+<path>/.ddslop/index.db, so the next check is fast. Only new and changed
+files are parsed.
+
+Flags:
+`
+
+func runIndex(args []string, stdout, stderr io.Writer) int {
+	fs := newFlags("index", indexUsage, stderr)
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
+	}
+	root, err := rootArg(fs)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	db, stats, err := syncIndex(root)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if err := db.Close(); err != nil {
+		return fail(stderr, err)
+	}
+	fmt.Fprintf(stdout, "indexed %d files: %d parsed, %d unchanged, %d deleted\n",
+		stats.Parsed+stats.Unchanged, stats.Parsed, stats.Unchanged, stats.Deleted)
+	return exitClean
+}
+
 func runCheck(args []string, stdout, stderr io.Writer) int {
 	fs := newFlags("check", checkUsage, stderr)
 	minNodes := fs.Int("min-nodes", 50, "ignore functions with fewer syntax nodes than this")
@@ -185,30 +217,45 @@ type options struct {
 	tests                   bool
 }
 
-func check(root string, opts options) (report.Report, error) {
+// syncIndex opens the index under root and brings it up to date with the
+// Rust files there. The caller closes the database.
+func syncIndex(root string) (*index.DB, index.Stats, error) {
 	paths, err := source.Files(root, ".rs")
 	if err != nil {
-		return report.Report{}, err
+		return nil, index.Stats{}, err
 	}
 	version, err := extractorVersion()
 	if err != nil {
-		return report.Report{}, err
+		return nil, index.Stats{}, err
 	}
 	db, err := index.Open(filepath.Join(root, indexPath))
+	if err != nil {
+		return nil, index.Stats{}, err
+	}
+	stats, err := db.Sync(index.Options{Root: root, Paths: paths, Version: version, Parse: parseRust, Threads: threadCount()})
+	if err != nil {
+		_ = db.Close()
+		return nil, index.Stats{}, err
+	}
+	return db, stats, nil
+}
+
+// threadCount is how many goroutines parse files and verify near misses.
+func threadCount() int {
+	return index.ResolveThreads(os.Getenv("DDSLOP_INDEX_THREADS"), runtime.NumCPU())
+}
+
+func check(root string, opts options) (report.Report, error) {
+	db, stats, err := syncIndex(root)
 	if err != nil {
 		return report.Report{}, err
 	}
 	defer func() { _ = db.Close() }()
-
-	threads := index.ResolveThreads(os.Getenv("DDSLOP_INDEX_THREADS"), runtime.NumCPU())
-	stats, err := db.Sync(index.Options{Root: root, Paths: paths, Version: version, Parse: parseRust, Threads: threads})
-	if err != nil {
-		return report.Report{}, err
-	}
 	files, err := db.Files()
 	if err != nil {
 		return report.Report{}, err
 	}
+	threads := threadCount()
 
 	summary := report.Summary{ParsedFiles: stats.Parsed, UnchangedFiles: stats.Unchanged}
 	var units []unit.Unit
