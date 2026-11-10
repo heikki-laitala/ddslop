@@ -24,6 +24,10 @@ design changes.
 - `make lint`: Go and Markdown (`make lint-go`, `make lint-md`)
 - `make fmt`
 - `make help`: list all targets
+- Releases: tag the commit `vYYYY.MM.DD_N` (N counts that day's releases
+  from 0, e.g. `v2026.11.10_0`, `v2026.11.10_1`) and push the tag;
+  `.github/workflows/release.yml` builds and publishes it. Use `_`, not
+  `-`: a hyphen makes a pre-release that sorts before the plain date.
 
 ## Rules
 
