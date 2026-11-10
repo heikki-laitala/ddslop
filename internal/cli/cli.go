@@ -182,6 +182,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	fs := newFlags("check", checkUsage, stderr)
 	minNodes := fs.Int("min-nodes", 50, "ignore functions with fewer syntax nodes than this")
 	minBlockNodes := fs.Int("min-block-nodes", 100, "ignore copied blocks inside functions with fewer syntax nodes than this (never below --min-nodes)")
+	minNearNodes := fs.Int("min-near-nodes", 150, "ignore near-miss copies of functions with fewer syntax nodes than this (never below --min-nodes)")
 	tests := fs.Bool("tests", false, "include test functions, test modules and test files")
 	minSim := fs.Float64("min-similarity", 0.8, "report near-miss copies at least this similar, above 0 and at most 1")
 	format := fs.String("format", "", `output format, "text" or "json" (default: text on a terminal, json otherwise)`)
@@ -213,7 +214,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 			return fail(stderr, err)
 		}
 	}
-	r, err := check(root, options{minNodes: *minNodes, minBlockNodes: *minBlockNodes, minSim: *minSim, tests: *tests})
+	r, err := check(root, options{minNodes: *minNodes, minBlockNodes: *minBlockNodes, minNearNodes: *minNearNodes, minSim: *minSim, tests: *tests})
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -236,9 +237,9 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 
 // options are the analysis settings of one check.
 type options struct {
-	minNodes, minBlockNodes int
-	minSim                  float64
-	tests                   bool
+	minNodes, minBlockNodes, minNearNodes int
+	minSim                                float64
+	tests                                 bool
 }
 
 // syncIndex opens the index under root and brings it up to date with the
@@ -299,7 +300,7 @@ func check(root string, opts options) (report.Report, error) {
 	}
 	summary.Units = len(units)
 	groups := clone.Groups(units, opts.minNodes)
-	nearMisses := clone.NearMisses(units, opts.minNodes, opts.minSim, threads)
+	nearMisses := clone.NearMisses(units, max(opts.minNearNodes, opts.minNodes), opts.minSim, threads)
 	// Functions reported together. A near-miss member represents its whole
 	// shape, so a family also covers the member's exact and renamed copies.
 	var reported [][]unit.Unit

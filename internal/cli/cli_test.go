@@ -384,7 +384,7 @@ const usersLogged = `pub fn load_logged(db: &Db, user_id: u64) -> Result<User, E
 func TestCheckReportsNearMissCopies(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users, "b.rs": usersLogged})
 
-	code, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", root)
+	code, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", "--min-near-nodes", "20", root)
 
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1; stderr: %s", code, stderr)
@@ -423,7 +423,7 @@ func TestCheckReportsNearMissCopies(t *testing.T) {
 func TestCheckExactCopiesHaveSimilarityOneAndNoNearMissDuplicate(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users, "b.rs": orders, "c.rs": usersLogged})
 
-	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", "--min-near-nodes", "20", root)
 
 	r := decode(t, stdout)
 	kinds := map[string]int{}
@@ -443,7 +443,7 @@ func TestCheckExactCopiesHaveSimilarityOneAndNoNearMissDuplicate(t *testing.T) {
 func TestCheckMinSimilarity(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users, "b.rs": usersLogged})
 
-	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", "--min-similarity", "1", root)
+	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", "--min-near-nodes", "20", "--min-similarity", "1", root)
 	for _, c := range decode(t, stdout).Candidates {
 		if c.Kind == "near-miss" {
 			t.Errorf("near miss reported with --min-similarity 1: similarity %v", c.Similarity)
@@ -459,7 +459,7 @@ func TestCheckMinSimilarity(t *testing.T) {
 func TestCheckTextFormatShowsNearMiss(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users, "b.rs": usersLogged})
 
-	_, stdout, _ := run("check", "--format", "text", "--min-nodes", "20", root)
+	_, stdout, _ := run("check", "--format", "text", "--min-nodes", "20", "--min-near-nodes", "20", root)
 
 	for _, want := range []string{"c1 near-miss", "% similar", "b.rs:1-10 load_logged (unmatched: 3)"} {
 		if !strings.Contains(stdout, want) {
@@ -484,7 +484,7 @@ const usersChecked = `pub fn load_checked(db: &Db, user_id: u64) -> Result<User,
 func TestCheckReportsNearMissFamilyAsOneCandidate(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users, "b.rs": usersLogged, "c.rs": usersChecked})
 
-	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", "--min-near-nodes", "20", root)
 
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1", code)
@@ -596,5 +596,20 @@ func TestCheckBlockClonesNeedMoreNodesByDefault(t *testing.T) {
 
 	if code != 0 || len(decode(t, stdout).Candidates) != 0 {
 		t.Errorf("exit code = %d with candidates, want no block clone below --min-block-nodes 100", code)
+	}
+}
+
+func TestCheckNearMissesNeedMoreNodesByDefault(t *testing.T) {
+	// users and usersLogged are near misses of about 135 nodes: enough for a
+	// function clone, below the default 150 a near miss needs, since small
+	// functions often share Rust's usual shape without being copies.
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": usersLogged})
+
+	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+
+	for _, c := range decode(t, stdout).Candidates {
+		if c.Kind == "near-miss" {
+			t.Errorf("near miss of %d nodes reported below the default --min-near-nodes", c.Score.Nodes)
+		}
 	}
 }
