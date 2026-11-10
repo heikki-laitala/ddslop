@@ -307,10 +307,10 @@ flowchart TB
 ### Units of comparison
 
 - Whole functions and methods.
-- Contiguous statement sequences inside blocks, found as maximal repeats by
-  the suffix array (see Candidate search) rather than by fixed sliding
-  windows, so each copied region is reported once at its full length. Most
-  copy-paste lives here, not at whole function level.
+- Contiguous statement sequences inside blocks (block clones), found as
+  maximal repeats by the suffix array (see Candidate search) rather than by
+  fixed sliding windows, so each copied region is reported once at its full
+  length. Most copy-paste lives here, not at whole function level.
 - Type declarations (structs, interfaces, type aliases), handled by a separate
   detector (see below).
 
@@ -330,15 +330,34 @@ stages:
    canonical syntax tree with identifiers and literals replaced by
    placeholders. Functions sharing a hash are candidate clones. Linear in code
    size.
-3. **Maximal repeats with a suffix array (types 1–2, statement runs).**
-   Borrowed from `dupl`. Each file's canonical tree is serialised in
-   pre-order into one sequence of node kinds (identifiers and literals as
-   placeholders), with a unique separator between files. A suffix array plus
-   LCP array over the whole sequence yields every maximal repeated run in
-   O(n log n) time, at any length and without overlapping windows. `dupl`
-   uses a suffix tree; a suffix array gives the same repeats at a fraction of
-   the memory. Go's `index/suffixarray` does not expose the array or LCP, so
-   ddslop builds its own (prefix doubling plus Kasai's LCP algorithm).
+3. **Maximal repeats of statements with a suffix array (types 1–2,
+   block clones).** Borrowed from `dupl`, but over statements rather than
+   node kinds. Each statement of every block becomes one symbol identifying
+   its structure (the hash of its structure sequence), each block a run of
+   such symbols ended by a unique separator. A suffix array plus LCP array
+   over the concatenation yields every maximal repeated run in O(n log n),
+   at any length and without overlapping windows. Because the symbols are
+   whole statements and separators are unique, repeats consist of complete
+   statements and never cross blocks, so exact repeats need no snapping,
+   and the sequence is about a hundred thousand statements rather than
+   millions of symbols. `dupl` uses a suffix tree; a suffix array gives the
+   same repeats at a fraction of the memory. Go's `index/suffixarray` does
+   not expose the array or LCP, so ddslop builds its own (prefix doubling
+   plus Kasai's LCP algorithm).
+
+   Repeats are then filtered: overlapping occurrences in one block are
+   dropped; a run is skipped when its occurrences sit in distinct functions
+   already reported together (a function clone group, or a near-miss family
+   including its members' exact and renamed copies), or lie wholly inside
+   a larger block clone, so a nested block of a copied run is not reported
+   again. A run repeated inside one function is always reported. Only names
+   declared inside the run count as local renames; names declared outside
+   it, even in the same function, become parameters of the extracted
+   helper. Extracting a helper costs more than calling an existing
+   function, so block clones need `--min-block-nodes` (default 100, never
+   below `--min-nodes`): on a 735k-line Rust codebase, block clones from 100
+   nodes up were clearly worth fixing, while most smaller ones were 3-5
+   line repeats.
 4. **MinHash + LSH over structure-sequence shingles (type 3).** Each unit's
    syntax tree is flattened in pre-order into a structure sequence: a symbol
    per node kind, a close symbol after each node's children, and a symbol
@@ -359,9 +378,10 @@ stages:
    regardless of the surrounding code; those regions become statement-run
    candidates.
 
-**Snapping to syntax units.** Also borrowed from `dupl`. A repeated run or
-shared region from stages 3 and 5 rarely starts and ends on statement
-boundaries. Each region is trimmed to the largest sequence of *complete*
+**Snapping to syntax units.** Also borrowed from `dupl`. A shared region
+from stage 5 rarely starts and ends on statement boundaries (stage 3
+repeats always do, since their symbols are whole statements). Each region
+is trimmed to the largest sequence of *complete*
 sibling statements (or a whole function) it covers; whatever is left after
 trimming is discarded if it falls below the minimum size. Without this step,
 ddslop would suggest extracting half an `if` block.
@@ -421,17 +441,16 @@ flowchart LR
     units[Units] --> canon[Canonicalise]
     canon --> hash[Exact hash of functions]
     canon --> seq[Serialised node sequence]
-    seq --> sa[Suffix array + LCP]
+    seq --> sa[Suffix array + LCP over statement symbols]
     sa --> repeats{Maximal repeats?}
     canon --> pq[4-symbol shingles of structure sequence]
     pq --> mh[MinHash signature]
     mh --> lsh{"Same LSH band?<br/>(≈ 0.7)"}
     tokens[Token stream per file] --> win[Winnowing fingerprints]
     win --> regions{Shared regions?}
-    repeats -- yes --> snap[Snap to complete statements]
+    repeats -- yes --> blocks[Block clones]
     regions -- yes --> snap
     hash -- same hash --> pairs[Candidate pairs]
-    snap -- "exact repeat ≥ min-nodes" --> pairs
     snap -- "near-miss region" --> verify
     lsh -- yes --> verify{"Verify<br/>bounded Myers +<br/>value agreement"}
     verify -- "≥ min-similarity,<br/>agreement ≥ 0.7" --> fam[Near-miss families]
@@ -694,8 +713,10 @@ Every JSON candidate is self-contained:
 ```
 
 - `kind` is `exact-clone` (no differences), `renamed-clone` (same
-  structure, different names or values) or `near-miss` (statements added,
-  removed or changed).
+  structure, different names or values), `near-miss` (statements added,
+  removed or changed) or `block-clone` (a run of statements repeated inside
+  larger functions; occurrence lines are the run's lines, and the
+  suggestion is always `extract-common`).
 - `similarity` is 1 for exact and renamed copies. A near-miss family lists
   its anchor first; each occurrence has its own `similarity` to the anchor
   and `unmatched_lines`: for a member, code the anchor lacks; for the
@@ -742,6 +763,7 @@ Main flags of `check`:
 | `--diff <ref>` | off | only report candidates involving code changed since `<ref>` |
 | `--format` | `text` / `json` | `text`, `json`, `md`, `sarif` |
 | `--min-similarity` | `0.8` | drop near misses below this similarity |
+| `--min-block-nodes` | `100` | drop copied blocks smaller than this (never below `--min-nodes`) |
 | `--min-nodes` | `50` | drop fragments with fewer syntax nodes than this (about 6–8 lines; to be tuned) |
 | `--tests` | off | include test code, which is skipped by default |
 | `--fail-on` | `0` | exit 1 if any candidate scores above this; `never` to only report |
@@ -887,8 +909,9 @@ binary distribution), generated with `go-licenses` in the release pipeline.
 | Sequence alignment | Myers' diff bounded by the threshold, with traceback | ~150 lines |
 | Near-miss families | value-anchored alignment, agreement, star clustering | ~300 lines |
 | Local alignment | Smith-Waterman over token sequences | ~60 lines |
-| Suffix array + LCP | prefix doubling and Kasai's LCP over serialised node kinds | ~100 lines |
-| Syntax-unit snapping | trim regions to complete sibling statements | ~80 lines |
+| Suffix array + LCP | prefix doubling, Kasai's LCP and lcp-interval maximal repeats over statement symbols | ~150 lines |
+| Block clones | statement symbols, overlap and coverage filters, run-local differences | ~200 lines |
+| Syntax-unit snapping | trim winnowing regions to complete sibling statements | ~80 lines |
 | Anti-unification, scope analysis, scoring | ddslop's core | most of the code |
 | SARIF writer | minimal SARIF 2.1.0 structs | ~100 lines |
 
@@ -1027,9 +1050,12 @@ renamed clone groups, differences with local-rename detection, generated
 file and test code skipping, `check` with text and JSON output and exit
 codes, the SQLite index with parallel parsing, and near-miss families
 (structure sequences, MinHash/LSH, bounded Myers verification,
-value-anchored alignment, agreement filter, clustering). On a 735k-line
-Rust codebase: about 0.8 seconds with an index. Storing sequences and
-signatures grew the index from 25 MB to about 100 MB.
+value-anchored alignment, agreement filter, clustering), and block clones
+(statement-level suffix array). On a 735k-line Rust codebase: about 1.1
+seconds with an index, 886 candidates (74 exact, 190 renamed, 502
+near-miss families, 120 block clones). Storing sequences and signatures
+grew the index from 25 MB to about 100 MB. Remaining for the fragment
+layer: winnowing for near-miss blocks, canonicalisation, scope analysis.
 
 1. **v1, fragment layer as a linter:** tree-sitter adapters for all three
    languages, canonicalisation, exact hashing, suffix-array repeats with
