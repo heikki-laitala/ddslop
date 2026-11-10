@@ -3,6 +3,8 @@ BIN_DIR           := bin
 GO                ?= go
 GOLANGCI_LINT     ?= golangci-lint
 MARKDOWNLINT      ?= npx --yes markdownlint-cli2@0.18.1
+VERSION           ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS           := -X github.com/heikki-laitala/ddslop/internal/cli.version=$(VERSION)
 COVER_MIN         ?= 80
 COVER_PROFILE     := coverage.out
 
@@ -14,7 +16,7 @@ help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 build: ## Build the binary into bin/
-	$(GO) build -o $(BIN_DIR)/$(BINARY) .
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY) .
 
 run: ## Run the tool (pass args with ARGS="...")
 	$(GO) run . $(ARGS)
