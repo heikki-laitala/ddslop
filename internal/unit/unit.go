@@ -30,6 +30,18 @@ type Unit struct {
 	// candidates. It is computed when the unit is indexed; empty means not
 	// computed yet.
 	Signature []uint64
+	// Blocks lists, for every block in the unit (the body and nested
+	// blocks, in pre-order), its statements in order. Copied blocks inside
+	// larger functions are found as repeated runs of statements.
+	Blocks [][]Statement
+}
+
+// Statement is one statement of a block, as positions in its unit.
+type Statement struct {
+	SeqStart, SeqEnd   int // the statement's symbols are Seq[SeqStart:SeqEnd]
+	LeafStart, LeafEnd int // its leaves are Leaves[LeafStart:LeafEnd]
+	StartLine, EndLine int
+	Nodes              int
 }
 
 // Close is the Seq symbol that ends a node's children.

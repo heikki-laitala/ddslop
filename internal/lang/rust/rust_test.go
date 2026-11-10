@@ -283,3 +283,64 @@ fn c(x: u32) -> u32 {
 		t.Errorf("opens=%d closes=%d leaves=%d nodes=%d: every non-leaf node needs one open and one close", opens, closes, len(a.Leaves), a.Nodes)
 	}
 }
+
+func TestBlocksListStatementsWithPositions(t *testing.T) {
+	src := `fn run(x: u32) -> u32 {
+    let a = x + 1;
+    log(a);
+    if a > 2 {
+        warn(a);
+        // a comment is not a statement
+        stop();
+    }
+    a * 2
+}
+`
+	u := byName(t, mustUnits(t, src), "run")
+
+	if len(u.Blocks) != 2 {
+		t.Fatalf("got %d blocks, want the body and the if block", len(u.Blocks))
+	}
+	var bodyLines, ifLines []string
+	for _, st := range u.Blocks[0] {
+		bodyLines = append(bodyLines, fmt.Sprintf("%d-%d", st.StartLine, st.EndLine))
+	}
+	for _, st := range u.Blocks[1] {
+		ifLines = append(ifLines, fmt.Sprintf("%d-%d", st.StartLine, st.EndLine))
+	}
+	if fmt.Sprint(bodyLines) != "[2-2 3-3 4-8 9-9]" || fmt.Sprint(ifLines) != "[5-5 7-7]" {
+		t.Errorf("statement lines: body %v, if %v; want [2-2 3-3 4-8 9-9] and [5-5 7-7]", bodyLines, ifLines)
+	}
+
+	for bi, block := range u.Blocks {
+		for si, st := range block {
+			seq := u.Seq[st.SeqStart:st.SeqEnd]
+			if len(seq) == 0 || seq[len(seq)-1] != unit.Close {
+				t.Errorf("block %d statement %d: symbols %v should end with Close", bi, si, seq)
+			}
+			leaves := 0
+			nodes := 0
+			for _, sym := range seq {
+				if unit.IsLeaf(sym) {
+					leaves++
+				}
+				if sym != unit.Close {
+					nodes++
+				}
+			}
+			if leaves != st.LeafEnd-st.LeafStart || nodes != st.Nodes {
+				t.Errorf("block %d statement %d: leaves %d..%d nodes %d, but symbols hold %d leaves and %d nodes",
+					bi, si, st.LeafStart, st.LeafEnd, st.Nodes, leaves, nodes)
+			}
+			if st.LeafStart < st.LeafEnd && u.Leaves[st.LeafStart].Line != st.StartLine {
+				t.Errorf("block %d statement %d: first leaf on line %d, statement starts on %d",
+					bi, si, u.Leaves[st.LeafStart].Line, st.StartLine)
+			}
+		}
+	}
+	// "warn(a);" holds the leaves warn and a.
+	warn := u.Blocks[1][0]
+	if got := u.Leaves[warn.LeafStart].Text; got != "warn" || warn.LeafEnd-warn.LeafStart != 2 {
+		t.Errorf("warn statement leaves start with %q and count %d, want warn and 2", got, warn.LeafEnd-warn.LeafStart)
+	}
+}

@@ -153,6 +153,7 @@ func (e *extractor) addFunction(n *sitter.Node, owner string, test bool) {
 		Leaves:    s.leaves,
 		Seq:       s.seq,
 		SeqLines:  s.lines,
+		Blocks:    s.blocks,
 	})
 }
 
@@ -164,6 +165,7 @@ type shaper struct {
 	leaves []unit.Leaf
 	seq    []uint32
 	lines  []int
+	blocks [][]unit.Statement
 }
 
 func (s *shaper) emit(sym uint32, line int) {
@@ -207,10 +209,22 @@ func (s *shaper) visit(n *sitter.Node, declares bool) {
 		return
 	}
 	s.emit(kindSymbol(n.Kind()), line(n.StartPosition()))
+	block := -1
+	if n.Kind() == "block" {
+		block = len(s.blocks)
+		s.blocks = append(s.blocks, nil) // reserve the slot: blocks stay in pre-order
+	}
 	for i := uint(0); i < n.ChildCount(); i++ {
 		child := n.Child(i)
 		field := n.FieldNameForChild(uint32(i))
+		statement := block >= 0 && !child.IsExtra() && child.Kind() != "{" && child.Kind() != "}"
+		st := unit.Statement{SeqStart: len(s.seq), LeafStart: len(s.leaves), Nodes: s.nodes}
 		s.visit(child, childDeclares(n.Kind(), declares, field, child.Kind()))
+		if statement {
+			st.SeqEnd, st.LeafEnd, st.Nodes = len(s.seq), len(s.leaves), s.nodes-st.Nodes
+			st.StartLine, st.EndLine = line(child.StartPosition()), line(child.EndPosition())
+			s.blocks[block] = append(s.blocks[block], st)
+		}
 	}
 	s.emit(unit.Close, line(n.EndPosition()))
 }
