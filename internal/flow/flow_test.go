@@ -36,7 +36,7 @@ func callees(g *Graph, name string) string {
 }
 
 func TestFreeCallsPreferSameFileThenCrate(t *testing.T) {
-	g := Build(nil, []unit.Unit{
+	g := Build(Inputs{}, []unit.Unit{
 		fn("a/src/x.rs", "helper"),
 		fn("a/src/y.rs", "helper"),
 		fn("b/src/z.rs", "helper"),
@@ -63,7 +63,7 @@ func TestFreeCallsPreferSameFileThenCrate(t *testing.T) {
 }
 
 func TestPathCalls(t *testing.T) {
-	g := Build(nil, []unit.Unit{
+	g := Build(Inputs{}, []unit.Unit{
 		fn("a/src/acc.rs", "Accounts::create"),
 		fn("a/src/end.rs", "Endpoint<P>::priced"),
 		fn("a/src/led.rs", "Ledger::finish"),
@@ -80,7 +80,7 @@ func TestPathCalls(t *testing.T) {
 }
 
 func TestMethodCalls(t *testing.T) {
-	g := Build(nil, []unit.Unit{
+	g := Build(Inputs{}, []unit.Unit{
 		fn("a/src/led.rs", "Ledger::audit"),
 		fn("a/src/other.rs", "Other::audit"),
 		fn("a/src/store.rs", "Store::get"),
@@ -104,7 +104,7 @@ func TestEntriesAreNonTestTraitImplementations(t *testing.T) {
 		{File: "a.rs", Name: "Api::helper"},
 		{File: "t.rs", Name: "Fake::create", Trait: "LedgerApi", Test: true},
 	}
-	g := Build(nil, units)
+	g := Build(Inputs{}, units)
 
 	if got := fmt.Sprint(g.Entries(map[string]bool{"LedgerApi": true})); got != "[0]" {
 		t.Errorf("entries = %s, want [0]", got)
@@ -112,7 +112,7 @@ func TestEntriesAreNonTestTraitImplementations(t *testing.T) {
 }
 
 func TestSliceIsBreadthFirstDepthLimitedAndSkipsTests(t *testing.T) {
-	g := Build(nil, []unit.Unit{
+	g := Build(Inputs{}, []unit.Unit{
 		fn("a/src/a.rs", "entry", free("one"), free("two")),        // 0
 		fn("a/src/a.rs", "one", free("deep"), free("entry")),       // 1: cycle back
 		fn("a/src/a.rs", "two", free("deep"), free("test_helper")), // 2
@@ -132,7 +132,7 @@ func TestSliceIsBreadthFirstDepthLimitedAndSkipsTests(t *testing.T) {
 }
 
 func TestPathCallsOnUnknownTypesDoNotFallBackToFreeFunctions(t *testing.T) {
-	g := Build(nil, []unit.Unit{
+	g := Build(Inputs{}, []unit.Unit{
 		fn("a/src/clock.rs", "now"),
 		fn("a/src/util.rs", "log"),
 		fn("a/src/h.rs", "handler",
@@ -148,7 +148,7 @@ func TestPathCallsOnUnknownTypesDoNotFallBackToFreeFunctions(t *testing.T) {
 }
 
 func TestStandardMethodNamesAreNotResolvedByUniqueness(t *testing.T) {
-	g := Build(nil, []unit.Unit{
+	g := Build(Inputs{}, []unit.Unit{
 		fn("a/src/id.rs", "ModelId::as_ref"),
 		fn("a/src/ext.rs", "Extensions::len"),
 		fn("a/src/rare.rs", "Rare::settle_window"),
@@ -174,7 +174,7 @@ func local(file, name string, declared string, calls ...unit.Call) unit.Unit {
 }
 
 func TestCallsToLocalClosuresAreNotResolved(t *testing.T) {
-	g := Build(nil, []unit.Unit{
+	g := Build(Inputs{}, []unit.Unit{
 		fn("a/src/conv.rs", "unsigned"),
 		fn("b/src/session.rs", "unsigned"),
 		// let unsigned = |value| ...; unsigned(x)
@@ -194,7 +194,7 @@ func TestBareCallsLeaveTheCrateOnlyThroughImports(t *testing.T) {
 			"decode_token":         "token_credentials::decode",
 		},
 	}
-	g := Build(imports, []unit.Unit{
+	g := Build(Inputs{Imports: imports}, []unit.Unit{
 		fn("crates/translation-protocol/src/lib.rs", "split_qualified_name"),
 		fn("crates/token-credentials/src/lib.rs", "decode"),
 		fn("services/acme-router/src/chan.rs", "channel"),
@@ -212,7 +212,7 @@ func TestBareCallsLeaveTheCrateOnlyThroughImports(t *testing.T) {
 }
 
 func TestModulePathCallsStayInTheirCrate(t *testing.T) {
-	g := Build(nil, []unit.Unit{
+	g := Build(Inputs{}, []unit.Unit{
 		fn("crates/token-credentials/src/lib.rs", "decode"),
 		fn("services/acme-ledger/src/decode.rs", "decode"),
 		fn("services/acme-ledger/src/json.rs", "to_value"),
@@ -224,5 +224,25 @@ func TestModulePathCallsStayInTheirCrate(t *testing.T) {
 	// router has no to_value of its own.
 	if got := callees(g, "services/acme-router/src/api.rs handle"); got != "[crates/token-credentials/src/lib.rs decode]" {
 		t.Errorf("handle calls %s, want only token_credentials' decode", got)
+	}
+}
+
+func TestCrateNamesComeFromInputsNotDirectories(t *testing.T) {
+	inputs := Inputs{
+		Crates: map[string]string{"crates/token-credentials": "acme_token_credentials"}, //nolint:gosec // a crate name, not a credential
+		Imports: map[string]map[string]string{
+			"services/acme-ledger/src/a.rs": {"decode": "acme_token_credentials::decode"},
+		},
+	}
+	g := Build(inputs, []unit.Unit{
+		fn("crates/token-credentials/src/lib.rs", "decode"),
+		fn("crates/token-credentials/src/lib.rs", "is_canonical_key_id"),
+		fn("services/acme-ledger/src/a.rs", "check",
+			path("acme_token_credentials", "is_canonical_key_id"), free("decode")),
+	})
+
+	want := "[crates/token-credentials/src/lib.rs is_canonical_key_id crates/token-credentials/src/lib.rs decode]"
+	if got := callees(g, "services/acme-ledger/src/a.rs check"); got != want {
+		t.Errorf("check calls %s, want %s", got, want)
 	}
 }

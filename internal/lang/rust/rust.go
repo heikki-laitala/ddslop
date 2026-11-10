@@ -436,3 +436,28 @@ func commentText(line string) (string, bool) {
 	}
 	return "", false
 }
+
+// CrateName returns the name Rust code uses for a crate, from its
+// Cargo.toml: the [lib] name if set, otherwise the [package] name, with
+// dashes as underscores. It returns "" when there is no package.
+func CrateName(cargoToml []byte) string {
+	section := ""
+	names := map[string]string{} // section -> name
+	for line := range strings.Lines(string(cargoToml)) {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			section = strings.Trim(line, "[] ")
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(key) != "name" || (section != "package" && section != "lib") {
+			continue
+		}
+		names[section] = strings.Trim(strings.TrimSpace(value), `"'`)
+	}
+	name := names["lib"]
+	if name == "" {
+		name = names["package"]
+	}
+	return strings.ReplaceAll(name, "-", "_")
+}

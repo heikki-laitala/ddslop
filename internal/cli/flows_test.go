@@ -138,3 +138,27 @@ func TestFlowsTextNestsEachFunctionUnderItsCaller(t *testing.T) {
 		t.Errorf("flows text is not a call tree:\n%s\nwant it to contain:\n%s", stdout, want)
 	}
 }
+
+func TestFlowsUseCargoCrateNames(t *testing.T) {
+	// The directory is keyring/, but the crate is named acme_keyring.
+	root := repo(t, map[string]string{
+		"api/src/generated/server.rs": generatedAPI,
+		"keyring/Cargo.toml":          "[package]\nname = \"acme-keyring\"\n",
+		"keyring/src/lib.rs":          "pub fn is_canonical(id: u64) -> bool {\n    id > 0\n}\n",
+		"svc/src/ledger.rs": `pub struct Api;
+
+impl LedgerApi for Api {
+    async fn create(&self, id: u64) -> u64 {
+        acme_keyring::is_canonical(id);
+        id
+    }
+}
+`,
+	})
+
+	_, stdout, _ := run("flows", "--format", "text", root)
+
+	if !strings.Contains(stdout, "  is_canonical (keyring/src/lib.rs:1-3)") {
+		t.Errorf("the call into acme_keyring was not followed:\n%s", stdout)
+	}
+}

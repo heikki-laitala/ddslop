@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/index"
+	"github.com/heikki-laitala/ddslop/internal/lang/rust"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -97,7 +100,7 @@ func runFlows(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	g := flow.Build(importsOf(files), units)
+	g := flow.Build(graphInputs(root, files), units)
 	r := flowsReport{Flows: []flowJSON{}, Summary: flowsSummary{Functions: len(units), Calls: g.Calls, ResolvedCalls: g.Resolved}}
 	for _, entry := range g.Entries(traits) {
 		var f flowJSON
@@ -161,13 +164,27 @@ func treeOrder(steps []flow.Step) []flow.Step {
 	return out
 }
 
-// importsOf maps each indexed file to the names it imports.
-func importsOf(files []index.File) map[string]map[string]string {
-	out := make(map[string]map[string]string, len(files))
+// graphInputs collects what call resolution needs: each file's imports and
+// each crate's name from its Cargo.toml under root.
+func graphInputs(root string, files []index.File) flow.Inputs {
+	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{}}
 	for _, f := range files {
 		if len(f.Imports) > 0 {
-			out[f.Path] = f.Imports
+			in.Imports[f.Path] = f.Imports
+		}
+		dir := flow.CrateOf(f.Path)
+		if _, done := in.Crates[dir]; done {
+			continue
+		}
+		name := ""
+		if toml, err := os.ReadFile(filepath.Join(root, dir, "Cargo.toml")); err == nil { //nolint:gosec // a manifest under the analysed root
+			name = rust.CrateName(toml)
+		}
+		if name != "" {
+			in.Crates[dir] = name
+		} else {
+			in.Crates[dir] = strings.ReplaceAll(filepath.Base(dir), "-", "_")
 		}
 	}
-	return out
+	return in
 }

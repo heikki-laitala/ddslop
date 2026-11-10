@@ -37,14 +37,27 @@ type index struct {
 	imports map[string]map[string]string // file -> imported name -> path
 }
 
-// Build resolves every unit's calls. imports maps a file to the names it
-// imports and the paths they refer to.
-func Build(imports map[string]map[string]string, units []unit.Unit) *Graph {
+// Inputs are what call resolution needs besides the units.
+type Inputs struct {
+	// Imports maps a file to the names it imports and their paths.
+	Imports map[string]map[string]string
+	// Crates maps a crate directory to the name code uses for the crate.
+	// A directory missing here is named after itself, dashes as
+	// underscores.
+	Crates map[string]string
+}
+
+// Build resolves every unit's calls.
+func Build(in Inputs, units []unit.Unit) *Graph {
 	ix := index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{},
-		crates: map[string]string{}, imports: imports}
+		crates: map[string]string{}, imports: in.Imports}
 	for i, u := range units {
-		dir := crateOf(u.File)
-		ix.crates[strings.ReplaceAll(filepath.Base(dir), "-", "_")] = dir
+		dir := CrateOf(u.File)
+		name, ok := in.Crates[dir]
+		if !ok {
+			name = strings.ReplaceAll(filepath.Base(dir), "-", "_")
+		}
+		ix.crates[name] = dir
 		owner, name := split(u.Name)
 		if owner == "" {
 			ix.free[name] = append(ix.free[name], i)
@@ -93,8 +106,8 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 		// modules (utils::log). Outside crates (serde_json::to_value) find
 		// no function of that name in the caller's crate.
 		root := firstSegment(c.Qualifier)
-		if dir, ok := ix.crates[root]; ok && dir != crateOf(caller.File) {
-			return only(units, ix.free[c.Name], func(u unit.Unit) bool { return crateOf(u.File) == dir })
+		if dir, ok := ix.crates[root]; ok && dir != CrateOf(caller.File) {
+			return only(units, ix.free[c.Name], func(u unit.Unit) bool { return CrateOf(u.File) == dir })
 		}
 		return pickLocal(units, caller, ix.free[c.Name])
 	case unit.MethodCall:
@@ -138,7 +151,7 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 		if !ok {
 			return -1 // an outside crate, such as tokio
 		}
-		return only(units, ix.free[target], func(u unit.Unit) bool { return crateOf(u.File) == dir })
+		return only(units, ix.free[target], func(u unit.Unit) bool { return CrateOf(u.File) == dir })
 	}
 }
 
@@ -158,8 +171,8 @@ func pickLocal(units []unit.Unit, caller unit.Unit, cands []int) int {
 	if u := only(units, cands, func(u unit.Unit) bool { return u.File == caller.File }); u >= 0 {
 		return u
 	}
-	crate := crateOf(caller.File)
-	return only(units, cands, func(u unit.Unit) bool { return crateOf(u.File) == crate })
+	crate := CrateOf(caller.File)
+	return only(units, cands, func(u unit.Unit) bool { return CrateOf(u.File) == crate })
 }
 
 // only returns the single candidate accepted by keep, or -1 when there is
@@ -192,9 +205,9 @@ func isModule(segment string) bool {
 	return segment != "" && !unicode.IsUpper(rune(segment[0]))
 }
 
-// crateOf returns the crate directory of a file: the path before /src/,
+// CrateOf returns the crate directory of a file: the path before /src/,
 // or the file's directory.
-func crateOf(file string) string {
+func CrateOf(file string) string {
 	file = filepath.ToSlash(file)
 	if i := strings.Index(file, "/src/"); i >= 0 {
 		return file[:i]

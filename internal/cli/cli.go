@@ -405,7 +405,7 @@ func check(root string, opts options) (report.Report, error) {
 		reported = append(reported, set)
 	}
 	blocks := clone.BlockClones(units, max(opts.minBlockNodes, opts.minNodes), reported)
-	flows := parallelFlows(files, opts.minNodes)
+	flows := parallelFlows(root, files, opts.minNodes)
 	return report.Build("rust", report.Findings{Groups: groups, NearMisses: nearMisses, Blocks: blocks, Flows: flows}, summary), nil
 }
 
@@ -426,7 +426,7 @@ var parallelFlowOptions = flow.ParallelOptions{
 // parallelFlows finds features running the same pipeline. Entry points are
 // methods implementing traits declared in generated files; test code is
 // left out of the call graph.
-func parallelFlows(files []index.File, minNodes int) []report.Flow {
+func parallelFlows(root string, files []index.File, minNodes int) []report.Flow {
 	traits := map[string]bool{}
 	var units []unit.Unit
 	for _, f := range files {
@@ -441,7 +441,7 @@ func parallelFlows(files []index.File, minNodes int) []report.Flow {
 			}
 		}
 	}
-	g := flow.Build(importsOf(files), units)
+	g := flow.Build(graphInputs(root, files), units)
 	opts := parallelFlowOptions
 	opts.MinNodes = minNodes
 	var out []report.Flow

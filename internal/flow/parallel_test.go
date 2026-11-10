@@ -87,7 +87,7 @@ func featureGraph(t *testing.T) (*Graph, []int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := Build(nil, units)
+	g := Build(Inputs{}, units)
 	return g, g.Entries(map[string]bool{"FeatureApi": true})
 }
 
