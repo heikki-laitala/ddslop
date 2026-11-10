@@ -62,15 +62,17 @@ func run(args ...string) (code int, stdout, stderr string) {
 
 type jsonReport struct {
 	Candidates []struct {
-		ID          string `json:"id"`
-		Fingerprint string `json:"fingerprint"`
-		Language    string `json:"language"`
-		Kind        string `json:"kind"`
+		ID          string  `json:"id"`
+		Fingerprint string  `json:"fingerprint"`
+		Language    string  `json:"language"`
+		Kind        string  `json:"kind"`
+		Similarity  float64 `json:"similarity"`
 		Occurrences []struct {
-			File      string `json:"file"`
-			Name      string `json:"name"`
-			StartLine int    `json:"start_line"`
-			EndLine   int    `json:"end_line"`
+			File           string   `json:"file"`
+			Name           string   `json:"name"`
+			StartLine      int      `json:"start_line"`
+			EndLine        int      `json:"end_line"`
+			UnmatchedLines [][2]int `json:"unmatched_lines"`
 		} `json:"occurrences"`
 		Differences []struct {
 			Kind   string   `json:"kind"`
@@ -359,5 +361,103 @@ func TestCheckSeesEditsAfterIndexing(t *testing.T) {
 	r := decode(t, stdout)
 	if code != 0 || len(r.Candidates) != 0 || r.Summary.ParsedFiles != 1 {
 		t.Errorf("after edit: exit %d, %d candidates, summary %+v; want 0, none, 1 file parsed", code, len(r.Candidates), r.Summary)
+	}
+}
+
+// usersLogged is users with an extra logging statement on line 3 and a
+// different column index on line 5.
+const usersLogged = `pub fn load_logged(db: &Db, user_id: u64) -> Result<User, Error> {
+    let row = db.query("SELECT * FROM users WHERE id = $1", &[&user_id])?;
+    tracing::debug!(user_id, "loaded user row");
+    let name: String = row.get(0);
+    let email: String = row.get(2);
+    if name.is_empty() {
+        return Err(Error::NotFound(user_id));
+    }
+    Ok(User { name, email })
+}
+`
+
+func TestCheckReportsNearMissCopies(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": usersLogged})
+
+	code, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", root)
+
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1; stderr: %s", code, stderr)
+	}
+	r := decode(t, stdout)
+	if len(r.Candidates) != 1 {
+		t.Fatalf("got %d candidates, want 1", len(r.Candidates))
+	}
+	c := r.Candidates[0]
+	if c.Kind != "near-miss" || c.Similarity < 0.8 || c.Similarity >= 1 {
+		t.Errorf("candidate = %s with similarity %v, want a near-miss in [0.8, 1)", c.Kind, c.Similarity)
+	}
+	if len(c.Occurrences) != 2 || c.Occurrences[0].File != "a.rs" || c.Occurrences[1].File != "b.rs" {
+		t.Fatalf("occurrences = %+v, want a.rs and b.rs", c.Occurrences)
+	}
+	if len(c.Occurrences[0].UnmatchedLines) != 0 {
+		t.Errorf("a.rs unmatched lines = %v, want none", c.Occurrences[0].UnmatchedLines)
+	}
+	if got := c.Occurrences[1].UnmatchedLines; len(got) != 1 || got[0] != [2]int{3, 3} {
+		t.Errorf("b.rs unmatched lines = %v, want [[3 3]] (the logging statement)", got)
+	}
+	var column bool
+	for _, d := range c.Differences {
+		if d.Kind == "literal" && d.Values[0] == "1" && d.Values[1] == "2" && !d.Local {
+			column = true
+		}
+	}
+	if !column {
+		t.Errorf("differences = %+v, want the column literal 1 | 2", c.Differences)
+	}
+	if c.Suggestion.Action != "extract-common" || c.Suggestion.Parameters == 0 {
+		t.Errorf("suggestion = %+v, want extract-common with parameters", c.Suggestion)
+	}
+}
+
+func TestCheckExactCopiesHaveSimilarityOneAndNoNearMissDuplicate(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": orders, "c.rs": usersLogged})
+
+	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+
+	r := decode(t, stdout)
+	kinds := map[string]int{}
+	for _, c := range r.Candidates {
+		kinds[c.Kind]++
+		if c.Kind == "renamed-clone" && c.Similarity != 1 {
+			t.Errorf("renamed clone similarity = %v, want 1", c.Similarity)
+		}
+	}
+	// a.rs and b.rs are one shape: one renamed-clone group, and one
+	// near-miss between that shape and c.rs, not one per copy.
+	if kinds["renamed-clone"] != 1 || kinds["near-miss"] != 1 || len(r.Candidates) != 2 {
+		t.Errorf("candidate kinds = %v, want one renamed-clone and one near-miss", kinds)
+	}
+}
+
+func TestCheckMinSimilarity(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": usersLogged})
+
+	if code, _, _ := run("check", "--format", "json", "--min-nodes", "20", "--min-similarity", "1", root); code != 0 {
+		t.Errorf("exit code with --min-similarity 1 = %d, want 0: near misses are below 1", code)
+	}
+	for _, bad := range []string{"0", "1.5", "-0.2"} {
+		if code, _, stderr := run("check", "--min-similarity", bad, root); code != 2 || stderr == "" {
+			t.Errorf("--min-similarity %s: exit %d, stderr %q; want 2 with an error", bad, code, stderr)
+		}
+	}
+}
+
+func TestCheckTextFormatShowsNearMiss(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": usersLogged})
+
+	_, stdout, _ := run("check", "--format", "text", "--min-nodes", "20", root)
+
+	for _, want := range []string{"c1 near-miss", "% similar", "b.rs:1-10 load_logged (unmatched: 3)"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("text output is missing %q:\n%s", want, stdout)
+		}
 	}
 }

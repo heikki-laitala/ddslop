@@ -3,9 +3,12 @@
 package report
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
+	"slices"
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/clone"
@@ -36,6 +39,7 @@ type Candidate struct {
 	Fingerprint string       `json:"fingerprint"`
 	Language    string       `json:"language"`
 	Kind        string       `json:"kind"`
+	Similarity  float64      `json:"similarity"`
 	Occurrences []Occurrence `json:"occurrences"`
 	Differences []Difference `json:"differences"`
 	Suggestion  Suggestion   `json:"suggestion"`
@@ -48,6 +52,9 @@ type Occurrence struct {
 	Name      string `json:"name"`
 	StartLine int    `json:"start_line"`
 	EndLine   int    `json:"end_line"`
+	// UnmatchedLines are line ranges of code with no counterpart in the
+	// other copy of a near miss.
+	UnmatchedLines [][2]int `json:"unmatched_lines,omitempty"`
 }
 
 // Difference is one set of values that differ between the copies.
@@ -76,6 +83,7 @@ type Score struct {
 const (
 	exactClone     = "exact-clone"
 	renamedClone   = "renamed-clone"
+	nearMiss       = "near-miss"
 	reuseExisting  = "reuse-existing"
 	extractCommon  = "extract-common"
 	kindIdentifier = "identifier"
@@ -89,30 +97,36 @@ var leafKindNames = map[unit.LeafKind]string{
 	unit.Literal:    kindLiteral,
 }
 
-// Build turns clone groups, already in ranking order, into a report. The
-// summary's candidate count is filled in from the groups.
-func Build(language string, groups []clone.Group, summary Summary) Report {
-	summary.Candidates = len(groups)
-	r := Report{
-		Candidates: make([]Candidate, 0, len(groups)),
-		Summary:    summary,
+// Build turns clone groups and near misses into a report. Candidates are
+// ranked by duplicated nodes, largest first; on ties, groups keep their
+// order and come before near misses. The summary's candidate count is
+// filled in.
+func Build(language string, groups []clone.Group, nearMisses []clone.NearMiss, summary Summary) Report {
+	candidates := make([]Candidate, 0, len(groups)+len(nearMisses))
+	for _, g := range groups {
+		candidates = append(candidates, groupCandidate(language, g))
 	}
-	for i, g := range groups {
-		r.Candidates = append(r.Candidates, candidate(i+1, language, g))
+	for _, nm := range nearMisses {
+		candidates = append(candidates, nearMissCandidate(language, nm))
 	}
-	return r
+	slices.SortStableFunc(candidates, func(a, b Candidate) int {
+		return cmp.Compare(b.Score.DuplicatedNodes, a.Score.DuplicatedNodes)
+	})
+	for i := range candidates {
+		candidates[i].ID = fmt.Sprintf("c%d", i+1)
+	}
+	summary.Candidates = len(candidates)
+	return Report{Candidates: candidates, Summary: summary}
 }
 
-func candidate(n int, language string, g clone.Group) Candidate {
+func groupCandidate(language string, g clone.Group) Candidate {
 	first := g.Units[0]
 	c := Candidate{
-		ID:          fmt.Sprintf("c%d", n),
 		Fingerprint: fmt.Sprintf("%s:%016x", language, first.Shape),
 		Language:    language,
 		Kind:        exactClone,
+		Similarity:  1,
 		Occurrences: make([]Occurrence, len(g.Units)),
-		Differences: []Difference{},
-		Suggestion:  Suggestion{Action: reuseExisting},
 		Score: Score{
 			Nodes:           first.Nodes,
 			Lines:           first.EndLine - first.StartLine + 1,
@@ -121,26 +135,61 @@ func candidate(n int, language string, g clone.Group) Candidate {
 		},
 	}
 	for i, u := range g.Units {
-		c.Occurrences[i] = Occurrence{File: u.File, Name: u.Name, StartLine: u.StartLine, EndLine: u.EndLine}
+		c.Occurrences[i] = occurrence(u)
 	}
-	for _, d := range clone.Differences(g) {
-		c.Differences = append(c.Differences, Difference{
-			Kind:   leafKindNames[d.Kind],
-			Values: d.Values,
-			Lines:  d.Lines,
-			Local:  d.Local,
-		})
-		if !d.Local {
-			c.Suggestion.Parameters++
-		}
-	}
+	c.Differences, c.Suggestion = differences(clone.Differences(g))
 	if len(c.Differences) > 0 {
 		c.Kind = renamedClone
 	}
-	if c.Suggestion.Parameters > 0 {
-		c.Suggestion.Action = extractCommon
-	}
 	return c
+}
+
+func nearMissCandidate(language string, nm clone.NearMiss) Candidate {
+	a, b := nm.Units[0], nm.Units[1]
+	c := Candidate{
+		Fingerprint: fmt.Sprintf("%s:%016x-%016x", language, a.Shape, b.Shape),
+		Language:    language,
+		Kind:        nearMiss,
+		Similarity:  math.Round(nm.Similarity*1000) / 1000,
+		Occurrences: []Occurrence{occurrence(a), occurrence(b)},
+		Score: Score{
+			Nodes:           a.Nodes,
+			Lines:           a.EndLine - a.StartLine + 1,
+			Occurrences:     2,
+			DuplicatedNodes: nm.MatchedNodes,
+		},
+	}
+	for i, ranges := range nm.Unmatched {
+		for _, r := range ranges {
+			c.Occurrences[i].UnmatchedLines = append(c.Occurrences[i].UnmatchedLines, [2]int{r.Start, r.End})
+		}
+	}
+	c.Differences, c.Suggestion = differences(nm.Differences)
+	// Code present in only one copy has to become optional in a shared
+	// function, so a near miss is never a plain reuse.
+	c.Suggestion.Action = extractCommon
+	return c
+}
+
+func occurrence(u unit.Unit) Occurrence {
+	return Occurrence{File: u.File, Name: u.Name, StartLine: u.StartLine, EndLine: u.EndLine}
+}
+
+// differences converts differences and derives the suggestion: every
+// non-local difference is a parameter; without parameters, reuse a copy.
+func differences(diffs []clone.Difference) ([]Difference, Suggestion) {
+	out := []Difference{}
+	s := Suggestion{Action: reuseExisting}
+	for _, d := range diffs {
+		out = append(out, Difference{Kind: leafKindNames[d.Kind], Values: d.Values, Lines: d.Lines, Local: d.Local})
+		if !d.Local {
+			s.Parameters++
+		}
+	}
+	if s.Parameters > 0 {
+		s.Action = extractCommon
+	}
+	return out, s
 }
 
 // WriteJSON writes the report as indented JSON.
@@ -154,14 +203,29 @@ func WriteJSON(w io.Writer, r Report) error {
 func WriteText(w io.Writer, r Report) error {
 	var b strings.Builder
 	for _, c := range r.Candidates {
-		fmt.Fprintf(&b, "%s %s: %d copies of %d lines (%d nodes), %s",
-			c.ID, c.Kind, c.Score.Occurrences, c.Score.Lines, c.Score.Nodes, c.Suggestion.Action)
+		fmt.Fprintf(&b, "%s %s", c.ID, c.Kind)
+		if c.Kind == nearMiss {
+			fmt.Fprintf(&b, " (%.0f%% similar)", 100*c.Similarity)
+		}
+		fmt.Fprintf(&b, ": %d copies of %d lines (%d nodes), %s",
+			c.Score.Occurrences, c.Score.Lines, c.Score.Nodes, c.Suggestion.Action)
 		if c.Suggestion.Parameters > 0 {
 			fmt.Fprintf(&b, " with %d parameter(s)", c.Suggestion.Parameters)
 		}
 		b.WriteString("\n")
 		for _, o := range c.Occurrences {
-			fmt.Fprintf(&b, "  %s:%d-%d %s\n", o.File, o.StartLine, o.EndLine, o.Name)
+			fmt.Fprintf(&b, "  %s:%d-%d %s", o.File, o.StartLine, o.EndLine, o.Name)
+			if len(o.UnmatchedLines) > 0 {
+				ranges := make([]string, len(o.UnmatchedLines))
+				for i, r := range o.UnmatchedLines {
+					ranges[i] = fmt.Sprint(r[0])
+					if r[1] != r[0] {
+						ranges[i] += fmt.Sprintf("-%d", r[1])
+					}
+				}
+				fmt.Fprintf(&b, " (unmatched: %s)", strings.Join(ranges, ", "))
+			}
+			b.WriteString("\n")
 		}
 		for _, d := range c.Differences {
 			label := d.Kind

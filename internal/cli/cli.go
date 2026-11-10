@@ -16,6 +16,7 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
 	"github.com/heikki-laitala/ddslop/internal/report"
+	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/source"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
@@ -30,7 +31,8 @@ const (
 const usage = `usage: ddslop [check] [flags] [path]
 
 Finds duplicated Rust functions under path (default ".") and proposes
-refactoring candidates. Generated files are skipped, and so is test code
+refactoring candidates: exact copies, renamed copies, and near-miss copies
+with added, removed or changed statements. Generated files are skipped, and so is test code
 unless --tests is given. Extracted functions are kept in an index at
 <path>/.ddslop/index.db so unchanged files are not parsed again. Files are
 parsed on half the CPU cores; set DDSLOP_INDEX_THREADS to change that. Exits 0 when nothing is found, 1 when candidates
@@ -54,6 +56,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	minNodes := fs.Int("min-nodes", 50, "ignore functions with fewer syntax nodes than this")
 	tests := fs.Bool("tests", false, "include test functions, test modules and test files")
+	minSim := fs.Float64("min-similarity", 0.8, "report near-miss copies at least this similar, above 0 and at most 1")
 	format := fs.String("format", "", `output format, "text" or "json" (default: text on a terminal, json otherwise)`)
 	if err := fs.Parse(args); err != nil {
 		return exitError
@@ -64,6 +67,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		if isTerminal(stdout) {
 			*format = "text"
 		}
+	}
+	if *minSim <= 0 || *minSim > 1 {
+		return fail(stderr, fmt.Errorf("--min-similarity %v is not above 0 and at most 1", *minSim))
 	}
 	if *format != "text" && *format != "json" {
 		return fail(stderr, fmt.Errorf("unknown format %q, want text or json", *format))
@@ -78,7 +84,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, errors.New("expected at most one path"))
 	}
 
-	r, err := check(root, *minNodes, *tests)
+	r, err := check(root, *minNodes, *minSim, *tests)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -96,7 +102,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	return exitClean
 }
 
-func check(root string, minNodes int, tests bool) (report.Report, error) {
+func check(root string, minNodes int, minSim float64, tests bool) (report.Report, error) {
 	paths, err := source.Files(root, ".rs")
 	if err != nil {
 		return report.Report{}, err
@@ -138,7 +144,9 @@ func check(root string, minNodes int, tests bool) (report.Report, error) {
 		}
 	}
 	summary.Units = len(units)
-	return report.Build("rust", clone.Groups(units, minNodes), summary), nil
+	groups := clone.Groups(units, minNodes)
+	nearMisses := clone.NearMisses(units, minNodes, minSim)
+	return report.Build("rust", groups, nearMisses, summary), nil
 }
 
 // indexPath is where the index lives, relative to the analysed root.
@@ -149,6 +157,9 @@ func parseRust(path string, src []byte) (index.Parsed, error) {
 		return index.Parsed{Generated: true}, nil
 	}
 	units, err := rust.Units(path, src)
+	for i := range units {
+		units[i].Signature = similarity.Signature(units[i].Seq)
+	}
 	return index.Parsed{Units: units}, err
 }
 
