@@ -109,6 +109,7 @@ const (
 	nearMiss       = "near-miss"
 	blockClone     = "block-clone"
 	parallelFlow   = "parallel-flow"
+	duplicateType  = "duplicate-type"
 	extractFlow    = "extract-pipeline"
 	reuseExisting  = "reuse-existing"
 	extractCommon  = "extract-common"
@@ -129,6 +130,7 @@ type Findings struct {
 	NearMisses []clone.NearMiss
 	Blocks     []clone.BlockClone
 	Flows      []Flow
+	Structs    []clone.StructGroup
 }
 
 // Flow is a family of features running the same pipeline through
@@ -150,7 +152,7 @@ type FlowStep struct {
 
 // Build turns findings into a report. Candidates are ranked by duplicated
 // nodes, largest first; on ties, they keep this order: groups, near misses,
-// block clones, flows. The summary's candidate count is filled in.
+// block clones, flows, structs. The summary's candidate count is filled in.
 func Build(language string, f Findings, summary Summary) Report {
 	candidates := make([]Candidate, 0, len(f.Groups)+len(f.NearMisses)+len(f.Blocks)+len(f.Flows))
 	for _, g := range f.Groups {
@@ -164,6 +166,9 @@ func Build(language string, f Findings, summary Summary) Report {
 	}
 	for _, fl := range f.Flows {
 		candidates = append(candidates, flowCandidate(language, fl))
+	}
+	for _, s := range f.Structs {
+		candidates = append(candidates, structCandidate(language, s))
 	}
 	candidates = slices.DeleteFunc(candidates, mostlyParameters)
 	slices.SortStableFunc(candidates, func(a, b Candidate) int {
@@ -339,6 +344,31 @@ func flowCandidate(language string, f Flow) Candidate {
 		c.Score.Nodes += s.Units[0].Nodes
 		c.Steps = append(c.Steps, st)
 	}
+	return c
+}
+
+func structCandidate(language string, g clone.StructGroup) Candidate {
+	first := g.Structs[0]
+	h := fnv.New64a()
+	for _, f := range first.Fields {
+		_, _ = h.Write([]byte(f.Name + "\x00"))
+	}
+	c := Candidate{
+		Fingerprint: fmt.Sprintf("%s:type:%016x", language, h.Sum64()),
+		Language:    language,
+		Kind:        duplicateType,
+		Similarity:  1,
+		Score: Score{
+			Nodes:           first.Nodes,
+			Lines:           first.EndLine - first.StartLine + 1,
+			Occurrences:     len(g.Structs),
+			DuplicatedNodes: g.DuplicatedNodes(),
+		},
+	}
+	for _, s := range g.Structs {
+		c.Occurrences = append(c.Occurrences, Occurrence{File: s.File, Name: s.Name, StartLine: s.StartLine, EndLine: s.EndLine})
+	}
+	c.Differences, c.Suggestion = differences(g.Differences)
 	return c
 }
 

@@ -36,13 +36,22 @@ var leafKinds = map[string]unit.LeafKind{
 // Units parses Rust source and returns one unit per function or method, in
 // source order. Functions containing syntax errors are skipped.
 func Units(path string, src []byte) ([]unit.Unit, error) {
+	units, _, err := Parse(path, src)
+	return units, err
+}
+
+// Parse parses Rust source once and returns its units (see Units) and its
+// other declarations, in source order. Declarations inside functions are
+// not seen.
+func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var units []unit.Unit
+	var decls unit.Decls
 	err := parse(src, func(root *sitter.Node) {
 		e := extractor{path: path, src: src}
 		e.walk(root, scope{}, IsTestPath(path))
-		units = e.units
+		units, decls = e.units, e.decls
 	})
-	return units, err
+	return units, decls, err
 }
 
 // Traits returns the names of the traits a file declares, in source order.
@@ -166,6 +175,7 @@ type extractor struct {
 	path  string
 	src   []byte
 	units []unit.Unit
+	decls unit.Decls
 }
 
 // walk finds function items, tracking the enclosing impl or trait name and
@@ -181,6 +191,9 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool) {
 	switch n.Kind() {
 	case "function_item":
 		e.addFunction(n, sc, test)
+		return
+	case "struct_item":
+		e.addStruct(n, test)
 		return
 	case "impl_item":
 		if t := n.ChildByFieldName("type"); t != nil {
@@ -279,6 +292,48 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool) {
 		Trait:     sc.trait,
 		Calls:     s.calls,
 	})
+}
+
+// addStruct records a struct with named fields; unit and tuple structs are
+// left out.
+func (e *extractor) addStruct(n *sitter.Node, test bool) {
+	name, body := n.ChildByFieldName("name"), n.ChildByFieldName("body")
+	if name == nil || body == nil || body.Kind() != "field_declaration_list" || n.HasError() {
+		return
+	}
+	ty := unit.Struct{
+		File:      e.path,
+		Name:      name.Utf8Text(e.src),
+		StartLine: line(n.StartPosition()),
+		EndLine:   line(n.EndPosition()),
+		Nodes:     countNodes(n),
+		Test:      test,
+	}
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		f := body.NamedChild(i)
+		fname, ftype := f.ChildByFieldName("name"), f.ChildByFieldName("type")
+		if f.Kind() != "field_declaration" || fname == nil || ftype == nil {
+			continue
+		}
+		ty.Fields = append(ty.Fields, unit.Field{
+			Name: fname.Utf8Text(e.src),
+			Type: strings.Join(strings.Fields(ftype.Utf8Text(e.src)), ""),
+			Line: line(f.StartPosition()),
+		})
+	}
+	e.decls.Structs = append(e.decls.Structs, ty)
+}
+
+// countNodes counts the syntax nodes of a subtree, comments left out.
+func countNodes(n *sitter.Node) int {
+	if n.IsExtra() {
+		return 0
+	}
+	count := 1
+	for i := uint(0); i < n.ChildCount(); i++ {
+		count += countNodes(n.Child(i))
+	}
+	return count
 }
 
 // shaper flattens a subtree into a symbol sequence and collects its

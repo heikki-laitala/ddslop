@@ -370,6 +370,7 @@ func check(root string, opts options) (report.Report, error) {
 
 	summary := report.Summary{ParsedFiles: stats.Parsed, UnchangedFiles: stats.Unchanged}
 	var units []unit.Unit
+	var structs []unit.Struct
 	for _, f := range files {
 		if f.Generated {
 			summary.GeneratedFiles++
@@ -382,6 +383,11 @@ func check(root string, opts options) (report.Report, error) {
 				continue
 			}
 			units = append(units, u)
+		}
+		for _, s := range f.Decls.Structs {
+			if !s.Test || opts.tests {
+				structs = append(structs, s)
+			}
 		}
 	}
 	summary.Units = len(units)
@@ -408,8 +414,18 @@ func check(root string, opts options) (report.Report, error) {
 	}
 	blocks := clone.BlockClones(units, max(opts.minBlockNodes, opts.minNodes), reported)
 	flows := parallelFlows(root, files, opts.minNodes)
-	return report.Build("rust", report.Findings{Groups: groups, NearMisses: nearMisses, Blocks: blocks, Flows: flows}, summary), nil
+	return report.Build("rust", report.Findings{
+		Groups: groups, NearMisses: nearMisses, Blocks: blocks, Flows: flows,
+		Structs: clone.Structs(structs, minStructFields),
+	}, summary), nil
 }
+
+// minStructFields is the fewest fields a struct needs to be compared with
+// others. Measured on a 735k-line Rust codebase: two-field structs
+// sharing names were mostly coincidences (host and port, key and value);
+// from three fields on they were copies of one type in several services,
+// or a wire type mirroring a domain type.
+const minStructFields = 3
 
 // parallelFlowOptions compare feature slices. Measured on a 735k-line Rust
 // codebase: pairs of features with 4 or more matched steps covering a fifth
@@ -494,6 +510,9 @@ func loadFiles(db *index.DB) ([]index.File, error) {
 		for j := range f.Units {
 			files[i].Units[j].Test = true
 		}
+		for j := range f.Decls.Structs {
+			files[i].Decls.Structs[j].Test = true
+		}
 	}
 	return files, nil
 }
@@ -518,11 +537,11 @@ func parseRust(path string, src []byte) (index.Parsed, error) {
 		// as OpenAPI server traits) mark the entry points of features.
 		return index.Parsed{Generated: true, Traits: rust.Traits(src)}, nil
 	}
-	units, err := rust.Units(path, src)
+	units, decls, err := rust.Parse(path, src)
 	for i := range units {
 		units[i].Signature = similarity.Signature(units[i].Seq)
 	}
-	parsed := index.Parsed{Units: units, Traits: rust.Traits(src), TestModules: rust.TestModules(src)}
+	parsed := index.Parsed{Units: units, Decls: decls, Traits: rust.Traits(src), TestModules: rust.TestModules(src)}
 	if !rust.IsTestPath(path) {
 		// Test files' imports are not dependencies of the code.
 		parsed.Imports = rust.Imports(src)

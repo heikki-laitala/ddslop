@@ -112,3 +112,26 @@ func SimpleName(path string) string {
 	}
 	return strings.TrimSpace(path)
 }
+
+// Decls are a file's declarations other than functions.
+type Decls struct {
+	Structs []Struct
+}
+
+// Struct is a struct with named fields.
+type Struct struct {
+	File               string
+	Name               string
+	StartLine, EndLine int
+	// Nodes is the number of syntax nodes in the declaration.
+	Nodes  int
+	Fields []Field
+	Test   bool
+}
+
+// Field is one named field of a struct, with its type as written, without
+// whitespace.
+type Field struct {
+	Name, Type string
+	Line       int
+}
