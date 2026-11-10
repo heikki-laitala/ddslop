@@ -50,8 +50,9 @@ go install github.com/heikki-laitala/ddslop@latest
 
 or clone the repository and run `make build` (binary in `bin/ddslop`).
 
-Once releases are published (none yet), the install script fetches a
-prebuilt binary for Linux or macOS, x86_64 or aarch64:
+The install script fetches a prebuilt binary of the latest
+[release](https://github.com/heikki-laitala/ddslop/releases) for Linux or
+macOS, x86_64 or aarch64:
 
 ```sh
 curl -sSfL https://raw.githubusercontent.com/heikki-laitala/ddslop/main/install.sh | bash
