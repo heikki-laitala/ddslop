@@ -106,8 +106,23 @@ func TestAlignMatchesDynamicProgrammingOracle(t *testing.T) {
 			t.Fatalf("Align(%v, %v, 0) not ok", a, b)
 		}
 		checkMatches(t, a, b, matches)
-		if want := lcsLength(a, b); len(matches) != want {
+		want := lcsLength(a, b)
+		if len(matches) != want {
 			t.Fatalf("Align(%v, %v) found %d matches, LCS is %d", a, b, len(matches), want)
+		}
+		total := len(a) + len(b)
+		wantSim := 1.0
+		if total > 0 {
+			wantSim = 2 * float64(want) / float64(total)
+		}
+		if sim, ok := Similar(a, b, 0); !ok || sim != wantSim {
+			t.Fatalf("Similar(%v, %v) = %v, %v; want %v, true", a, b, sim, ok, wantSim)
+		}
+		// A threshold just above the true similarity must reject the pair.
+		if wantSim < 1 {
+			if _, ok := Similar(a, b, wantSim+0.01); ok {
+				t.Fatalf("Similar(%v, %v) accepted a threshold above %v", a, b, wantSim)
+			}
 		}
 	}
 }

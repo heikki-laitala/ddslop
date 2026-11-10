@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"hash/fnv"
 	"slices"
+	"sync"
 
 	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/unit"
@@ -55,9 +56,10 @@ type pair struct {
 // misses of each other: similarity at least minSim and values agreeing at
 // least minAgreement, ignoring units smaller than minNodes. Each shape is
 // represented by its first unit, so a group of exact copies takes part
-// once. Families are ordered by shared size, largest first, then by
-// location.
-func NearMisses(units []unit.Unit, minNodes int, minSim float64) []NearMiss {
+// once. Candidate pairs are verified on threads goroutines; the result
+// does not depend on the thread count. Families are ordered by shared
+// size, largest first, then by location.
+func NearMisses(units []unit.Unit, minNodes int, minSim float64, threads int) []NearMiss {
 	reps := representatives(units, minNodes)
 	sigs := make([][]uint64, len(reps))
 	for i, u := range reps {
@@ -67,20 +69,31 @@ func NearMisses(units []unit.Unit, minNodes int, minSim float64) []NearMiss {
 		}
 	}
 
-	pairs := map[[2]int]pair{}
-	var edges []edge
-	for _, c := range similarity.Candidates(sigs) {
+	candidates := similarity.Candidates(sigs)
+	verified := make([]*pair, len(candidates))
+	weights := make([]int, len(candidates))
+	parallel(len(candidates), threads, func(i int) {
+		c := candidates[i]
 		a, b := reps[c[0]], reps[c[1]]
 		matches, sim, ok := alignUnits(a, b, minSim)
 		if !ok {
-			continue
+			return
 		}
 		nm := nearMiss(a, []unit.Unit{b}, [][]similarity.Match{matches}, []float64{sim})
 		if nm.Agreement < minAgreement {
-			continue
+			return
 		}
-		pairs[c] = pair{c[0], c[1], matches, sim}
-		edges = append(edges, edge{c[0], c[1], nm.MatchedNodes})
+		verified[i] = &pair{c[0], c[1], matches, sim}
+		weights[i] = nm.MatchedNodes
+	})
+
+	pairs := map[[2]int]pair{}
+	var edges []edge
+	for i, p := range verified {
+		if p != nil {
+			pairs[candidates[i]] = *p
+			edges = append(edges, edge{p.a, p.b, weights[i]})
+		}
 	}
 
 	var out []NearMiss
@@ -105,6 +118,26 @@ func NearMisses(units []unit.Unit, minNodes int, minSim float64) []NearMiss {
 		return compareLocation(x.Units[0], y.Units[0])
 	})
 	return out
+}
+
+// parallel calls fn(0) .. fn(n-1) on up to threads goroutines.
+func parallel(n, threads int, fn func(i int)) {
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for range max(threads, 1) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				fn(i)
+			}
+		}()
+	}
+	for i := range n {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
 }
 
 // representatives returns the first unit, by location, of every shape with
@@ -139,7 +172,7 @@ const valueSlack = 0.2
 // renamed and changed values (see alignGap). If names and values differ too
 // much to anchor, the structural alignment is used.
 func alignUnits(a, b unit.Unit, minSim float64) ([]similarity.Match, float64, bool) {
-	structural, sim, ok := similarity.Align(a.Seq, b.Seq, minSim)
+	sim, ok := similarity.Similar(a.Seq, b.Seq, minSim)
 	if !ok {
 		return nil, 0, false
 	}
@@ -147,6 +180,7 @@ func alignUnits(a, b unit.Unit, minSim float64) ([]similarity.Match, float64, bo
 	posB, valB := leafValues(b)
 	anchors, _, ok := similarity.Align(valA, valB, max(minSim-valueSlack, 0))
 	if !ok {
+		structural, _, _ := similarity.Align(a.Seq, b.Seq, minSim)
 		return structural, sim, true
 	}
 

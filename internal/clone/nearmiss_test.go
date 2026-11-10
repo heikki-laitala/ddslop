@@ -64,7 +64,7 @@ func TestNearMissFindsCopyWithExtraStatementAndChangedValue(t *testing.T) {
 	a := build("a.rs", 10, body(0, "", "")...)
 	b := build("b.rs", 100, body(6, "call i=log l=\"debug\" }", "42")...)
 
-	got := NearMisses([]unit.Unit{b, a}, 20, 0.8)
+	got := NearMisses([]unit.Unit{b, a}, 20, 0.8, 1)
 
 	if len(got) != 1 {
 		t.Fatalf("got %d near misses, want 1", len(got))
@@ -105,12 +105,12 @@ func TestNearMissIgnoresUnrelatedExactAndSmallUnits(t *testing.T) {
 	unrelated := build("u.rs", 1, "fn d=other block", "match i=x arm l=1 } arm l=2 } }", "loop if i=y break } } }", "} }")
 	exactCopy := build("c.rs", 1, body(0, "", "")...)
 
-	if got := NearMisses([]unit.Unit{a, unrelated, exactCopy}, 20, 0.8); len(got) != 0 {
+	if got := NearMisses([]unit.Unit{a, unrelated, exactCopy}, 20, 0.8, 1); len(got) != 0 {
 		t.Errorf("got %d near misses, want none: unrelated units differ and exact copies are not near misses", len(got))
 	}
 
 	b := build("b.rs", 1, body(6, "call i=log l=\"debug\" }", "")...)
-	if got := NearMisses([]unit.Unit{a, b}, a.Nodes+1, 0.8); len(got) != 0 {
+	if got := NearMisses([]unit.Unit{a, b}, a.Nodes+1, 0.8, 1); len(got) != 0 {
 		t.Errorf("got %d near misses below min nodes, want none", len(got))
 	}
 }
@@ -121,7 +121,7 @@ func TestNearMissUsesOneRepresentativePerShape(t *testing.T) {
 	a3 := build("a3.rs", 1, body(0, "", "")...)
 	b := build("b.rs", 1, body(6, "call i=log l=\"debug\" }", "")...)
 
-	got := NearMisses([]unit.Unit{a3, b, a2, a1}, 20, 0.8)
+	got := NearMisses([]unit.Unit{a3, b, a2, a1}, 20, 0.8, 1)
 
 	if len(got) != 1 || got[0].Units[0].File != "a1.rs" {
 		t.Errorf("near misses = %d, first = %v; want one pair using a1.rs for its shape", len(got), got)
@@ -168,7 +168,7 @@ func TestNearMissesDropLookalikes(t *testing.T) {
 		t.Fatalf("lookalike similarity = %v; the test needs it above the 0.8 threshold", sim)
 	}
 
-	if got := NearMisses([]unit.Unit{a, lookalike()}, 20, 0.8); len(got) != 0 {
+	if got := NearMisses([]unit.Unit{a, lookalike()}, 20, 0.8, 1); len(got) != 0 {
 		t.Errorf("got %d near misses, want none: the lookalike shares structure but not values", len(got))
 	}
 }
@@ -180,7 +180,7 @@ func TestNearMissFamilyAroundAnchor(t *testing.T) {
 	cLines = append(cLines[:5], cLines[6:]...) // drop statement 5 (line 6)
 	c := build("c.rs", 1, cLines...)
 
-	got := NearMisses([]unit.Unit{c, b, a}, 20, 0.8)
+	got := NearMisses([]unit.Unit{c, b, a}, 20, 0.8, 1)
 
 	if len(got) != 1 {
 		t.Fatalf("got %d candidates, want one family", len(got))
@@ -249,5 +249,23 @@ func TestAlignmentStillPairsRenamedValues(t *testing.T) {
 
 	if len(nm.Differences) != 1 || fmt.Sprint(nm.Differences[0].Values) != "[handler other_handler]" || !nm.Differences[0].Local {
 		t.Errorf("differences = %+v, want the local rename handler | other_handler", nm.Differences)
+	}
+}
+
+func TestNearMissesSameResultOnAnyThreadCount(t *testing.T) {
+	var units []unit.Unit
+	for i := range 6 {
+		units = append(units, build(fmt.Sprintf("v%d.rs", i), 1, body(i, "call i=log l=\"debug\" }", fmt.Sprint(40+i))...))
+	}
+	units = append(units, build("base.rs", 1, body(0, "", "")...), lookalike())
+
+	one := fmt.Sprintf("%+v", NearMisses(units, 20, 0.8, 1))
+	four := fmt.Sprintf("%+v", NearMisses(units, 20, 0.8, 4))
+
+	if one != four {
+		t.Errorf("results differ between 1 and 4 threads:\n%s\n%s", one, four)
+	}
+	if one == "[]" {
+		t.Error("no near misses found; the test needs some to compare")
 	}
 }

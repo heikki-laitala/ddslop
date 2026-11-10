@@ -145,7 +145,7 @@ func check(root string, minNodes int, minSim float64, tests bool) (report.Report
 	}
 	summary.Units = len(units)
 	groups := clone.Groups(units, minNodes)
-	nearMisses := clone.NearMisses(units, minNodes, minSim)
+	nearMisses := clone.NearMisses(units, minNodes, minSim, threads)
 	return report.Build("rust", groups, nearMisses, summary), nil
 }
 
