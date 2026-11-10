@@ -36,20 +36,49 @@ var leafKinds = map[string]unit.LeafKind{
 // Units parses Rust source and returns one unit per function or method, in
 // source order. Functions containing syntax errors are skipped.
 func Units(path string, src []byte) ([]unit.Unit, error) {
+	var units []unit.Unit
+	err := parse(src, func(root *sitter.Node) {
+		e := extractor{path: path, src: src}
+		e.walk(root, scope{}, isTestPath(path))
+		units = e.units
+	})
+	return units, err
+}
+
+// Traits returns the names of the traits a file declares, in source order.
+func Traits(src []byte) []string {
+	var names []string
+	_ = parse(src, func(root *sitter.Node) {
+		var walk func(n *sitter.Node)
+		walk = func(n *sitter.Node) {
+			if n.Kind() == "trait_item" {
+				if name := n.ChildByFieldName("name"); name != nil {
+					names = append(names, name.Utf8Text(src))
+				}
+			}
+			for i := uint(0); i < n.ChildCount(); i++ {
+				walk(n.Child(i))
+			}
+		}
+		walk(root)
+	})
+	return names
+}
+
+// parse parses Rust source and calls use with the root of its syntax tree.
+func parse(src []byte, use func(root *sitter.Node)) error {
 	parser := sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(language); err != nil {
-		return nil, err
+		return err
 	}
 	tree := parser.Parse(src, nil)
 	if tree == nil {
-		return nil, errors.New("rust: parser returned no tree")
+		return errors.New("rust: parser returned no tree")
 	}
 	defer tree.Close()
-
-	e := extractor{path: path, src: src}
-	e.walk(tree.RootNode(), "", isTestPath(path))
-	return e.units, nil
+	use(tree.RootNode())
+	return nil
 }
 
 type extractor struct {
@@ -61,19 +90,30 @@ type extractor struct {
 // walk finds function items, tracking the enclosing impl or trait name and
 // whether the code is test code. Attributes are siblings that come just
 // before the item they apply to.
-func (e *extractor) walk(n *sitter.Node, owner string, test bool) {
+// scope is what encloses a function: the type or trait owning it and,
+// inside a trait impl, the trait implemented.
+type scope struct {
+	owner, trait string
+}
+
+func (e *extractor) walk(n *sitter.Node, sc scope, test bool) {
 	switch n.Kind() {
 	case "function_item":
-		e.addFunction(n, owner, test)
+		e.addFunction(n, sc, test)
 		return
-	case "impl_item", "trait_item":
-		field := "type"
-		if n.Kind() == "trait_item" {
-			field = "name"
+	case "impl_item":
+		if t := n.ChildByFieldName("type"); t != nil {
+			sc.owner = t.Utf8Text(e.src)
 		}
-		if t := n.ChildByFieldName(field); t != nil {
-			owner = t.Utf8Text(e.src)
+		sc.trait = ""
+		if t := n.ChildByFieldName("trait"); t != nil {
+			sc.trait = simpleName(t.Utf8Text(e.src))
 		}
+	case "trait_item":
+		if t := n.ChildByFieldName("name"); t != nil {
+			sc.owner = t.Utf8Text(e.src)
+		}
+		sc.trait = ""
 	}
 	var attrs []string
 	for i := uint(0); i < n.ChildCount(); i++ {
@@ -92,7 +132,7 @@ func (e *extractor) walk(n *sitter.Node, owner string, test bool) {
 		case "mod_item":
 			childTest = test || slices.ContainsFunc(attrs, isCfgTest)
 		}
-		e.walk(child, owner, childTest)
+		e.walk(child, sc, childTest)
 		attrs = nil
 	}
 }
@@ -129,7 +169,20 @@ func isTestPath(path string) bool {
 	return parts[len(parts)-1] == "tests.rs"
 }
 
-func (e *extractor) addFunction(n *sitter.Node, owner string, test bool) {
+// simpleName reduces a type or trait path to its last segment without
+// generic arguments: "fmt::Display" and "From<T>" become "Display", "From".
+func simpleName(path string) string {
+	if i := strings.Index(path, "<"); i >= 0 {
+		path = path[:i]
+	}
+	if i := strings.LastIndex(path, "::"); i >= 0 {
+		path = path[i+2:]
+	}
+	return strings.TrimSpace(path)
+}
+
+func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool) {
+	owner := sc.owner
 	if n.HasError() {
 		return
 	}
@@ -154,6 +207,8 @@ func (e *extractor) addFunction(n *sitter.Node, owner string, test bool) {
 		Seq:       s.seq,
 		SeqLines:  s.lines,
 		Blocks:    s.blocks,
+		Trait:     sc.trait,
+		Calls:     s.calls,
 	})
 }
 
@@ -166,6 +221,39 @@ type shaper struct {
 	seq    []uint32
 	lines  []int
 	blocks [][]unit.Statement
+	calls  []unit.Call
+}
+
+// recordCall notes a call expression by the shape of its function.
+func (s *shaper) recordCall(n *sitter.Node) {
+	fn := n.ChildByFieldName("function")
+	for fn != nil && fn.Kind() == "generic_function" {
+		fn = fn.ChildByFieldName("function") // turbofish: f::<T>(...)
+	}
+	if fn == nil {
+		return
+	}
+	c := unit.Call{Line: line(n.StartPosition())}
+	switch fn.Kind() {
+	case "identifier":
+		c.Kind, c.Name = unit.FreeCall, fn.Utf8Text(s.src)
+	case "scoped_identifier":
+		c.Kind = unit.PathCall
+		if name := fn.ChildByFieldName("name"); name != nil {
+			c.Name = name.Utf8Text(s.src)
+		}
+		if path := fn.ChildByFieldName("path"); path != nil {
+			c.Qualifier = path.Utf8Text(s.src)
+		}
+	case "field_expression":
+		c.Kind = unit.MethodCall
+		if field := fn.ChildByFieldName("field"); field != nil {
+			c.Name = field.Utf8Text(s.src)
+		}
+	default:
+		return // closures and other callees are not resolved by name
+	}
+	s.calls = append(s.calls, c)
 }
 
 func (s *shaper) emit(sym uint32, line int) {
@@ -198,6 +286,9 @@ func (s *shaper) visit(n *sitter.Node, declares bool) {
 		return
 	}
 	s.emit(kindSymbol(n.Kind()), line(n.StartPosition()))
+	if n.Kind() == "call_expression" {
+		s.recordCall(n)
+	}
 	block := -1
 	if n.Kind() == "block" {
 		block = len(s.blocks)

@@ -34,6 +34,30 @@ type Unit struct {
 	// blocks, in pre-order), its statements in order. Copied blocks inside
 	// larger functions are found as repeated runs of statements.
 	Blocks [][]Statement
+	// Trait is the trait an enclosing impl block implements, if any.
+	Trait string
+	// Calls are the unit's call sites, in source order.
+	Calls []Call
+}
+
+// CallKind says how a call names its callee.
+type CallKind int
+
+// Call kinds.
+const (
+	FreeCall   CallKind = iota + 1 // foo(...)
+	PathCall                       // Type::foo(...), module::foo(...), Self::foo(...)
+	MethodCall                     // value.foo(...)
+)
+
+// Call is one call site. Calls are resolved to units by name, so they are
+// approximate: dynamic dispatch and calls inside macros are not seen.
+type Call struct {
+	Kind CallKind
+	// Qualifier is the path before the name of a path call, as written.
+	Qualifier string
+	Name      string
+	Line      int
 }
 
 // Statement is one statement of a block, as positions in its unit.
