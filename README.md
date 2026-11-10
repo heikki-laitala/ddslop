@@ -1,19 +1,43 @@
 # ddslop
 
-ddslop finds duplicated code and proposes refactoring candidates. It is
-built for code written by AI agents, which regenerate rather than copy:
-helpers re-implemented instead of reused, near-identical functions from
-separate sessions, blocks of statements copied into larger functions,
-types and constants declared again. It also finds code to simplify:
-unused public helpers, wrappers that only forward their arguments, and
-traits with a single implementation.
+**Find the duplicated and dead code AI agents leave behind, and hand the
+agent a fix it can apply.**
 
-Its output is meant for coding agents (Claude Code, Codex, Copilot): JSON
-with exact file paths and line ranges, what differs between the copies,
-and a concrete suggestion. ddslop never edits source files.
+Coding agents regenerate rather than reuse. Each session that cannot see
+the helper written in the last one writes it again, a little differently:
+a second `load_user`, a struct copied into another service, a constant
+declared twice, a wrapper around a function that already existed, a trait
+for a type that only ever has one implementation. Linters see none of it,
+because each copy is valid code. Over a few hundred sessions it adds up to
+a codebase that is larger, slower to change and harder for the next agent
+to read.
 
-Rust is supported today; Go and TypeScript are planned. ddslop runs on
-Linux and macOS.
+ddslop finds that slop and turns it into refactoring candidates written
+for the agent: exact file paths and line ranges, what differs between the
+copies, which differences become parameters, and the action to take.
+**No LLM, no embeddings, no API keys, no network calls.** It parses the
+code with tree-sitter, keeps an index on disk, and runs locally in about
+a second.
+
+**Measured on a 733k-line Rust workspace** (cold run 9.7 s, warm run 1.5 s
+on 12 cores), ddslop reported 713 candidates:
+
+| What it found | Count | Example |
+| --- | ---: | --- |
+| Functions copied exactly or with renames | 226 | the same row loader in two services |
+| Near-miss families (copies that drifted) | 189 | eight handlers with one statement more or less each |
+| Blocks copied inside larger functions | 131 | a 46-node connection guard pasted into 27 methods |
+| Features running the same pipeline | 8 | endpoints repeating decode → authorise → store → respond step by step |
+| Structs with the same fields | 31 | one config type declared again in a second service |
+| Constants declared twice or written inline | 104 | a field name written out 25 times next to its constant |
+| Public functions nothing uses | 6 | helpers no file mentions anywhere else, checked with grep |
+| Wrappers that only forward their arguments | 15 | `find_user(id)` whose whole body is `load_user(id)` |
+| Traits with a single implementation | 3 | a store trait implemented by one session type, no test double |
+
+Works with **Claude Code**, **Codex** and **Copilot** through a skill that
+`ddslop init` installs: the agent runs ddslop before it finishes a change,
+when you ask it to clean up, and before it writes a new helper. Rust is
+supported today; Go and TypeScript are planned. Runs on Linux and macOS.
 
 ## Install
 
@@ -46,6 +70,9 @@ ddslop init     # skill for Claude Code, CLAUDE.md section, .gitignore, index
 ddslop check    # report duplicated code
 ```
 
+Then ask your agent to clean up: the skill tells it how to read each kind
+of candidate and when to leave copies alone.
+
 `ddslop check` prints text in a terminal and JSON when piped. Exit codes:
 0 nothing found, 1 candidates found, 2 error.
 
@@ -58,9 +85,12 @@ ddslop check --diff origin/main   # everything on this branch
 
 The whole repository is still analysed, so new code is compared against
 all existing code, but only candidates touching changed lines are
-reported, and the changed copies are marked `"changed": true`.
+reported, and the changed copies are marked `"changed": true`. This is
+the check that stops an agent adding the next copy.
 
 ## What it finds
+
+Duplication:
 
 | Kind | Meaning | Suggestion |
 | --- | --- | --- |
@@ -72,16 +102,17 @@ reported, and the changed copies are marked `"changed": true`.
 | `duplicate-type` | structs declaring the same field names (three or more) | `reuse-existing`: keep one type; `extract-common` when field types differ, listed as differences |
 | `duplicate-constant` | a constant declared again with the same name and value | `reuse-existing`: keep one declaration and import it |
 | `inlined-constant` | a string literal repeating the value of a constant in the same crate | `reuse-existing`: use the constant (the `target`) |
+
+Code to simplify:
+
+| Kind | Meaning | Suggestion |
+| --- | --- | --- |
 | `dead-code` | a public function of an unpublished crate whose name appears nowhere else | `delete-dead` |
 | `pass-through` | a function whose body only passes its parameters on to another workspace function | `inline-wrapper`: call the `target` directly |
 | `single-impl-trait` | a trait implemented once, for one of the code's own types, with no test double | `remove-trait`: make its methods the type's own |
 
-Each candidate lists its occurrences and its differences. A difference
-marked `"local": true` is a name each copy declares itself and needs no
-parameter; every other difference is a parameter of the shared code. A
-`parallel-flow` candidate also lists its `steps`: for each role in the
-pipeline, the function that plays it in every feature. A `target` is
-existing code to use instead of the occurrences.
+Every candidate is self-contained, so an agent can act on it without
+another search:
 
 ```json
 {
@@ -101,7 +132,17 @@ existing code to use instead of the occurrences.
 }
 ```
 
-To keep the list worth acting on, ddslop leaves out:
+A difference marked `"local": true` is a name each copy declares itself
+and needs no parameter; every other difference is a parameter of the
+shared code. A `target` is existing code to use instead of the
+occurrences. A `parallel-flow` candidate also lists its `steps`: for each
+role in the pipeline, the function that plays it in every feature.
+Candidates are ranked by how much code the fix removes.
+
+### Built to be trusted
+
+A linter that cries wolf gets ignored, by people and by agents. ddslop
+leaves out:
 
 - generated files (marked `@generated`, "do not edit" or "Generated by" in
   their header comments);
@@ -111,7 +152,32 @@ To keep the list worth acting on, ddslop leaves out:
   block is copied often enough to add up (25 nodes or more, 400
   duplicated nodes in all);
 - near misses whose names and values mostly differ, and candidates that
-  would be mostly parameters: code that shares a shape, not logic.
+  would be mostly parameters: code that shares a shape, not logic;
+- public items of published crates, which are API, and anything the
+  compiler already reports;
+- wrappers around library functions, extension traits on foreign types,
+  and traits a test double implements.
+
+Every threshold was measured on a real codebase before it was set; the
+measurements are in [docs/architecture.md](docs/architecture.md).
+
+## Coding agents
+
+`ddslop init` installs a skill that tells the agent when to run ddslop
+(before finishing a change, when asked to clean up, before writing a new
+helper), how to act on each kind of candidate, and to leave copies that
+are meant to diverge alone:
+
+| Flag | Skill | Instructions |
+| --- | --- | --- |
+| `--claude` (default) | `.claude/skills/ddslop/SKILL.md` | `## ddslop` section in `CLAUDE.md` |
+| `--codex` | `.codex/skills/ddslop/SKILL.md` | `## ddslop` section in `AGENTS.md` |
+| `--copilot` | `.copilot/skills/ddslop/SKILL.md` | `## ddslop` section in `.github/copilot-instructions.md` |
+
+The agent decides when to run it; no hook forces it to stop or continue.
+Running `init` again only updates what changed. When `CLAUDE.md` is a
+symlink to `AGENTS.md`, the section is written once. Add the agent flags
+together to install for several agents.
 
 ## Commands
 
@@ -140,10 +206,9 @@ To keep the list worth acting on, ddslop leaves out:
 | `--diff` | off | only report candidates touching lines changed since this Git ref |
 | `--baseline` | off | do not report duplication recorded in this baseline file |
 
-The index keeps parsed functions between runs, so only changed files are
-parsed again: on a 730k-line Rust codebase the first run takes about 9
-seconds and later runs about 1.5 seconds. Files are parsed on half the CPU
-cores; set `DDSLOP_INDEX_THREADS` to change that.
+The index keeps parsed code between runs, so only changed files are
+parsed again. Files are parsed on half the CPU cores; set
+`DDSLOP_INDEX_THREADS` to change that.
 
 ## Feature flows
 
@@ -162,8 +227,8 @@ OrdersApi::create_order (services/orders/src/api.rs:40-71)
 
 Entry points are methods implementing a trait declared in generated code,
 such as OpenAPI server traits. `check` uses the same map to find
-`parallel-flow` candidates: features that rebuild the same pipeline step
-by step instead of sharing it.
+`parallel-flow` candidates (features that rebuild the same pipeline step
+by step instead of sharing it) and the targets of wrappers.
 
 Calls are resolved by name, without type information, and conservatively:
 a call that could mean several functions is not followed. Bare calls
@@ -171,23 +236,6 @@ leave their crate only through `use` imports, calls into another crate
 need that crate to be a real (non-test) dependency, and common
 standard-library method names are not guessed. Calls through traits,
 closures and macros are not followed.
-
-## Coding agents
-
-`ddslop init` installs a skill that tells the agent when to run ddslop
-(before finishing a change, when asked to clean up, before writing a new
-helper), how to read each kind of candidate, and to leave copies that are
-meant to diverge alone:
-
-| Flag | Skill | Instructions |
-| --- | --- | --- |
-| `--claude` (default) | `.claude/skills/ddslop/SKILL.md` | `## ddslop` section in `CLAUDE.md` |
-| `--codex` | `.codex/skills/ddslop/SKILL.md` | `## ddslop` section in `AGENTS.md` |
-| `--copilot` | `.copilot/skills/ddslop/SKILL.md` | `## ddslop` section in `.github/copilot-instructions.md` |
-
-Running `init` again only updates what changed. When `CLAUDE.md` is a
-symlink to `AGENTS.md`, the section is written once. Add the agent flags
-together to install for several agents.
 
 ## In CI
 
@@ -248,6 +296,15 @@ sequence with names and values blanked out:
 
 See [docs/architecture.md](docs/architecture.md) for the design and the
 measurements behind the thresholds.
+
+## How ddslop differs
+
+| Tool | Approach | What ddslop adds |
+| --- | --- | --- |
+| `dupl` (golangci-lint) | suffix tree over Go syntax trees | values and renames, near misses, suggestions, more languages |
+| jscpd, PMD CPD | token windows, many languages | near misses and drift, matches on whole syntax units, refactoring candidates |
+| `mizchi/similarity` | tree-sitter and tree edit distance | refactoring candidates, agent output, feature flows |
+| Compiler warnings | unused private code | unused public code across a workspace, copies and wrappers |
 
 ## Development
 
