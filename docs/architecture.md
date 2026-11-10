@@ -672,9 +672,9 @@ agent can make the final semantic call.
 - **Diff mode (`--diff <ref>`):** report only candidates touching lines
   changed since `<ref>`, compared against the whole repository. This is the
   main agent workflow: the agent writes code, ddslop reports what it just
-  reinvented, the agent fixes it before opening a PR. Suitable for a CI
-  step on pull requests (`--diff origin/<base>`), and later a Claude Code
-  hook.
+  reinvented, the agent fixes it before opening a PR. The agent runs it
+  through the ddslop skill; it also suits a CI step on pull requests
+  (`--diff origin/<base>`).
 
   As built: changed lines come from `git diff --unified=0 --relative <ref>`
   (committed, staged and unstaged changes), and untracked files count as
@@ -806,8 +806,11 @@ it changes nothing; the section is replaced in place between its heading
 and the next one; an instructions file shared through a symlink
 (`CLAUDE.md` -> `AGENTS.md`) gets one section. The skill tells agents when
 to run ddslop, how to act on each candidate kind, and to skip copies that
-are meant to diverge. Pruner's global installs and prompt hooks are left
-out: a hook only makes sense once diff mode exists.
+are meant to diverge. Pruner's global installs are left out.
+
+Agents use ddslop only through the skill, never through hooks: the agent
+decides when to run it, and nothing forces it to stop or continue. This is
+a deliberate decision, not a missing feature.
 
 Main flags of `check`:
 
@@ -891,7 +894,7 @@ been used in practice:
   journal, `synchronous=NORMAL`). If any file cannot be read or parsed,
   nothing is written and the previous index stays.
 - Changed files are parsed in parallel on half the CPU cores, at least one,
-  so a run from an editor or agent hook leaves CPU headroom.
+  so a run started by an editor or an agent leaves CPU headroom.
   `DDSLOP_INDEX_THREADS` overrides the count.
 - `metadata.version` holds the SHA-256 of the ddslop binary. A different
   binary clears the index, because a new extractor may produce different
@@ -916,9 +919,9 @@ seconds with one, 0.4 seconds after changing one file.
     sarif_file: ddslop.sarif
 ```
 
-For agents, the same command with `--format json` (or a Claude Code hook
-running `ddslop check --diff HEAD --format json`) feeds candidates straight
-back into the coding loop.
+For agents, the skill runs the same command with `--format json` (for
+example `ddslop check --diff HEAD --format json`), feeding candidates
+straight back into the coding loop.
 
 ## Dependencies
 
