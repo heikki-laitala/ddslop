@@ -65,6 +65,74 @@ func Traits(src []byte) []string {
 	return names
 }
 
+// Imports maps each name a file brings into scope with use to the path it
+// refers to: "use a::b::{c, d as e}" gives c -> a::b::c and e -> a::b::d.
+// Wildcard imports are skipped.
+func Imports(src []byte) map[string]string {
+	out := map[string]string{}
+	_ = parse(src, func(root *sitter.Node) {
+		var walk func(n *sitter.Node)
+		walk = func(n *sitter.Node) {
+			if n.Kind() == "use_declaration" {
+				if arg := n.ChildByFieldName("argument"); arg != nil {
+					collectUse(arg, "", src, out)
+				}
+				return
+			}
+			for i := uint(0); i < n.ChildCount(); i++ {
+				walk(n.Child(i))
+			}
+		}
+		walk(root)
+	})
+	return out
+}
+
+// collectUse records the names one use tree imports, prefix being the path
+// of the enclosing list.
+func collectUse(n *sitter.Node, prefix string, src []byte, out map[string]string) {
+	join := func(path string) string {
+		if prefix == "" {
+			return path
+		}
+		return prefix + "::" + path
+	}
+	switch n.Kind() {
+	case "identifier", "scoped_identifier", "crate", "super":
+		path := join(n.Utf8Text(src))
+		out[lastSegment(path)] = path
+	case "self":
+		if prefix != "" {
+			out[lastSegment(prefix)] = prefix // use a::b::{self} imports b
+		}
+	case "use_as_clause":
+		path, alias := n.ChildByFieldName("path"), n.ChildByFieldName("alias")
+		if path != nil && alias != nil {
+			out[alias.Utf8Text(src)] = join(path.Utf8Text(src))
+		}
+	case "scoped_use_list":
+		inner := prefix
+		if path := n.ChildByFieldName("path"); path != nil {
+			inner = join(path.Utf8Text(src))
+		}
+		if list := n.ChildByFieldName("list"); list != nil {
+			collectUse(list, inner, src, out)
+		}
+	case "use_list":
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			collectUse(n.NamedChild(i), prefix, src, out)
+		}
+	}
+}
+
+// lastSegment returns the part of a path after its last "::".
+func lastSegment(path string) string {
+	if i := strings.LastIndex(path, "::"); i >= 0 {
+		return path[i+2:]
+	}
+	return path
+}
+
 // parse parses Rust source and calls use with the root of its syntax tree.
 func parse(src []byte, use func(root *sitter.Node)) error {
 	parser := sitter.NewParser()
