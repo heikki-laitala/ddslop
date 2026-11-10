@@ -787,10 +787,10 @@ ddslop stats [path]          describe the index without updating it
 ddslop status [path]         show what ddslop has installed in a project
 ddslop uninstall [path]      remove the agent integration (--purge: the index too)
 ddslop version               print the version
+ddslop baseline [path]       record current duplication in .ddslop-baseline.json
 ```
 
-Planned: `ddslop baseline` (write current findings to the baseline file)
-and `ddslop explain <id>` (one candidate in full detail).
+Planned: `ddslop explain <id>` (one candidate in full detail).
 
 The project commands follow pruner's CLI. `init` installs, per agent, a
 skill and a `## ddslop` section in the agent's instructions file:
@@ -817,14 +817,14 @@ Main flags of `check`:
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--diff <ref>` | off | only report candidates involving code changed since `<ref>` |
-| `--format` | `text` / `json` | `text`, `json`, `md`, `sarif` |
+| `--format` | `text` / `json` | `text`, `json`, `sarif` (`md` planned) |
 | `--min-similarity` | `0.8` | drop near misses below this similarity |
 | `--min-block-nodes` | `100` | drop copied blocks smaller than this (never below `--min-nodes`) |
 | `--min-near-nodes` | `150` | drop near misses of functions smaller than this (never below `--min-nodes`) |
 | `--min-nodes` | `50` | drop fragments with fewer syntax nodes than this (about 6–8 lines; to be tuned) |
 | `--tests` | off | include test code, which is skipped by default |
 | `--fail-on` | `0` | exit 1 if any candidate scores above this; `never` to only report |
-| `--baseline` | `.ddslop-baseline.json` | ignore findings already recorded there |
+| `--baseline` | off | ignore findings already recorded in this file (`ddslop baseline` writes `.ddslop-baseline.json`) |
 | `--scip` | none | SCIP index for precise flows |
 | `--config` | `.ddslop.yaml` | configuration file |
 | `--lang` | all | restrict to `go`, `ts`, `rust` |
@@ -861,8 +861,16 @@ entry-points:
 
 A linter on a sloppy codebase must not fail every build on day one:
 
-- **Baseline.** `ddslop baseline` records current findings by fingerprint.
-  Later runs only fail on new duplication, while the baseline is paid down.
+- **Baseline.** `ddslop baseline` records current findings, and
+  `check --baseline FILE` reports only new duplication while the baseline is
+  paid down. As built, each entry stores the candidate's occurrences as
+  `file#function`, without line numbers, sorted for clean diffs. A
+  candidate is known when all its occurrences appear together in one
+  entry. Matching on occurrences rather than fingerprints keeps a near-miss
+  family known while it shrinks during cleanup (its anchor and fingerprint
+  change), and reports a new copy of known duplication. Renaming a function
+  makes its duplication look new. The summary counts suppressed candidates
+  as `baselined`.
 - **Diff mode.** `--diff origin/main` in PR pipelines reports only
   duplication the PR introduces, compared against the whole repository.
 - **Suppressions.** `// ddslop:ignore <reason>` before a function or block
@@ -908,16 +916,26 @@ seconds with one, 0.4 seconds after changing one file.
 
 ```yaml
 # GitHub Actions
-- uses: actions/checkout@v4
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
   with:
     fetch-depth: 0                      # needed for --diff
-- run: curl -sSfL https://github.com/heikki-laitala/ddslop/releases/latest/download/ddslop_linux_amd64.tar.gz | tar xz
-- run: ./ddslop check --diff origin/main --format sarif > ddslop.sarif
-- uses: github/codeql-action/upload-sarif@v3
+- run: curl -sSfL https://raw.githubusercontent.com/heikki-laitala/ddslop/main/install.sh | bash -s -- --no-interactive
+- run: >
+    ~/.local/bin/ddslop check --format sarif --baseline .ddslop-baseline.json
+    --diff origin/main . > ddslop.sarif
+- uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
   if: always()
   with:
     sarif_file: ddslop.sarif
 ```
+
+SARIF as built: SARIF 2.1.0 with one rule per candidate kind and one
+warning per candidate. The primary location is the changed copy in diff
+mode (so the annotation lands on the pull request's code) and the first
+copy otherwise; the other copies are related locations, and the
+fingerprint is a partial fingerprint so code scanning tracks a finding
+across commits. Output for a large Rust codebase validates against the
+official schema.
 
 For agents, the skill runs the same command with `--format json` (for
 example `ddslop check --diff HEAD --format json`), feeding candidates

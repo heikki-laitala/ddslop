@@ -93,6 +93,7 @@ tests.
 | Command | What it does |
 | --- | --- |
 | `ddslop check [path]` | report duplicated code (the default command) |
+| `ddslop baseline [path]` | record current duplication in `.ddslop-baseline.json`, so `check --baseline` reports only new duplication |
 | `ddslop index [path]` | build or refresh the index at `.ddslop/index.db` |
 | `ddslop init [path]` | set ddslop up for coding agents |
 | `ddslop stats [path]` | describe the index without updating it |
@@ -104,13 +105,14 @@ tests.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--format` | text on a terminal, JSON otherwise | `text` or `json` |
+| `--format` | text on a terminal, JSON otherwise | `text`, `json` or `sarif` (SARIF 2.1.0 for code scanning) |
 | `--min-nodes` | 50 | ignore functions smaller than this many syntax nodes |
 | `--min-block-nodes` | 100 | ignore copied blocks smaller than this (never below `--min-nodes`) |
 | `--min-near-nodes` | 150 | ignore near misses of functions smaller than this (never below `--min-nodes`) |
 | `--min-similarity` | 0.8 | threshold for near misses |
 | `--tests` | off | include test code |
 | `--diff` | off | only report candidates touching lines changed since this Git ref |
+| `--baseline` | off | do not report duplication recorded in this baseline file |
 
 The index keeps parsed functions between runs, so only changed files are
 parsed again: on a 735k-line Rust codebase a first run takes about 5
@@ -136,20 +138,43 @@ together to install for several agents.
 
 ## In CI
 
-`check` exits 1 when it finds candidates, so it can gate a pipeline. With
-`--diff` against the pull request's base, only new duplication fails it:
+`check` exits 1 when it finds candidates, so it can gate a pipeline. On an
+existing codebase, record what is already there and commit the file:
 
-```yaml
-- uses: actions/checkout@v6
-  with:
-    fetch-depth: 0   # --diff needs the base commit
-- run: curl -sSfL https://raw.githubusercontent.com/heikki-laitala/ddslop/main/install.sh | bash -s -- --no-interactive
-- run: ~/.local/bin/ddslop check --format text --diff origin/${{ github.base_ref }} .
+```sh
+ddslop baseline     # writes .ddslop-baseline.json
 ```
 
-Without `--diff`, the check fails until all existing duplication is
-cleaned up; a baseline file for adopting ddslop on an existing codebase is
-planned.
+`check --baseline .ddslop-baseline.json` then reports only duplication that
+is not in the baseline. Occurrences are recorded by file and function, not
+by line, so unrelated edits do not invalidate it; a known family stays
+known while you clean it up, and a new copy of it is reported. Re-run
+`ddslop baseline` after cleaning up to shrink the file.
+
+With `--format sarif`, results show as annotations on pull requests in
+GitHub code scanning. In diff mode the annotation sits on the changed copy:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write   # upload-sarif
+steps:
+  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    with:
+      fetch-depth: 0   # --diff needs the base commit
+  - run: curl -sSfL https://raw.githubusercontent.com/heikki-laitala/ddslop/main/install.sh | bash -s -- --no-interactive
+  - run: >
+      ~/.local/bin/ddslop check --format sarif --baseline .ddslop-baseline.json
+      --diff origin/${{ github.base_ref }} . > ddslop.sarif
+  - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+    if: always()
+    with:
+      sarif_file: ddslop.sarif
+```
+
+Either `--baseline` or `--diff` alone also works: the baseline gates the
+whole codebase on new duplication, the diff limits a pull request to what
+it changed.
 
 ## How it works
 
