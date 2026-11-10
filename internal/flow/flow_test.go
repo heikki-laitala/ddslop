@@ -246,3 +246,21 @@ func TestCrateNamesComeFromInputsNotDirectories(t *testing.T) {
 		t.Errorf("check calls %s, want %s", got, want)
 	}
 }
+
+func TestOtherCratesMethodsNeedADependency(t *testing.T) {
+	inputs := Inputs{Imports: map[string]map[string]string{
+		// The ledger uses the translation crate somewhere, never the router.
+		"ledger/src/other.rs": {"Engine": "translation::Engine"},
+	}}
+	g := Build(inputs, []unit.Unit{
+		fn("router/src/location.rs", "Location::then"),
+		fn("translation/src/engine.rs", "Engine::encode_frames"),
+		fn("ledger/src/api.rs", "handle",
+			method("", "then"), method("", "encode_frames")),
+	})
+
+	// .then() could be any type's; the router's Location is out of reach.
+	if got := callees(g, "ledger/src/api.rs handle"); got != "[translation/src/engine.rs Engine::encode_frames]" {
+		t.Errorf("handle calls %s, want only the translation crate's encode_frames", got)
+	}
+}

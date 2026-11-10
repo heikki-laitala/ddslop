@@ -35,6 +35,7 @@ type index struct {
 	owned   map[string][]int             // methods by "Owner::method", owner simplified
 	crates  map[string]string            // workspace crate name -> crate directory
 	imports map[string]map[string]string // file -> imported name -> path
+	deps    map[string]map[string]bool   // crate directory -> workspace crates it imports from
 }
 
 // Inputs are what call resolution needs besides the units.
@@ -67,6 +68,19 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		ix.owned[owner+"::"+name] = append(ix.owned[owner+"::"+name], i)
 	}
 
+	ix.deps = map[string]map[string]bool{}
+	for file, imported := range in.Imports {
+		crate := CrateOf(file)
+		for _, path := range imported {
+			if dir, ok := ix.crates[firstSegment(path)]; ok && dir != crate {
+				if ix.deps[crate] == nil {
+					ix.deps[crate] = map[string]bool{}
+				}
+				ix.deps[crate][dir] = true
+			}
+		}
+	}
+
 	g := &Graph{Units: units, Callees: make([][]int, len(units))}
 	for i, u := range units {
 		owner, _ := split(u.Name)
@@ -96,7 +110,7 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 			typ = owner
 		}
 		if cands := ix.owned[typ+"::"+c.Name]; len(cands) > 0 {
-			return pick(units, caller, cands)
+			return ix.pick(units, caller, cands)
 		}
 		if !isModule(typ) {
 			return -1 // a type defined elsewhere, such as Utc::now
@@ -112,12 +126,12 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 		return pickLocal(units, caller, ix.free[c.Name])
 	case unit.MethodCall:
 		if c.Qualifier == "self" && owner != "" {
-			return pick(units, caller, ix.owned[owner+"::"+c.Name])
+			return ix.pick(units, caller, ix.owned[owner+"::"+c.Name])
 		}
 		if stdMethods[c.Name] {
 			return -1 // most likely a standard-library method
 		}
-		return pick(units, caller, ix.methods[c.Name])
+		return ix.pick(units, caller, ix.methods[c.Name])
 	}
 	return -1
 }
@@ -156,13 +170,15 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 }
 
 // pick chooses among candidates the one in the caller's file, else the
-// only one in the caller's crate, else the only one at all; -1 when the
-// best tier is empty everywhere or ambiguous.
-func pick(units []unit.Unit, caller unit.Unit, cands []int) int {
+// only one in the caller's crate, else the only one in a workspace crate
+// the caller's crate imports from; -1 when the best tier is empty or
+// ambiguous. Code cannot call into a crate it does not depend on.
+func (ix index) pick(units []unit.Unit, caller unit.Unit, cands []int) int {
 	if u := pickLocal(units, caller, cands); u >= 0 {
 		return u
 	}
-	return only(units, cands, func(unit.Unit) bool { return true })
+	deps := ix.deps[CrateOf(caller.File)]
+	return only(units, cands, func(u unit.Unit) bool { return deps[CrateOf(u.File)] })
 }
 
 // pickLocal chooses the candidate in the caller's file, else the only one
