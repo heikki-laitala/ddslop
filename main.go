@@ -1,7 +1,12 @@
+// Command ddslop finds duplicated code and proposes refactoring candidates.
 package main
 
-import "fmt"
+import (
+	"os"
+
+	"github.com/heikki-laitala/ddslop/internal/cli"
+)
 
 func main() {
-	fmt.Println("ddslop")
+	os.Exit(cli.Run(os.Args[1:], os.Stdout, os.Stderr))
 }

@@ -1,0 +1,271 @@
+package cli
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// Two functions with the same structure: names, a literal and a called
+// method differ, and the parameter names are local renames.
+const users = `pub fn load_user(db: &Db, user_id: u64) -> Result<User, Error> {
+    let row = db.query("SELECT * FROM users WHERE id = $1", &[&user_id])?;
+    let name: String = row.get(0);
+    let email: String = row.get(1);
+    if name.is_empty() {
+        return Err(Error::NotFound(user_id));
+    }
+    Ok(User { name, email })
+}
+`
+
+const orders = `pub fn load_order(db: &Db, order_id: u64) -> Result<User, Error> {
+    let row = db.query("SELECT * FROM orders WHERE id = $1", &[&order_id])?;
+    let name: String = row.get(0);
+    let email: String = row.get(1);
+    if name.is_empty() {
+        return Err(Error::NotFound(order_id));
+    }
+    Ok(User { name, email })
+}
+`
+
+const unrelated = `pub fn add(a: u32, b: u32) -> u32 {
+    a + b
+}
+`
+
+func repo(t *testing.T, files map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	for name, content := range files {
+		p := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func run(args ...string) (code int, stdout, stderr string) {
+	var out, errOut bytes.Buffer
+	code = Run(args, &out, &errOut)
+	return code, out.String(), errOut.String()
+}
+
+type jsonReport struct {
+	Candidates []struct {
+		ID          string `json:"id"`
+		Fingerprint string `json:"fingerprint"`
+		Language    string `json:"language"`
+		Kind        string `json:"kind"`
+		Occurrences []struct {
+			File      string `json:"file"`
+			Name      string `json:"name"`
+			StartLine int    `json:"start_line"`
+			EndLine   int    `json:"end_line"`
+		} `json:"occurrences"`
+		Differences []struct {
+			Kind   string   `json:"kind"`
+			Values []string `json:"values"`
+			Lines  [][]int  `json:"lines"`
+			Local  bool     `json:"local"`
+		} `json:"differences"`
+		Suggestion struct {
+			Action     string `json:"action"`
+			Parameters int    `json:"parameters"`
+		} `json:"suggestion"`
+		Score struct {
+			Nodes           int `json:"nodes"`
+			Lines           int `json:"lines"`
+			Occurrences     int `json:"occurrences"`
+			DuplicatedNodes int `json:"duplicated_nodes"`
+		} `json:"score"`
+	} `json:"candidates"`
+	Summary struct {
+		Files      int `json:"files"`
+		Units      int `json:"units"`
+		Candidates int `json:"candidates"`
+	} `json:"summary"`
+}
+
+func decode(t *testing.T, stdout string) jsonReport {
+	t.Helper()
+	var r jsonReport
+	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, stdout)
+	}
+	return r
+}
+
+func TestCheckReportsRenamedCloneAsJSON(t *testing.T) {
+	root := repo(t, map[string]string{
+		"src/users.rs":  users,
+		"src/orders.rs": orders,
+		"src/math.rs":   unrelated,
+	})
+
+	code, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", root)
+
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1 (candidates found); stderr: %s", code, stderr)
+	}
+	r := decode(t, stdout)
+	if r.Summary.Files != 3 || r.Summary.Units != 3 || r.Summary.Candidates != 1 {
+		t.Errorf("summary = %+v, want 3 files, 3 units, 1 candidate", r.Summary)
+	}
+	if len(r.Candidates) != 1 {
+		t.Fatalf("got %d candidates, want 1", len(r.Candidates))
+	}
+	c := r.Candidates[0]
+	if c.ID != "c1" || c.Language != "rust" || c.Kind != "renamed-clone" {
+		t.Errorf("candidate = %s/%s/%s, want c1/rust/renamed-clone", c.ID, c.Language, c.Kind)
+	}
+	if !strings.HasPrefix(c.Fingerprint, "rust:") {
+		t.Errorf("fingerprint = %q, want rust:<hash>", c.Fingerprint)
+	}
+	if len(c.Occurrences) != 2 {
+		t.Fatalf("occurrences = %+v, want 2", c.Occurrences)
+	}
+	o := c.Occurrences[0]
+	if o.File != filepath.Join("src", "orders.rs") || o.Name != "load_order" || o.StartLine != 1 || o.EndLine != 9 {
+		t.Errorf("first occurrence = %+v, want src/orders.rs load_order 1-9", o)
+	}
+
+	// The literal differs: a real parameter. The parameter names and the
+	// function names are local renames.
+	var params, locals int
+	for _, d := range c.Differences {
+		if d.Local {
+			locals++
+			continue
+		}
+		params++
+		if d.Kind != "literal" || !strings.Contains(d.Values[0], "orders") || !strings.Contains(d.Values[1], "users") {
+			t.Errorf("unexpected parameter difference %+v", d)
+		}
+		if len(d.Lines) != 2 || d.Lines[0][0] != 2 {
+			t.Errorf("difference lines = %v, want line 2 in each copy", d.Lines)
+		}
+	}
+	if params != 1 || locals != 2 {
+		t.Errorf("got %d parameter and %d local differences, want 1 and 2", params, locals)
+	}
+	if c.Suggestion.Action != "extract-common" || c.Suggestion.Parameters != 1 {
+		t.Errorf("suggestion = %+v, want extract-common with 1 parameter", c.Suggestion)
+	}
+	if c.Score.Occurrences != 2 || c.Score.Lines != 9 || c.Score.Nodes == 0 || c.Score.DuplicatedNodes != c.Score.Nodes {
+		t.Errorf("score = %+v", c.Score)
+	}
+}
+
+func TestCheckSuggestsReuseForExactCopies(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": users})
+
+	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	c := decode(t, stdout).Candidates[0]
+	if c.Kind != "exact-clone" || c.Suggestion.Action != "reuse-existing" || c.Suggestion.Parameters != 0 {
+		t.Errorf("candidate = %s, %+v; want exact-clone with reuse-existing", c.Kind, c.Suggestion)
+	}
+	if len(c.Differences) != 0 {
+		t.Errorf("exact copies have differences: %+v", c.Differences)
+	}
+}
+
+func TestCheckWithoutDuplicatesExitsZero(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": unrelated})
+
+	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if r := decode(t, stdout); len(r.Candidates) != 0 || r.Summary.Units != 2 {
+		t.Errorf("report = %+v, want no candidates and 2 units", r)
+	}
+}
+
+func TestCheckRespectsMinNodes(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": orders})
+
+	code, _, _ := run("check", "--format", "json", "--min-nodes", "100000", root)
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0 when every unit is below --min-nodes", code)
+	}
+}
+
+func TestCheckTextFormat(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": orders})
+
+	code, stdout, _ := run("check", "--format", "text", "--min-nodes", "20", root)
+
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	for _, want := range []string{
+		"c1 renamed-clone",
+		"a.rs:1-9 load_user",
+		"b.rs:1-9 load_order",
+		"extract-common",
+		`"SELECT * FROM users WHERE id = $1" | "SELECT * FROM orders WHERE id = $1"`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("text output is missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestCheckDefaultsToCurrentDirectoryAndCommand(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "b.rs": orders})
+	t.Chdir(root)
+
+	code, stdout, _ := run("--format", "json", "--min-nodes", "20")
+
+	if code != 1 || len(decode(t, stdout).Candidates) != 1 {
+		t.Errorf("exit code = %d, want 1 candidate when check and the path are omitted", code)
+	}
+}
+
+func TestCheckErrors(t *testing.T) {
+	cases := map[string][]string{
+		"unknown flag":   {"check", "--bogus"},
+		"bad format":     {"check", "--format", "xml", "."},
+		"missing path":   {"check", filepath.Join(os.TempDir(), "ddslop-does-not-exist")},
+		"too many paths": {"check", ".", "."},
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			code, _, stderr := run(args...)
+			if code != 2 {
+				t.Errorf("exit code = %d, want 2", code)
+			}
+			if stderr == "" {
+				t.Error("no error message on stderr")
+			}
+		})
+	}
+}
+
+func TestCheckFailsOnUnreadableFile(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users})
+	if err := os.Chmod(filepath.Join(root, "a.rs"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, stderr := run("check", root)
+
+	if code != 2 || !strings.Contains(stderr, "a.rs") {
+		t.Errorf("exit code = %d, stderr = %q; want 2 and the file name", code, stderr)
+	}
+}

@@ -100,3 +100,17 @@ func TestDifferencesDeclaredInOnlySomeUnitsAreNotLocal(t *testing.T) {
 		t.Errorf("second difference %v uses an outside name in one unit, should not be local", diffs[1].Values)
 	}
 }
+
+func TestDifferencesListEachLineOnce(t *testing.T) {
+	a := []unit.Leaf{lit("1", 3), lit("1", 3), lit("1", 4)}
+	b := []unit.Leaf{lit("2", 8), lit("2", 8), lit("2", 9)}
+
+	diffs := Differences(group(a, b))
+
+	if len(diffs) != 1 {
+		t.Fatalf("got %d differences, want 1", len(diffs))
+	}
+	if got := fmt.Sprint(diffs[0].Lines); got != "[[3 4] [8 9]]" {
+		t.Errorf("lines = %s, want [[3 4] [8 9]]", got)
+	}
+}

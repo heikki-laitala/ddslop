@@ -216,3 +216,13 @@ fn broken() -> u32 { let = ; }
 		t.Errorf("names = %v, want only [good]", got)
 	}
 }
+
+func TestTraitDefaultMethodsAreNamedAfterTheTrait(t *testing.T) {
+	units := mustUnits(t, `trait Greeter {
+    fn greet(&self) -> String { String::from("hi") }
+}
+`)
+	if got := names(units); len(got) != 1 || got[0] != "Greeter::greet" {
+		t.Errorf("names = %v, want [Greeter::greet]", got)
+	}
+}
