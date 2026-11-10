@@ -410,13 +410,15 @@ const indexPath = ".ddslop/index.db"
 
 func parseRust(path string, src []byte) (index.Parsed, error) {
 	if rust.IsGenerated(src) {
-		return index.Parsed{Generated: true}, nil
+		// Generated code is not analysed, but the traits it declares (such
+		// as OpenAPI server traits) mark the entry points of features.
+		return index.Parsed{Generated: true, Traits: rust.Traits(src)}, nil
 	}
 	units, err := rust.Units(path, src)
 	for i := range units {
 		units[i].Signature = similarity.Signature(units[i].Seq)
 	}
-	return index.Parsed{Units: units}, err
+	return index.Parsed{Units: units, Traits: rust.Traits(src)}, err
 }
 
 // extractorVersion identifies the running binary by its content, so any

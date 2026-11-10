@@ -24,6 +24,8 @@ import (
 type Parsed struct {
 	Generated bool
 	Units     []unit.Unit
+	// Traits are the traits the file declares.
+	Traits []string
 }
 
 // ParseFunc extracts units from one file.
@@ -70,6 +72,12 @@ CREATE TABLE IF NOT EXISTS metadata (
 `
 
 const versionKey = "version"
+
+// stored is what the units column of a file row holds.
+type stored struct {
+	Units  []unit.Unit
+	Traits []string
+}
 
 // DB is an open index database.
 type DB struct {
@@ -232,7 +240,7 @@ func (d *DB) write(reset bool, version string, changes []change, deleted []strin
 	defer func() { _ = upsert.Close() }()
 	for _, c := range changes {
 		var blob bytes.Buffer
-		if err = gob.NewEncoder(&blob).Encode(c.parsed.Units); err != nil {
+		if err = gob.NewEncoder(&blob).Encode(stored{c.parsed.Units, c.parsed.Traits}); err != nil {
 			return err
 		}
 		if _, err = upsert.Exec(c.path, c.stamp.mtime, c.stamp.size, c.parsed.Generated, blob.Bytes()); err != nil {
@@ -283,9 +291,11 @@ func (d *DB) Files() ([]File, error) {
 		if err := rows.Scan(&f.Path, &f.Generated, &blob); err != nil {
 			return nil, err
 		}
-		if err := gob.NewDecoder(bytes.NewReader(blob)).Decode(&f.Units); err != nil {
+		var st stored
+		if err := gob.NewDecoder(bytes.NewReader(blob)).Decode(&st); err != nil {
 			return nil, fmt.Errorf("index: %s: %w", f.Path, err)
 		}
+		f.Units, f.Traits = st.Units, st.Traits
 		out = append(out, f)
 	}
 	return out, rows.Err()

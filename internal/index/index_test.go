@@ -2,6 +2,7 @@ package index
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -263,5 +264,21 @@ func TestMissingFileFailsSync(t *testing.T) {
 
 	if _, err := f.db.Sync(Options{Root: f.root, Paths: f.paths, Version: "v1", Parse: f.fake.parse}); err == nil {
 		t.Error("Sync with a missing file returned no error")
+	}
+}
+
+func TestTraitsAreStored(t *testing.T) {
+	f := newFixture(t, map[string]string{"a.rs": "alpha"})
+	parse := func(path string, src []byte) (Parsed, error) {
+		return Parsed{Generated: true, Traits: []string{"LedgerApi", "HealthApi"}}, nil
+	}
+	if _, err := f.db.Sync(Options{Root: f.root, Paths: f.paths, Version: "v1", Parse: parse}); err != nil {
+		t.Fatal(err)
+	}
+
+	files := f.files()
+
+	if len(files) != 1 || fmt.Sprint(files[0].Traits) != "[LedgerApi HealthApi]" || !files[0].Generated {
+		t.Errorf("files = %+v, want a.rs generated with its two traits", files)
 	}
 }
