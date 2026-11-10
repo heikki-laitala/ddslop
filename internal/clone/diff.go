@@ -24,8 +24,21 @@ type Difference struct {
 // order of first appearance. Units in a group have equal shapes, so their
 // leaves line up one to one.
 func Differences(g Group) []Difference {
-	declared := make([]map[string]bool, len(g.Units))
-	for i, u := range g.Units {
+	rows := make([][]int, len(g.Units[0].Leaves))
+	for pos := range rows {
+		rows[pos] = make([]int, len(g.Units))
+		for i := range g.Units {
+			rows[pos][i] = pos
+		}
+	}
+	return differences(g.Units, rows)
+}
+
+// differences compares aligned leaves. Each row holds, per unit, the index
+// of a leaf; the leaves of one row are at corresponding positions.
+func differences(units []unit.Unit, rows [][]int) []Difference {
+	declared := make([]map[string]bool, len(units))
+	for i, u := range units {
 		declared[i] = map[string]bool{}
 		for _, l := range u.Leaves {
 			if l.Declares {
@@ -36,12 +49,11 @@ func Differences(g Group) []Difference {
 
 	var diffs []Difference
 	index := map[string]int{} // values key -> position in diffs
-	first := g.Units[0].Leaves
-	for pos := range first {
-		values := make([]string, len(g.Units))
+	for _, row := range rows {
+		values := make([]string, len(units))
 		same := true
-		for i, u := range g.Units {
-			values[i] = u.Leaves[pos].Text
+		for i, u := range units {
+			values[i] = u.Leaves[row[i]].Text
 			same = same && values[i] == values[0]
 		}
 		if same {
@@ -50,17 +62,18 @@ func Differences(g Group) []Difference {
 		key := strings.Join(values, "\x00")
 		di, ok := index[key]
 		if !ok {
+			kind := units[0].Leaves[row[0]].Kind
 			di = len(diffs)
 			index[key] = di
 			diffs = append(diffs, Difference{
-				Kind:   first[pos].Kind,
+				Kind:   kind,
 				Values: values,
-				Lines:  make([][]int, len(g.Units)),
-				Local:  isLocal(first[pos].Kind, values, declared),
+				Lines:  make([][]int, len(units)),
+				Local:  isLocal(kind, values, declared),
 			})
 		}
-		for i, u := range g.Units {
-			diffs[di].Lines[i] = appendLine(diffs[di].Lines[i], u.Leaves[pos].Line)
+		for i, u := range units {
+			diffs[di].Lines[i] = appendLine(diffs[di].Lines[i], u.Leaves[row[i]].Line)
 		}
 	}
 	return diffs

@@ -26,6 +26,10 @@ type Unit struct {
 	Seq []uint32
 	// SeqLines holds the source line of each symbol in Seq.
 	SeqLines []int
+	// Signature is the MinHash signature of Seq, used to find near-miss
+	// candidates. It is computed when the unit is indexed; empty means not
+	// computed yet.
+	Signature []uint64
 }
 
 // Close is the Seq symbol that ends a node's children.

@@ -11,7 +11,7 @@ const (
 	SignatureSize = bands * rows
 	bands         = 16
 	rows          = 8
-	shingleSize   = 8
+	shingleSize   = 4
 )
 
 // seeds give each of the SignatureSize hash functions its own salt.
