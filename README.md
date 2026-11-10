@@ -140,12 +140,12 @@ functions it reaches, printed as a call tree (`--format json` for agents,
 `--depth` to limit it).
 
 ```text
-OwnerApi::register_owner (services/acme-ledger/src/owner_api.rs:469-500)
-  prepare (services/acme-ledger/src/owner_api.rs:221-242)
-    caller (services/acme-ledger/src/owner_api.rs:132-141)
-  Owners::register (services/acme-ledger/src/owner.rs:440-506)
-    authorize (services/acme-ledger/src/owner.rs:65-71)
-    registration_fingerprint (services/acme-ledger/src/owner.rs:243-256)
+OrdersApi::create_order (services/orders/src/api.rs:40-71)
+  validate (services/orders/src/api.rs:120-141)
+    caller (services/orders/src/auth.rs:12-21)
+  Orders::create (services/orders/src/orders.rs:88-150)
+    authorize (services/orders/src/orders.rs:30-36)
+    order_fingerprint (services/orders/src/orders.rs:200-213)
 ```
 
 Entry points are methods implementing a trait declared in generated code,
