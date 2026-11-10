@@ -39,12 +39,7 @@ func Differences(g Group) []Difference {
 func differences(units []unit.Unit, rows [][]int) []Difference {
 	declared := make([]map[string]bool, len(units))
 	for i, u := range units {
-		declared[i] = map[string]bool{}
-		for _, l := range u.Leaves {
-			if l.Declares {
-				declared[i][l.Text] = true
-			}
-		}
+		declared[i] = declaredNames(u)
 	}
 
 	var diffs []Difference
@@ -77,6 +72,17 @@ func differences(units []unit.Unit, rows [][]int) []Difference {
 		}
 	}
 	return diffs
+}
+
+// declaredNames returns the names a unit declares itself.
+func declaredNames(u unit.Unit) map[string]bool {
+	out := map[string]bool{}
+	for _, l := range u.Leaves {
+		if l.Declares {
+			out[l.Text] = true
+		}
+	}
+	return out
 }
 
 // isLocal reports whether every unit declares its own value.

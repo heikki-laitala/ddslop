@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -124,5 +125,50 @@ func TestNearMissUsesOneRepresentativePerShape(t *testing.T) {
 
 	if len(got) != 1 || got[0].Units[0].File != "a1.rs" {
 		t.Errorf("near misses = %d, first = %v; want one pair using a1.rs for its shape", len(got), got)
+	}
+}
+
+// lookalike has a shape of its own close to body's, but every called name
+// and literal differs.
+func lookalike() unit.Unit {
+	var lines []string
+	for _, line := range body(9, "let d=w call i=z l=0 } }", "") {
+		line = strings.ReplaceAll(line, "i=step", "i=other")
+		line = strings.ReplaceAll(line, "l=", "l=9")
+		lines = append(lines, line)
+	}
+	return build("c.rs", 1, lines...)
+}
+
+// pairOf aligns two units directly, bypassing LSH and filters.
+func pairOf(t *testing.T, a, b unit.Unit) NearMiss {
+	t.Helper()
+	matches, sim, ok := similarity.Align(a.Seq, b.Seq, 0.5)
+	if !ok {
+		t.Fatalf("%s and %s do not align", a.File, b.File)
+	}
+	return nearMiss(a, b, matches, sim)
+}
+
+func TestNearMissAgreementSeparatesCopiesFromLookalikes(t *testing.T) {
+	a := build("a.rs", 1, body(0, "", "")...)
+	copied := build("b.rs", 1, body(6, "call i=log l=\"debug\" }", "42")...)
+
+	if got := pairOf(t, a, copied).Agreement; got < 0.9 {
+		t.Errorf("agreement of a copy = %v, want at least 0.9 (one changed literal)", got)
+	}
+	if got := pairOf(t, a, lookalike()).Agreement; got > 0.5 {
+		t.Errorf("agreement of a lookalike = %v, want at most 0.5", got)
+	}
+}
+
+func TestNearMissesDropLookalikes(t *testing.T) {
+	a := build("a.rs", 1, body(0, "", "")...)
+	if sim := pairOf(t, a, lookalike()).Similarity; sim < 0.8 {
+		t.Fatalf("lookalike similarity = %v; the test needs it above the 0.8 threshold", sim)
+	}
+
+	if got := NearMisses([]unit.Unit{a, lookalike()}, 20, 0.8); len(got) != 0 {
+		t.Errorf("got %d near misses, want none: the lookalike shares structure but not values", len(got))
 	}
 }

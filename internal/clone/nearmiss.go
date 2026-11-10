@@ -15,6 +15,10 @@ type NearMiss struct {
 	Similarity float64
 	// MatchedNodes is how many syntax nodes the two units share.
 	MatchedNodes int
+	// Agreement is the share of aligned leaves whose values agree: equal,
+	// or a name each unit declares itself. Copies agree on most values;
+	// unrelated code with a similar structure does not.
+	Agreement float64
 	// Differences are values that differ at positions the alignment matched.
 	Differences []Difference
 	// Unmatched holds, per unit, line ranges containing code that has no
@@ -22,11 +26,19 @@ type NearMiss struct {
 	Unmatched [2][]LineRange
 }
 
+// minAgreement is the least value agreement a near miss needs. Measured on
+// a 735k-line Rust codebase: pairs from 0.7 up were copies (often across
+// services), pairs below 0.4 were unrelated code sharing common Rust
+// structure (match tables, Default and Display impls), and pairs in between
+// were families differing in dozens of messages.
+const minAgreement = 0.7
+
 // LineRange is an inclusive range of lines.
 type LineRange struct{ Start, End int }
 
 // NearMisses finds pairs of units with different shapes whose similarity is
-// at least minSim, ignoring units smaller than minNodes. Each shape is
+// at least minSim and whose values agree at least minAgreement, ignoring
+// units smaller than minNodes. Each shape is
 // represented by its first unit, so a group of exact copies yields one pair,
 // not one per copy. Pairs are ordered by shared size, largest first, then by
 // location.
@@ -47,7 +59,9 @@ func NearMisses(units []unit.Unit, minNodes int, minSim float64) []NearMiss {
 		if !ok {
 			continue
 		}
-		out = append(out, nearMiss(a, b, matches, sim))
+		if nm := nearMiss(a, b, matches, sim); nm.Agreement >= minAgreement {
+			out = append(out, nm)
+		}
 	}
 	slices.SortFunc(out, func(x, y NearMiss) int {
 		if c := cmp.Compare(y.MatchedNodes, x.MatchedNodes); c != 0 {
@@ -96,8 +110,26 @@ func nearMiss(a, b unit.Unit, matches []similarity.Match, sim float64) NearMiss 
 		}
 	}
 	nm.Differences = differences([]unit.Unit{a, b}, rows)
+	nm.Agreement = agreement(a, b, rows)
 	nm.Unmatched = [2][]LineRange{unmatchedLines(a, matchedA), unmatchedLines(b, matchedB)}
 	return nm
+}
+
+// agreement is the share of aligned leaf pairs whose values agree: equal
+// text, or an identifier each unit declares itself (a local rename).
+func agreement(a, b unit.Unit, rows [][]int) float64 {
+	if len(rows) == 0 {
+		return 1
+	}
+	declA, declB := declaredNames(a), declaredNames(b)
+	agree := 0
+	for _, row := range rows {
+		la, lb := a.Leaves[row[0]], b.Leaves[row[1]]
+		if la.Text == lb.Text || (la.Kind == unit.Identifier && declA[la.Text] && declB[lb.Text]) {
+			agree++
+		}
+	}
+	return float64(agree) / float64(len(rows))
 }
 
 // leafIndexes maps each Seq position to its leaf index, or -1.
