@@ -162,3 +162,28 @@ impl LedgerApi for Api {
 		t.Errorf("the call into acme_keyring was not followed:\n%s", stdout)
 	}
 }
+
+func TestFlowsIgnoreDependenciesOnlyTestsUse(t *testing.T) {
+	// svc's tests use the ledger crate; svc's own code does not, so its
+	// client.settle() is not the ledger's Settles::settle.
+	root := repo(t, map[string]string{
+		"api/src/generated/server.rs": generatedAPI,
+		"ledger/src/lib.rs":           "pub struct Settles;\n\nimpl Settles {\n    pub fn settle(&self) {}\n}\n",
+		"svc/src/tests.rs":            "use ledger::Settles;\n\nfn it() {}\n",
+		"svc/src/lib.rs": `pub struct Api;
+
+impl LedgerApi for Api {
+    async fn create(&self, id: u64) -> u64 {
+        self.client.settle();
+        id
+    }
+}
+`,
+	})
+
+	_, stdout, _ := run("flows", "--format", "text", root)
+
+	if strings.Contains(stdout, "Settles::settle") {
+		t.Errorf("a dependency only tests use was followed:\n%s", stdout)
+	}
+}

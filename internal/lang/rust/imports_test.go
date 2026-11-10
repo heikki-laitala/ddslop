@@ -47,3 +47,16 @@ mod inner {
 		t.Errorf("Imports = %v\nwant %v", lines, fmt.Sprint(want))
 	}
 }
+
+func TestImportsSkipTestModules(t *testing.T) {
+	src := `use crate::store::Store;
+
+#[cfg(test)]
+mod tests {
+    use acme_ledger::Settles;
+}
+`
+	if got := Imports([]byte(src)); len(got) != 1 || got["Store"] != "crate::store::Store" {
+		t.Errorf("Imports = %v, want only Store: test modules' imports are not dependencies of the code", got)
+	}
+}

@@ -39,7 +39,7 @@ func Units(path string, src []byte) ([]unit.Unit, error) {
 	var units []unit.Unit
 	err := parse(src, func(root *sitter.Node) {
 		e := extractor{path: path, src: src}
-		e.walk(root, scope{}, isTestPath(path))
+		e.walk(root, scope{}, IsTestPath(path))
 		units = e.units
 	})
 	return units, err
@@ -67,7 +67,7 @@ func Traits(src []byte) []string {
 
 // Imports maps each name a file brings into scope with use to the path it
 // refers to: "use a::b::{c, d as e}" gives c -> a::b::c and e -> a::b::d.
-// Wildcard imports are skipped.
+// Wildcard imports and imports inside #[cfg(test)] modules are skipped.
 func Imports(src []byte) map[string]string {
 	out := map[string]string{}
 	_ = parse(src, func(root *sitter.Node) {
@@ -79,8 +79,21 @@ func Imports(src []byte) map[string]string {
 				}
 				return
 			}
+			var attrs []string
 			for i := uint(0); i < n.ChildCount(); i++ {
-				walk(n.Child(i))
+				child := n.Child(i)
+				switch {
+				case child.Kind() == "attribute_item":
+					attrs = append(attrs, child.Utf8Text(src))
+					continue
+				case child.IsExtra():
+					continue
+				case child.Kind() == "mod_item" && slices.ContainsFunc(attrs, isCfgTest):
+					// test modules' imports are not dependencies of the code
+				default:
+					walk(child)
+				}
+				attrs = nil
 			}
 		}
 		walk(root)
@@ -225,9 +238,9 @@ func isCfgTest(attr string) bool {
 	return compact == "#[cfg(test)]" || strings.HasPrefix(compact, "#[cfg(all(test,")
 }
 
-// isTestPath reports whether a file holds tests by Cargo and Rust
+// IsTestPath reports whether a file holds tests by Cargo and Rust
 // convention: under a tests/ or benches/ directory, or a tests.rs module.
-func isTestPath(path string) bool {
+func IsTestPath(path string) bool {
 	parts := strings.Split(filepath.ToSlash(path), "/")
 	for _, dir := range parts[:len(parts)-1] {
 		if dir == "tests" || dir == "benches" {
