@@ -2,7 +2,6 @@
 package rust
 
 import (
-	"encoding/binary"
 	"errors"
 	"hash/fnv"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	rustgrammar "github.com/tree-sitter/tree-sitter-rust/bindings/go"
 
+	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -147,7 +147,7 @@ func (e *extractor) addFunction(n *sitter.Node, owner string, test bool) {
 		Name:      name,
 		StartLine: line(n.StartPosition()),
 		EndLine:   line(n.EndPosition()),
-		Shape:     shapeOf(s.seq),
+		Shape:     similarity.HashSymbols(s.seq),
 		Nodes:     s.nodes,
 		Test:      test,
 		Leaves:    s.leaves,
@@ -179,17 +179,6 @@ func kindSymbol(kind string) uint32 {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(kind))
 	return h.Sum32() | 1<<31
-}
-
-// shapeOf hashes a symbol sequence.
-func shapeOf(seq []uint32) uint64 {
-	h := fnv.New64a()
-	buf := make([]byte, 4*len(seq))
-	for i, sym := range seq {
-		binary.LittleEndian.PutUint32(buf[4*i:], sym)
-	}
-	_, _ = h.Write(buf)
-	return h.Sum64()
 }
 
 func (s *shaper) visit(n *sitter.Node, declares bool) {

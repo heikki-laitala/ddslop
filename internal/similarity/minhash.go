@@ -35,8 +35,8 @@ func mix(x uint64) uint64 {
 	return x
 }
 
-// hashSymbols is FNV-1a over a run of symbols.
-func hashSymbols(syms []uint32) uint64 {
+// HashSymbols is FNV-1a over a run of symbols, one symbol per step.
+func HashSymbols(syms []uint32) uint64 {
 	h := uint64(14695981039346656037)
 	for _, s := range syms {
 		h ^= uint64(s)
@@ -61,11 +61,11 @@ func Signature(seq []uint32) []uint64 {
 		}
 	}
 	if len(seq) < shingleSize {
-		add(hashSymbols(seq))
+		add(HashSymbols(seq))
 		return sig
 	}
 	for i := 0; i+shingleSize <= len(seq); i++ {
-		add(hashSymbols(seq[i : i+shingleSize]))
+		add(HashSymbols(seq[i : i+shingleSize]))
 	}
 	return sig
 }
