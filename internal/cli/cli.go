@@ -441,7 +441,7 @@ func parallelFlows(files []index.File, minNodes int) []report.Flow {
 			}
 		}
 	}
-	g := flow.Build(units)
+	g := flow.Build(importsOf(files), units)
 	opts := parallelFlowOptions
 	opts.MinNodes = minNodes
 	var out []report.Flow

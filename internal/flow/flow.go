@@ -30,15 +30,21 @@ type Graph struct {
 
 // index finds units by name.
 type index struct {
-	free    map[string][]int // free functions by name
-	methods map[string][]int // methods by method name
-	owned   map[string][]int // methods by "Owner::method", owner simplified
+	free    map[string][]int             // free functions by name
+	methods map[string][]int             // methods by method name
+	owned   map[string][]int             // methods by "Owner::method", owner simplified
+	crates  map[string]string            // workspace crate name -> crate directory
+	imports map[string]map[string]string // file -> imported name -> path
 }
 
-// Build resolves every unit's calls.
-func Build(units []unit.Unit) *Graph {
-	ix := index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{}}
+// Build resolves every unit's calls. imports maps a file to the names it
+// imports and the paths they refer to.
+func Build(imports map[string]map[string]string, units []unit.Unit) *Graph {
+	ix := index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{},
+		crates: map[string]string{}, imports: imports}
 	for i, u := range units {
+		dir := crateOf(u.File)
+		ix.crates[strings.ReplaceAll(filepath.Base(dir), "-", "_")] = dir
 		owner, name := split(u.Name)
 		if owner == "" {
 			ix.free[name] = append(ix.free[name], i)
@@ -70,7 +76,7 @@ func Build(units []unit.Unit) *Graph {
 func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) int {
 	switch c.Kind {
 	case unit.FreeCall:
-		return pick(units, caller, ix.free[c.Name])
+		return ix.resolveFree(units, caller, c.Name)
 	case unit.PathCall:
 		typ := unit.SimpleName(c.Qualifier)
 		if typ == "Self" {
@@ -79,10 +85,18 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 		if cands := ix.owned[typ+"::"+c.Name]; len(cands) > 0 {
 			return pick(units, caller, cands)
 		}
-		if isModule(typ) {
-			return pick(units, caller, ix.free[c.Name]) // utils::log, crate::x::f
+		if !isModule(typ) {
+			return -1 // a type defined elsewhere, such as Utc::now
 		}
-		return -1 // a type defined elsewhere, such as Utc::now
+		// A module path: another workspace crate's when it names one
+		// (token_credentials::decode), otherwise one of the caller's own
+		// modules (utils::log). Outside crates (serde_json::to_value) find
+		// no function of that name in the caller's crate.
+		root := firstSegment(c.Qualifier)
+		if dir, ok := ix.crates[root]; ok && dir != crateOf(caller.File) {
+			return only(units, ix.free[c.Name], func(u unit.Unit) bool { return crateOf(u.File) == dir })
+		}
+		return pickLocal(units, caller, ix.free[c.Name])
 	case unit.MethodCall:
 		if c.Qualifier == "self" && owner != "" {
 			return pick(units, caller, ix.owned[owner+"::"+c.Name])
@@ -95,31 +109,81 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 	return -1
 }
 
+// resolveFree resolves a bare call foo(). A name the caller declares itself
+// is a closure or function value, not a function. Otherwise the caller's
+// file and crate come first; a function of another crate is reachable only
+// through a use import, and only a workspace crate's is resolved.
+func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) int {
+	for _, l := range caller.Leaves {
+		if l.Declares && l.Text == name {
+			return -1
+		}
+	}
+	if u := pickLocal(units, caller, ix.free[name]); u >= 0 {
+		return u
+	}
+	path, ok := ix.imports[caller.File][name]
+	if !ok {
+		return -1
+	}
+	target := path
+	if i := strings.LastIndex(path, "::"); i >= 0 {
+		target = path[i+2:] // the imported name, before any alias
+	}
+	switch root := firstSegment(path); root {
+	case "crate", "self", "super":
+		return pickLocal(units, caller, ix.free[target])
+	default:
+		dir, ok := ix.crates[root]
+		if !ok {
+			return -1 // an outside crate, such as tokio
+		}
+		return only(units, ix.free[target], func(u unit.Unit) bool { return crateOf(u.File) == dir })
+	}
+}
+
 // pick chooses among candidates the one in the caller's file, else the
 // only one in the caller's crate, else the only one at all; -1 when the
 // best tier is empty everywhere or ambiguous.
 func pick(units []unit.Unit, caller unit.Unit, cands []int) int {
+	if u := pickLocal(units, caller, cands); u >= 0 {
+		return u
+	}
+	return only(units, cands, func(unit.Unit) bool { return true })
+}
+
+// pickLocal chooses the candidate in the caller's file, else the only one
+// in the caller's crate, or -1.
+func pickLocal(units []unit.Unit, caller unit.Unit, cands []int) int {
+	if u := only(units, cands, func(u unit.Unit) bool { return u.File == caller.File }); u >= 0 {
+		return u
+	}
 	crate := crateOf(caller.File)
-	for _, same := range []func(u unit.Unit) bool{
-		func(u unit.Unit) bool { return u.File == caller.File },
-		func(u unit.Unit) bool { return crateOf(u.File) == crate },
-		func(unit.Unit) bool { return true },
-	} {
-		found := -1
-		for _, c := range cands {
-			if !same(units[c]) {
-				continue
-			}
-			if found >= 0 {
-				return -1 // ambiguous at the best tier with candidates
-			}
-			found = c
+	return only(units, cands, func(u unit.Unit) bool { return crateOf(u.File) == crate })
+}
+
+// only returns the single candidate accepted by keep, or -1 when there is
+// none or more than one.
+func only(units []unit.Unit, cands []int, keep func(unit.Unit) bool) int {
+	found := -1
+	for _, c := range cands {
+		if !keep(units[c]) {
+			continue
 		}
 		if found >= 0 {
-			return found
+			return -1
 		}
+		found = c
 	}
-	return -1
+	return found
+}
+
+// firstSegment returns the part of a path before its first "::".
+func firstSegment(path string) string {
+	if i := strings.Index(path, "::"); i >= 0 {
+		return path[:i]
+	}
+	return path
 }
 
 // isModule reports whether a path segment names a module rather than a

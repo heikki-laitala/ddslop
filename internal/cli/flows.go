@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/flow"
+	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -96,7 +97,7 @@ func runFlows(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	g := flow.Build(units)
+	g := flow.Build(importsOf(files), units)
 	r := flowsReport{Flows: []flowJSON{}, Summary: flowsSummary{Functions: len(units), Calls: g.Calls, ResolvedCalls: g.Resolved}}
 	for _, entry := range g.Entries(traits) {
 		var f flowJSON
@@ -157,5 +158,16 @@ func treeOrder(steps []flow.Step) []flow.Step {
 		}
 	}
 	visit(steps[0])
+	return out
+}
+
+// importsOf maps each indexed file to the names it imports.
+func importsOf(files []index.File) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(files))
+	for _, f := range files {
+		if len(f.Imports) > 0 {
+			out[f.Path] = f.Imports
+		}
+	}
 	return out
 }

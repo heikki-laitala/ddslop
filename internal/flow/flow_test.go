@@ -36,7 +36,7 @@ func callees(g *Graph, name string) string {
 }
 
 func TestFreeCallsPreferSameFileThenCrate(t *testing.T) {
-	g := Build([]unit.Unit{
+	g := Build(nil, []unit.Unit{
 		fn("a/src/x.rs", "helper"),
 		fn("a/src/y.rs", "helper"),
 		fn("b/src/z.rs", "helper"),
@@ -63,7 +63,7 @@ func TestFreeCallsPreferSameFileThenCrate(t *testing.T) {
 }
 
 func TestPathCalls(t *testing.T) {
-	g := Build([]unit.Unit{
+	g := Build(nil, []unit.Unit{
 		fn("a/src/acc.rs", "Accounts::create"),
 		fn("a/src/end.rs", "Endpoint<P>::priced"),
 		fn("a/src/led.rs", "Ledger::finish"),
@@ -80,7 +80,7 @@ func TestPathCalls(t *testing.T) {
 }
 
 func TestMethodCalls(t *testing.T) {
-	g := Build([]unit.Unit{
+	g := Build(nil, []unit.Unit{
 		fn("a/src/led.rs", "Ledger::audit"),
 		fn("a/src/other.rs", "Other::audit"),
 		fn("a/src/store.rs", "Store::get"),
@@ -104,7 +104,7 @@ func TestEntriesAreNonTestTraitImplementations(t *testing.T) {
 		{File: "a.rs", Name: "Api::helper"},
 		{File: "t.rs", Name: "Fake::create", Trait: "LedgerApi", Test: true},
 	}
-	g := Build(units)
+	g := Build(nil, units)
 
 	if got := fmt.Sprint(g.Entries(map[string]bool{"LedgerApi": true})); got != "[0]" {
 		t.Errorf("entries = %s, want [0]", got)
@@ -112,7 +112,7 @@ func TestEntriesAreNonTestTraitImplementations(t *testing.T) {
 }
 
 func TestSliceIsBreadthFirstDepthLimitedAndSkipsTests(t *testing.T) {
-	g := Build([]unit.Unit{
+	g := Build(nil, []unit.Unit{
 		fn("a/src/a.rs", "entry", free("one"), free("two")),        // 0
 		fn("a/src/a.rs", "one", free("deep"), free("entry")),       // 1: cycle back
 		fn("a/src/a.rs", "two", free("deep"), free("test_helper")), // 2
@@ -132,7 +132,7 @@ func TestSliceIsBreadthFirstDepthLimitedAndSkipsTests(t *testing.T) {
 }
 
 func TestPathCallsOnUnknownTypesDoNotFallBackToFreeFunctions(t *testing.T) {
-	g := Build([]unit.Unit{
+	g := Build(nil, []unit.Unit{
 		fn("a/src/clock.rs", "now"),
 		fn("a/src/util.rs", "log"),
 		fn("a/src/h.rs", "handler",
@@ -148,7 +148,7 @@ func TestPathCallsOnUnknownTypesDoNotFallBackToFreeFunctions(t *testing.T) {
 }
 
 func TestStandardMethodNamesAreNotResolvedByUniqueness(t *testing.T) {
-	g := Build([]unit.Unit{
+	g := Build(nil, []unit.Unit{
 		fn("a/src/id.rs", "ModelId::as_ref"),
 		fn("a/src/ext.rs", "Extensions::len"),
 		fn("a/src/rare.rs", "Rare::settle_window"),
@@ -164,5 +164,65 @@ func TestStandardMethodNamesAreNotResolvedByUniqueness(t *testing.T) {
 	}
 	if got := callees(g, "a/src/id.rs ModelId::show"); got != "[a/src/id.rs ModelId::as_ref]" {
 		t.Errorf("ModelId::show calls %s, want its own as_ref", got)
+	}
+}
+
+func local(file, name string, declared string, calls ...unit.Call) unit.Unit {
+	u := fn(file, name, calls...)
+	u.Leaves = []unit.Leaf{{Kind: unit.Identifier, Text: declared, Declares: true}}
+	return u
+}
+
+func TestCallsToLocalClosuresAreNotResolved(t *testing.T) {
+	g := Build(nil, []unit.Unit{
+		fn("a/src/conv.rs", "unsigned"),
+		fn("b/src/session.rs", "unsigned"),
+		// let unsigned = |value| ...; unsigned(x)
+		local("a/src/api.rs", "capacity_of", "unsigned", free("unsigned")),
+	})
+
+	if got := callees(g, "a/src/api.rs capacity_of"); got != "[]" {
+		t.Errorf("capacity_of calls %s, want nothing: unsigned is its own closure", got)
+	}
+}
+
+func TestBareCallsLeaveTheCrateOnlyThroughImports(t *testing.T) {
+	imports := map[string]map[string]string{
+		"crates/translation/src/a.rs": { //nolint:gosec // crate and function names, not credentials
+			"split_qualified_name": "translation_protocol::split_qualified_name",
+			"channel":              "tokio::sync::mpsc::channel",
+			"decode_token":         "token_credentials::decode",
+		},
+	}
+	g := Build(imports, []unit.Unit{
+		fn("crates/translation-protocol/src/lib.rs", "split_qualified_name"),
+		fn("crates/token-credentials/src/lib.rs", "decode"),
+		fn("services/acme-router/src/chan.rs", "channel"),
+		fn("services/acme-ledger/src/fill.rs", "fill"),
+		fn("crates/translation/src/a.rs", "encode",
+			free("split_qualified_name"), free("channel"), free("decode_token"), free("fill")),
+	})
+
+	// split_qualified_name and decode come from workspace crates; channel is
+	// tokio's; fill is not imported, so it is not some other crate's fill.
+	want := "[crates/translation-protocol/src/lib.rs split_qualified_name crates/token-credentials/src/lib.rs decode]"
+	if got := callees(g, "crates/translation/src/a.rs encode"); got != want {
+		t.Errorf("encode calls %s, want %s", got, want)
+	}
+}
+
+func TestModulePathCallsStayInTheirCrate(t *testing.T) {
+	g := Build(nil, []unit.Unit{
+		fn("crates/token-credentials/src/lib.rs", "decode"),
+		fn("services/acme-ledger/src/decode.rs", "decode"),
+		fn("services/acme-ledger/src/json.rs", "to_value"),
+		fn("services/acme-router/src/api.rs", "handle",
+			path("token_credentials", "decode"), path("serde_json", "to_value")),
+	})
+
+	// token_credentials is a workspace crate; serde_json is not, and the
+	// router has no to_value of its own.
+	if got := callees(g, "services/acme-router/src/api.rs handle"); got != "[crates/token-credentials/src/lib.rs decode]" {
+		t.Errorf("handle calls %s, want only token_credentials' decode", got)
 	}
 }
