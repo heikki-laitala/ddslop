@@ -75,3 +75,38 @@ func TestParseReturnsTheSameUnitsAsUnits(t *testing.T) {
 		t.Errorf("Parse units = %s, want [a S::b]", got)
 	}
 }
+
+func TestParseListsModuleLevelConstants(t *testing.T) {
+	src := `pub const MAX_MODELS: usize = 64;
+static TIMEOUT: Duration = Duration::from_secs( 5 );
+const CODE: &str = "ledger unavailable";
+const CONTRACT: &str = include_str!("openapi.json");
+
+impl Store {
+    const ASSOCIATED: u32 = 1;
+}
+
+fn f() {
+    const LOCAL: u32 = 2;
+}
+
+mod inner {
+    const NESTED: u32 = 3;
+}
+`
+	decls := mustDecls(t, "lib.rs", src)
+	var got []string
+	for _, c := range decls.Consts {
+		got = append(got, fmt.Sprintf("%s=%s %s:%d literal=%v macro=%v", c.Name, c.Value, c.File, c.Line, c.Literal, c.Macro))
+	}
+	want := []string{
+		"MAX_MODELS=64 lib.rs:1 literal=false macro=false",
+		"TIMEOUT=Duration::from_secs(5) lib.rs:2 literal=false macro=false",
+		`CODE="ledger unavailable" lib.rs:3 literal=true macro=false`,
+		`CONTRACT=include_str!("openapi.json") lib.rs:4 literal=false macro=true`,
+		"NESTED=3 lib.rs:15 literal=false macro=false",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("constants:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

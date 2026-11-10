@@ -16,6 +16,8 @@ var rules = []sarifRule{
 	{ID: blockClone, Short: "Copied block of statements", Full: "A run of statements is repeated inside larger functions. Extract it into a helper; names declared outside the run become parameters."},
 	{ID: parallelFlow, Short: "Features running the same pipeline", Full: "Several features call different functions that play the same roles, step by step. Extract one pipeline (a generic handler or service) taking the varying steps as parameters."},
 	{ID: duplicateType, Short: "Struct with the same fields as another", Full: "The structs declare the same field names. Keep one type and use it everywhere, converting at the boundary if one is a wire format; differing field types become type parameters or conversions."},
+	{ID: duplicateConst, Short: "Constant declared again with the same name and value", Full: "The same constant is declared in several places. Keep one declaration, in a module the users share, and import it."},
+	{ID: inlinedConst, Short: "Constant's value written inline", Full: "A string literal repeats the value of a constant declared in the same crate. Use the constant (the target) instead of the literal."},
 }
 
 type sarifRule struct {

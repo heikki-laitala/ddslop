@@ -54,6 +54,9 @@ type Candidate struct {
 	Score       Score        `json:"score"`
 	// Steps are the aligned steps of a parallel flow.
 	Steps []Step `json:"steps,omitempty"`
+	// Target is the existing code to use instead of the occurrences, when
+	// there is one: the constant whose value is written inline.
+	Target *Occurrence `json:"target,omitempty"`
 }
 
 // Step is one aligned step of a parallel flow: the function playing that
@@ -110,6 +113,8 @@ const (
 	blockClone     = "block-clone"
 	parallelFlow   = "parallel-flow"
 	duplicateType  = "duplicate-type"
+	duplicateConst = "duplicate-constant"
+	inlinedConst   = "inlined-constant"
 	extractFlow    = "extract-pipeline"
 	reuseExisting  = "reuse-existing"
 	extractCommon  = "extract-common"
@@ -131,6 +136,8 @@ type Findings struct {
 	Blocks     []clone.BlockClone
 	Flows      []Flow
 	Structs    []clone.StructGroup
+	Consts     []clone.ConstGroup
+	Inlined    []clone.InlinedConst
 }
 
 // Flow is a family of features running the same pipeline through
@@ -152,7 +159,7 @@ type FlowStep struct {
 
 // Build turns findings into a report. Candidates are ranked by duplicated
 // nodes, largest first; on ties, they keep this order: groups, near misses,
-// block clones, flows, structs. The summary's candidate count is filled in.
+// block clones, flows, structs, constants. The summary's candidate count is filled in.
 func Build(language string, f Findings, summary Summary) Report {
 	candidates := make([]Candidate, 0, len(f.Groups)+len(f.NearMisses)+len(f.Blocks)+len(f.Flows))
 	for _, g := range f.Groups {
@@ -169,6 +176,12 @@ func Build(language string, f Findings, summary Summary) Report {
 	}
 	for _, s := range f.Structs {
 		candidates = append(candidates, structCandidate(language, s))
+	}
+	for _, g := range f.Consts {
+		candidates = append(candidates, constCandidate(language, g))
+	}
+	for _, in := range f.Inlined {
+		candidates = append(candidates, inlinedCandidate(language, in))
 	}
 	candidates = slices.DeleteFunc(candidates, mostlyParameters)
 	slices.SortStableFunc(candidates, func(a, b Candidate) int {
@@ -349,12 +362,12 @@ func flowCandidate(language string, f Flow) Candidate {
 
 func structCandidate(language string, g clone.StructGroup) Candidate {
 	first := g.Structs[0]
-	h := fnv.New64a()
+	var names strings.Builder
 	for _, f := range first.Fields {
-		_, _ = h.Write([]byte(f.Name + "\x00"))
+		names.WriteString(f.Name + "\x00")
 	}
 	c := Candidate{
-		Fingerprint: fmt.Sprintf("%s:type:%016x", language, h.Sum64()),
+		Fingerprint: fmt.Sprintf("%s:type:%016x", language, hashString(names.String())),
 		Language:    language,
 		Kind:        duplicateType,
 		Similarity:  1,
@@ -370,6 +383,57 @@ func structCandidate(language string, g clone.StructGroup) Candidate {
 	}
 	c.Differences, c.Suggestion = differences(g.Differences)
 	return c
+}
+
+func constCandidate(language string, g clone.ConstGroup) Candidate {
+	first := g.Consts[0]
+	c := Candidate{
+		Fingerprint: fmt.Sprintf("%s:const:%016x", language, hashString(first.Name+"="+first.Value)),
+		Language:    language,
+		Kind:        duplicateConst,
+		Similarity:  1,
+		Differences: []Difference{},
+		Suggestion:  Suggestion{Action: reuseExisting},
+		Score: Score{
+			Nodes:           first.Nodes,
+			Lines:           1,
+			Occurrences:     len(g.Consts),
+			DuplicatedNodes: first.Nodes * (len(g.Consts) - 1),
+		},
+	}
+	for _, k := range g.Consts {
+		c.Occurrences = append(c.Occurrences, constOccurrence(k))
+	}
+	return c
+}
+
+func inlinedCandidate(language string, in clone.InlinedConst) Candidate {
+	target := constOccurrence(in.Const)
+	c := Candidate{
+		Fingerprint: fmt.Sprintf("%s:inline:%016x", language, hashString(in.Const.Name+"="+in.Const.Value)),
+		Language:    language,
+		Kind:        inlinedConst,
+		Similarity:  1,
+		Occurrences: []Occurrence{target},
+		Differences: []Difference{},
+		Suggestion:  Suggestion{Action: reuseExisting},
+		Score:       Score{Nodes: 1, Lines: 1, Occurrences: len(in.Uses) + 1, DuplicatedNodes: len(in.Uses)},
+		Target:      &target,
+	}
+	for _, u := range in.Uses {
+		c.Occurrences = append(c.Occurrences, Occurrence{File: u.File, Name: u.Name, StartLine: u.Line, EndLine: u.Line})
+	}
+	return c
+}
+
+func constOccurrence(k unit.Const) Occurrence {
+	return Occurrence{File: k.File, Name: k.Name, StartLine: k.Line, EndLine: k.Line}
+}
+
+func hashString(s string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(s))
+	return h.Sum64()
 }
 
 func occurrence(u unit.Unit) Occurrence {
@@ -440,6 +504,9 @@ func WriteText(w io.Writer, r Report) error {
 				}
 			}
 			fmt.Fprintf(&b, "    step: %s\n", strings.Join(parts, " | "))
+		}
+		if t := c.Target; t != nil {
+			fmt.Fprintf(&b, "    target: %s:%d-%d %s\n", t.File, t.StartLine, t.EndLine, t.Name)
 		}
 		for _, d := range c.Differences {
 			label := d.Kind

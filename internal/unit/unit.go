@@ -116,6 +116,25 @@ func SimpleName(path string) string {
 // Decls are a file's declarations other than functions.
 type Decls struct {
 	Structs []Struct
+	Consts  []Const
+}
+
+// Const is a constant or static declared at module level, outside any
+// function or impl block.
+type Const struct {
+	File, Name string
+	// Value is the initialiser as written: a string literal exactly, any
+	// other value without whitespace.
+	Value string
+	Line  int
+	Nodes int
+	// Literal is true when the value is one string literal; Value then
+	// holds it with its quotes, as code writes it inline.
+	Literal bool
+	// Macro is true when the value is a macro call, such as include_str!,
+	// whose meaning can depend on where it is written.
+	Macro bool
+	Test  bool
 }
 
 // Struct is a struct with named fields.

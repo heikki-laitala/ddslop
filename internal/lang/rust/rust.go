@@ -195,6 +195,11 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool) {
 	case "struct_item":
 		e.addStruct(n, test)
 		return
+	case "const_item", "static_item":
+		if sc.owner == "" {
+			e.addConst(n, test)
+		}
+		return
 	case "impl_item":
 		if t := n.ChildByFieldName("type"); t != nil {
 			sc.owner = t.Utf8Text(e.src)
@@ -322,6 +327,29 @@ func (e *extractor) addStruct(n *sitter.Node, test bool) {
 		})
 	}
 	e.decls.Structs = append(e.decls.Structs, ty)
+}
+
+// addConst records a constant or static item.
+func (e *extractor) addConst(n *sitter.Node, test bool) {
+	name, value := n.ChildByFieldName("name"), n.ChildByFieldName("value")
+	if name == nil || value == nil || n.HasError() {
+		return
+	}
+	literal := value.Kind() == "string_literal"
+	text := value.Utf8Text(e.src)
+	if !literal {
+		text = strings.Join(strings.Fields(text), "")
+	}
+	e.decls.Consts = append(e.decls.Consts, unit.Const{
+		File:    e.path,
+		Name:    name.Utf8Text(e.src),
+		Value:   text,
+		Line:    line(n.StartPosition()),
+		Nodes:   countNodes(value),
+		Literal: literal,
+		Macro:   value.Kind() == "macro_invocation",
+		Test:    test,
+	})
 }
 
 // countNodes counts the syntax nodes of a subtree, comments left out.

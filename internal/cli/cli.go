@@ -371,6 +371,7 @@ func check(root string, opts options) (report.Report, error) {
 	summary := report.Summary{ParsedFiles: stats.Parsed, UnchangedFiles: stats.Unchanged}
 	var units []unit.Unit
 	var structs []unit.Struct
+	var consts []unit.Const
 	for _, f := range files {
 		if f.Generated {
 			summary.GeneratedFiles++
@@ -387,6 +388,11 @@ func check(root string, opts options) (report.Report, error) {
 		for _, s := range f.Decls.Structs {
 			if !s.Test || opts.tests {
 				structs = append(structs, s)
+			}
+		}
+		for _, c := range f.Decls.Consts {
+			if !c.Test || opts.tests {
+				consts = append(consts, c)
 			}
 		}
 	}
@@ -417,6 +423,8 @@ func check(root string, opts options) (report.Report, error) {
 	return report.Build("rust", report.Findings{
 		Groups: groups, NearMisses: nearMisses, Blocks: blocks, Flows: flows,
 		Structs: clone.Structs(structs, minStructFields),
+		Consts:  clone.Constants(consts),
+		Inlined: clone.InlinedConstants(consts, units, flow.CrateOf),
 	}, summary), nil
 }
 
@@ -512,6 +520,9 @@ func loadFiles(db *index.DB) ([]index.File, error) {
 		}
 		for j := range f.Decls.Structs {
 			files[i].Decls.Structs[j].Test = true
+		}
+		for j := range f.Decls.Consts {
+			files[i].Decls.Consts[j].Test = true
 		}
 	}
 	return files, nil
