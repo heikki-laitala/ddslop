@@ -555,6 +555,13 @@ duplication, and are dropped below a threshold.
   summary (`generated_files`). Configured paths come later.
 - Known idioms per language (for example Go's `if err != nil { return err }`).
 - Fragments below a minimum size, measured in syntax nodes (`--min-nodes`).
+- Candidates that would be mostly parameters: fewer than 20 nodes per
+  parameter. Extracting them would turn most of the body into arguments;
+  the copies share a shape, not logic. On a large Rust codebase every
+  audited real target had 24 or more nodes per parameter, while `Debug` and
+  `Display` impls, match tables mapping variants to different strings, and
+  same-shaped one-line delegations had 12.7-19.8. The rule dropped 41
+  candidates there and kept all 12 audited real targets.
 - Test code is skipped by default and counted in the summary (`test_units`);
   `--tests` includes it. In Rust, test code is a function with a test
   attribute (`#[test]`, `#[tokio::test]`, `#[rstest]`, `#[test_case]`), a
