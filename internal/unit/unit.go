@@ -128,6 +128,34 @@ func SimpleName(path string) string {
 type Decls struct {
 	Structs []Struct
 	Consts  []Const
+	Traits  []Trait
+	Impls   []Impl
+	// TypeNames are the names of every type the file declares: structs of
+	// any kind, enums, unions and type aliases.
+	TypeNames []string
+}
+
+// Trait is a trait declaration.
+type Trait struct {
+	File               string
+	Name               string
+	StartLine, EndLine int
+	Nodes              int
+	// Public is true when the trait is visible outside its crate.
+	Public bool
+	Test   bool
+}
+
+// Impl is an implementation of a trait for a type, both as simple names
+// (see SimpleName).
+type Impl struct {
+	File               string
+	Trait, Type        string
+	StartLine, EndLine int
+	// Blanket is true when the type is one of the impl's own type
+	// parameters: impl<T: Read> Io for T.
+	Blanket bool
+	Test    bool
 }
 
 // Const is a constant or static declared at module level, outside any

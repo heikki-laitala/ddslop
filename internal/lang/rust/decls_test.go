@@ -209,3 +209,50 @@ impl Store {
 		t.Errorf("wrappers:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestParseListsTraitsImplsAndTypeNames(t *testing.T) {
+	src := `pub trait DirectoryStore {
+    fn put(&self);
+}
+trait Io {}
+
+pub struct DirectorySession { a: u32 }
+enum Mode { A }
+struct Unit;
+type Alias = u32;
+
+impl DirectoryStore for DirectorySession {
+    fn put(&self) {}
+}
+impl<T: Read> Io for T {}
+impl<'a> io::Write for &'a mut Buffer<'a> {}
+impl DirectorySession {}
+
+#[cfg(test)]
+mod tests {
+    impl super::DirectoryStore for Fake {}
+}
+`
+	decls := mustDecls(t, "lib.rs", src)
+	var traits, impls []string
+	for _, tr := range decls.Traits {
+		traits = append(traits, fmt.Sprintf("%s %d-%d public=%v", tr.Name, tr.StartLine, tr.EndLine, tr.Public))
+	}
+	for _, im := range decls.Impls {
+		impls = append(impls, fmt.Sprintf("%s for %s %d-%d blanket=%v test=%v", im.Trait, im.Type, im.StartLine, im.EndLine, im.Blanket, im.Test))
+	}
+	wantTraits := "DirectoryStore 1-3 public=true\nIo 4-4 public=false"
+	wantImpls := "DirectoryStore for DirectorySession 11-13 blanket=false test=false\n" +
+		"Io for T 14-14 blanket=true test=false\n" +
+		"Write for Buffer 15-15 blanket=false test=false\n" +
+		"DirectoryStore for Fake 20-20 blanket=false test=true"
+	if got := strings.Join(traits, "\n"); got != wantTraits {
+		t.Errorf("traits:\n%s\nwant:\n%s", got, wantTraits)
+	}
+	if got := strings.Join(impls, "\n"); got != wantImpls {
+		t.Errorf("impls:\n%s\nwant:\n%s", got, wantImpls)
+	}
+	if got := fmt.Sprint(decls.TypeNames); got != "[DirectorySession Mode Unit Alias]" {
+		t.Errorf("type names = %s, want [DirectorySession Mode Unit Alias]", got)
+	}
+}

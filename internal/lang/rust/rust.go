@@ -56,21 +56,11 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 
 // Traits returns the names of the traits a file declares, in source order.
 func Traits(src []byte) []string {
+	_, decls, _ := Parse("", src)
 	var names []string
-	_ = parse(src, func(root *sitter.Node) {
-		var walk func(n *sitter.Node)
-		walk = func(n *sitter.Node) {
-			if n.Kind() == "trait_item" {
-				if name := n.ChildByFieldName("name"); name != nil {
-					names = append(names, name.Utf8Text(src))
-				}
-			}
-			for i := uint(0); i < n.ChildCount(); i++ {
-				walk(n.Child(i))
-			}
-		}
-		walk(root)
-	})
+	for _, t := range decls.Traits {
+		names = append(names, t.Name)
+	}
 	return names
 }
 
@@ -193,7 +183,11 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 		e.addFunction(n, sc, test, own)
 		return
 	case "struct_item":
+		e.addTypeName(n)
 		e.addStruct(n, test)
+		return
+	case "enum_item", "union_item", "type_item":
+		e.addTypeName(n)
 		return
 	case "const_item", "static_item":
 		if sc.owner == "" {
@@ -207,10 +201,15 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 		sc.trait = ""
 		if t := n.ChildByFieldName("trait"); t != nil {
 			sc.trait = unit.SimpleName(t.Utf8Text(e.src))
+			e.addImpl(n, sc, test)
 		}
 	case "trait_item":
 		if t := n.ChildByFieldName("name"); t != nil {
 			sc.owner = t.Utf8Text(e.src)
+			e.decls.Traits = append(e.decls.Traits, unit.Trait{
+				File: e.path, Name: sc.owner, StartLine: line(n.StartPosition()), EndLine: line(n.EndPosition()),
+				Nodes: countNodes(n), Public: isPublic(n, e.src), Test: test,
+			})
 		}
 		sc.trait = ""
 	}
@@ -394,6 +393,38 @@ func attrName(attr string) string {
 		path = path[i+2:]
 	}
 	return path
+}
+
+// addTypeName records the name of a declared type.
+func (e *extractor) addTypeName(n *sitter.Node) {
+	if name := n.ChildByFieldName("name"); name != nil {
+		e.decls.TypeNames = append(e.decls.TypeNames, name.Utf8Text(e.src))
+	}
+}
+
+// addImpl records a trait impl; sc holds the trait implemented.
+func (e *extractor) addImpl(n *sitter.Node, sc scope, test bool) {
+	tn := n.ChildByFieldName("type")
+	for tn != nil && tn.Kind() == "reference_type" {
+		tn = tn.ChildByFieldName("type") // &'a mut Buffer<'a>
+	}
+	if tn == nil {
+		return
+	}
+	ty := unit.SimpleName(tn.Utf8Text(e.src))
+	blanket := false
+	if params := n.ChildByFieldName("type_parameters"); params != nil {
+		for i := uint(0); i < params.NamedChildCount(); i++ {
+			if name := params.NamedChild(i).ChildByFieldName("name"); name != nil && name.Utf8Text(e.src) == ty {
+				blanket = true
+			}
+		}
+	}
+	e.decls.Impls = append(e.decls.Impls, unit.Impl{
+		File: e.path, Trait: sc.trait, Type: ty,
+		StartLine: line(n.StartPosition()), EndLine: line(n.EndPosition()),
+		Blanket: blanket, Test: test,
+	})
 }
 
 // addStruct records a struct with named fields; unit and tuple structs are

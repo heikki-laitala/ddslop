@@ -121,6 +121,8 @@ const (
 	deleteDead     = "delete-dead"
 	passThrough    = "pass-through"
 	inlineWrapper  = "inline-wrapper"
+	singleImpl     = "single-impl-trait"
+	removeTrait    = "remove-trait"
 	extractFlow    = "extract-pipeline"
 	reuseExisting  = "reuse-existing"
 	extractCommon  = "extract-common"
@@ -146,6 +148,7 @@ type Findings struct {
 	Inlined    []clone.InlinedConst
 	Dead       []unit.Unit
 	Wrappers   []simplify.Wrapper
+	Traits     []simplify.SingleImplTrait
 }
 
 // Flow is a family of features running the same pipeline through
@@ -167,7 +170,8 @@ type FlowStep struct {
 
 // Build turns findings into a report. Candidates are ranked by duplicated
 // nodes, largest first; on ties, they keep this order: groups, near misses,
-// block clones, flows, structs, constants, dead code, wrappers. The summary's candidate count is filled in.
+// block clones, flows, structs, constants, dead code, wrappers, traits.
+// The summary's candidate count is filled in.
 func Build(language string, f Findings, summary Summary) Report {
 	candidates := make([]Candidate, 0, len(f.Groups)+len(f.NearMisses)+len(f.Blocks)+len(f.Flows))
 	for _, g := range f.Groups {
@@ -199,6 +203,9 @@ func Build(language string, f Findings, summary Summary) Report {
 		t := occurrence(w.Target)
 		c.Target = &t
 		candidates = append(candidates, c)
+	}
+	for _, t := range f.Traits {
+		candidates = append(candidates, traitCandidate(language, t))
 	}
 	candidates = slices.DeleteFunc(candidates, mostlyParameters)
 	slices.SortStableFunc(candidates, func(a, b Candidate) int {
@@ -455,6 +462,23 @@ func single(language, kind, action string, u unit.Unit) Candidate {
 		Differences: []Difference{},
 		Suggestion:  Suggestion{Action: action},
 		Score:       Score{Nodes: u.Nodes, Lines: u.EndLine - u.StartLine + 1, Occurrences: 1, DuplicatedNodes: u.Nodes},
+	}
+}
+
+func traitCandidate(language string, s simplify.SingleImplTrait) Candidate {
+	t, im := s.Trait, s.Impl
+	return Candidate{
+		Fingerprint: fmt.Sprintf("%s:%s:%016x", language, singleImpl, hashString(t.File+"#"+t.Name)),
+		Language:    language,
+		Kind:        singleImpl,
+		Similarity:  1,
+		Occurrences: []Occurrence{
+			{File: t.File, Name: t.Name, StartLine: t.StartLine, EndLine: t.EndLine},
+			{File: im.File, Name: im.Trait + " for " + im.Type, StartLine: im.StartLine, EndLine: im.EndLine},
+		},
+		Differences: []Difference{},
+		Suggestion:  Suggestion{Action: removeTrait},
+		Score:       Score{Nodes: t.Nodes, Lines: t.EndLine - t.StartLine + 1, Occurrences: 1, DuplicatedNodes: t.Nodes},
 	}
 }
 

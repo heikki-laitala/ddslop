@@ -373,6 +373,7 @@ func check(root string, opts options) (report.Report, error) {
 	var units []unit.Unit
 	var structs []unit.Struct
 	var consts []unit.Const
+	var decls unit.Decls // every file's, test code included, for traits
 	for _, f := range files {
 		if f.Generated {
 			summary.GeneratedFiles++
@@ -396,6 +397,9 @@ func check(root string, opts options) (report.Report, error) {
 				consts = append(consts, c)
 			}
 		}
+		decls.Traits = append(decls.Traits, f.Decls.Traits...)
+		decls.Impls = append(decls.Impls, f.Decls.Impls...)
+		decls.TypeNames = append(decls.TypeNames, f.Decls.TypeNames...)
 	}
 	summary.Units = len(units)
 	groups := clone.Groups(units, opts.minNodes)
@@ -421,14 +425,16 @@ func check(root string, opts options) (report.Report, error) {
 	}
 	blocks := clone.BlockClones(units, max(opts.minBlockNodes, opts.minNodes), reported)
 	g, traits := callGraph(root, files)
+	internal := internalCrates(root, files)
 	flows := parallelFlows(g, traits, opts.minNodes)
 	return report.Build("rust", report.Findings{
 		Groups: groups, NearMisses: nearMisses, Blocks: blocks, Flows: flows,
 		Structs:  clone.Structs(structs, minStructFields),
 		Consts:   clone.Constants(consts),
 		Inlined:  clone.InlinedConstants(consts, units, flow.CrateOf),
-		Dead:     simplify.Dead(units, wordCounts(files), internalCrates(root, files)),
+		Dead:     simplify.Dead(units, wordCounts(files), internal),
 		Wrappers: simplify.PassThrough(g),
+		Traits:   simplify.SingleImpl(decls, internal),
 	}, summary), nil
 }
 
@@ -550,17 +556,29 @@ func loadFiles(db *index.DB) ([]index.File, error) {
 			continue
 		}
 		files[i].Imports = nil
-		for j := range f.Units {
-			files[i].Units[j].Test = true
-		}
-		for j := range f.Decls.Structs {
-			files[i].Decls.Structs[j].Test = true
-		}
-		for j := range f.Decls.Consts {
-			files[i].Decls.Consts[j].Test = true
-		}
+		markTest(&files[i])
 	}
 	return files, nil
+}
+
+// markTest marks everything a file declares as test code.
+func markTest(f *index.File) {
+	for i := range f.Units {
+		f.Units[i].Test = true
+	}
+	d := &f.Decls
+	for i := range d.Structs {
+		d.Structs[i].Test = true
+	}
+	for i := range d.Consts {
+		d.Consts[i].Test = true
+	}
+	for i := range d.Traits {
+		d.Traits[i].Test = true
+	}
+	for i := range d.Impls {
+		d.Impls[i].Test = true
+	}
 }
 
 // moduleDir is the directory holding the files of a Rust file's
@@ -587,7 +605,10 @@ func parseRust(path string, src []byte) (index.Parsed, error) {
 	for i := range units {
 		units[i].Signature = similarity.Signature(units[i].Seq)
 	}
-	parsed := index.Parsed{Units: units, Decls: decls, Traits: rust.Traits(src), TestModules: rust.TestModules(src), Words: source.Words(src)}
+	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(src), Words: source.Words(src)}
+	for _, t := range decls.Traits {
+		parsed.Traits = append(parsed.Traits, t.Name)
+	}
 	if !rust.IsTestPath(path) {
 		// Test files' imports are not dependencies of the code.
 		parsed.Imports = rust.Imports(src)
