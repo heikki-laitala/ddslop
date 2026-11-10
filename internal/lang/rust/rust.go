@@ -48,7 +48,7 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var decls unit.Decls
 	err := parse(src, func(root *sitter.Node) {
 		e := extractor{path: path, src: src}
-		e.walk(root, scope{}, IsTestPath(path))
+		e.walk(root, scope{}, IsTestPath(path), nil)
 		units, decls = e.units, e.decls
 	})
 	return units, decls, err
@@ -180,17 +180,17 @@ type extractor struct {
 
 // walk finds function items, tracking the enclosing impl or trait name and
 // whether the code is test code. Attributes are siblings that come just
-// before the item they apply to.
+// before the item they apply to; own are those of n.
 // scope is what encloses a function: the type or trait owning it and,
 // inside a trait impl, the trait implemented.
 type scope struct {
 	owner, trait string
 }
 
-func (e *extractor) walk(n *sitter.Node, sc scope, test bool) {
+func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 	switch n.Kind() {
 	case "function_item":
-		e.addFunction(n, sc, test)
+		e.addFunction(n, sc, test, own)
 		return
 	case "struct_item":
 		e.addStruct(n, test)
@@ -231,7 +231,7 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool) {
 		case "mod_item":
 			childTest = test || slices.ContainsFunc(attrs, isCfgTest)
 		}
-		e.walk(child, sc, childTest)
+		e.walk(child, sc, childTest, attrs)
 		attrs = nil
 	}
 }
@@ -239,15 +239,8 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool) {
 // isTestAttr reports whether an attribute marks a test function, such as
 // #[test], #[tokio::test(...)], #[rstest] or #[test_case(...)].
 func isTestAttr(attr string) bool {
-	path := strings.TrimPrefix(attr, "#[")
-	if i := strings.IndexAny(path, "(]="); i >= 0 {
-		path = path[:i]
-	}
-	path = strings.TrimSpace(path)
-	if i := strings.LastIndex(path, "::"); i >= 0 {
-		path = path[i+2:]
-	}
-	return path == "test" || path == "rstest" || path == "test_case"
+	name := attrName(attr)
+	return name == "test" || name == "rstest" || name == "test_case"
 }
 
 // isCfgTest reports whether an attribute limits an item to test builds.
@@ -268,7 +261,7 @@ func IsTestPath(path string) bool {
 	return parts[len(parts)-1] == "tests.rs"
 }
 
-func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool) {
+func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []string) {
 	owner := sc.owner
 	if n.HasError() {
 		return
@@ -296,7 +289,51 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool) {
 		Blocks:    s.blocks,
 		Trait:     sc.trait,
 		Calls:     s.calls,
+		Public:    isPublic(n, e.src),
+		External:  (owner == "" && name == "main") || slices.ContainsFunc(attrs, isExternalAttr),
 	})
+}
+
+// isPublic reports whether an item is declared plain pub, visible outside
+// its crate; pub(crate) and narrower are not.
+func isPublic(n *sitter.Node, src []byte) bool {
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		if c := n.NamedChild(i); c.Kind() == "visibility_modifier" {
+			return c.Utf8Text(src) == "pub"
+		}
+	}
+	return false
+}
+
+// internalAttrs are attributes that never make a function callable from
+// outside the source: lints, inlining, documentation, conditional
+// compilation and tracing.
+var internalAttrs = map[string]bool{
+	"allow": true, "expect": true, "warn": true, "deny": true, "forbid": true,
+	"inline": true, "must_use": true, "cold": true, "track_caller": true,
+	"doc": true, "deprecated": true, "cfg": true, "cfg_attr": true,
+	"instrument": true, "skip": true, // tracing::instrument, rustfmt::skip
+}
+
+// isExternalAttr reports whether an attribute may make a function called
+// from outside the source (#[no_mangle], #[tokio::main], route macros):
+// anything but test attributes and internalAttrs.
+func isExternalAttr(attr string) bool {
+	return !isTestAttr(attr) && !internalAttrs[attrName(attr)]
+}
+
+// attrName returns the last segment of an attribute's path: "main" for
+// #[tokio::main(flavor = "current_thread")].
+func attrName(attr string) string {
+	path := strings.TrimPrefix(attr, "#[")
+	if i := strings.IndexAny(path, "(]="); i >= 0 {
+		path = path[:i]
+	}
+	path = strings.TrimSpace(path)
+	if i := strings.LastIndex(path, "::"); i >= 0 {
+		path = path[i+2:]
+	}
+	return path
 }
 
 // addStruct records a struct with named fields; unit and tuple structs are
@@ -584,4 +621,45 @@ func TestModules(src []byte) []string {
 		}
 	})
 	return names
+}
+
+// Unpublished reports whether a crate is kept out of registries, so its
+// public items are used only inside the workspace: its manifest says
+// publish = false (or []), directly or through publish.workspace = true
+// and the workspace manifest's [workspace.package].
+func Unpublished(manifest, workspace []byte) bool {
+	switch publishValue(manifest, "package") {
+	case "false", "[]":
+		return true
+	case "workspace":
+		v := publishValue(workspace, "workspace.package")
+		return v == "false" || v == "[]"
+	}
+	return false
+}
+
+// publishValue returns the publish setting of a manifest section, without
+// spaces, or "workspace" when the setting is inherited from the workspace.
+func publishValue(manifest []byte, want string) string {
+	section := ""
+	for line := range strings.Lines(string(manifest)) {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			section = strings.Trim(line, "[] ")
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || section != want {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.Join(strings.Fields(value), "")
+		switch {
+		case key == "publish.workspace" && value == "true", key == "publish" && value == "{workspace=true}":
+			return "workspace"
+		case key == "publish":
+			return value
+		}
+	}
+	return ""
 }

@@ -21,3 +21,26 @@ func TestCrateName(t *testing.T) {
 		}
 	}
 }
+
+func TestUnpublished(t *testing.T) {
+	workspacePrivate := "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\npublish = false\n"
+	workspacePublic := "[workspace]\nmembers = []\n"
+	cases := []struct {
+		name, manifest, workspace string
+		want                      bool
+	}{
+		{"publish false", "[package]\nname = \"a\"\npublish = false\n", workspacePublic, true},
+		{"publish empty list", "[package]\nname = \"a\"\npublish = []\n", workspacePublic, true},
+		{"publish to a registry", "[package]\nname = \"a\"\npublish = [\"internal\"]\n", workspacePublic, false},
+		{"no publish key", "[package]\nname = \"a\"\n", workspacePrivate, false},
+		{"inherits private", "[package]\nname = \"a\"\npublish.workspace = true\n", workspacePrivate, true},
+		{"inherits private, inline table", "[package]\nname = \"a\"\npublish = { workspace = true }\n", workspacePrivate, true},
+		{"inherits public", "[package]\nname = \"a\"\npublish.workspace = true\n", workspacePublic, false},
+		{"publish in another section", "[package]\nname = \"a\"\n\n[package.metadata.x]\npublish = false\n", workspacePublic, false},
+	}
+	for _, c := range cases {
+		if got := Unpublished([]byte(c.manifest), []byte(c.workspace)); got != c.want {
+			t.Errorf("%s: Unpublished = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

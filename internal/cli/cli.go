@@ -22,6 +22,7 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
 	"github.com/heikki-laitala/ddslop/internal/report"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
+	"github.com/heikki-laitala/ddslop/internal/simplify"
 	"github.com/heikki-laitala/ddslop/internal/source"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
@@ -425,7 +426,35 @@ func check(root string, opts options) (report.Report, error) {
 		Structs: clone.Structs(structs, minStructFields),
 		Consts:  clone.Constants(consts),
 		Inlined: clone.InlinedConstants(consts, units, flow.CrateOf),
+		Dead:    simplify.Dead(units, wordCounts(files), internalCrates(root, files)),
 	}, summary), nil
+}
+
+// wordCounts adds up the words of every indexed file, generated and test
+// files included: a name used only there is still used.
+func wordCounts(files []index.File) map[string]int {
+	words := map[string]int{}
+	for _, f := range files {
+		for w, n := range f.Words {
+			words[w] += n
+		}
+	}
+	return words
+}
+
+// internalCrates reports, for a file, whether its crate is unpublished
+// (see rust.Unpublished), so its public items serve only the analysed
+// code. The workspace manifest is the one at root.
+func internalCrates(root string, files []index.File) func(file string) bool {
+	workspace := manifest(root, ".")
+	internal := map[string]bool{}
+	for _, f := range files {
+		dir := flow.CrateOf(f.Path)
+		if _, done := internal[dir]; !done {
+			internal[dir] = rust.Unpublished(manifest(root, dir), workspace)
+		}
+	}
+	return func(file string) bool { return internal[flow.CrateOf(file)] }
 }
 
 // minStructFields is the fewest fields a struct needs to be compared with
@@ -546,13 +575,13 @@ func parseRust(path string, src []byte) (index.Parsed, error) {
 	if rust.IsGenerated(src) {
 		// Generated code is not analysed, but the traits it declares (such
 		// as OpenAPI server traits) mark the entry points of features.
-		return index.Parsed{Generated: true, Traits: rust.Traits(src)}, nil
+		return index.Parsed{Generated: true, Traits: rust.Traits(src), Words: source.Words(src)}, nil
 	}
 	units, decls, err := rust.Parse(path, src)
 	for i := range units {
 		units[i].Signature = similarity.Signature(units[i].Seq)
 	}
-	parsed := index.Parsed{Units: units, Decls: decls, Traits: rust.Traits(src), TestModules: rust.TestModules(src)}
+	parsed := index.Parsed{Units: units, Decls: decls, Traits: rust.Traits(src), TestModules: rust.TestModules(src), Words: source.Words(src)}
 	if !rust.IsTestPath(path) {
 		// Test files' imports are not dependencies of the code.
 		parsed.Imports = rust.Imports(src)

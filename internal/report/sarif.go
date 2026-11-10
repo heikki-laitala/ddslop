@@ -18,7 +18,17 @@ var rules = []sarifRule{
 	{ID: duplicateType, Short: "Struct with the same fields as another", Full: "The structs declare the same field names. Keep one type and use it everywhere, converting at the boundary if one is a wire format; differing field types become type parameters or conversions."},
 	{ID: duplicateConst, Short: "Constant declared again with the same name and value", Full: "The same constant is declared in several places. Keep one declaration, in a module the users share, and import it."},
 	{ID: inlinedConst, Short: "Constant's value written inline", Full: "A string literal repeats the value of a constant declared in the same crate. Use the constant (the target) instead of the literal."},
+	{ID: deadCode, Short: "Public function nothing uses", Full: "The function is public in a crate that is not published, and its name appears nowhere else in the code: no call, import, macro or comment. Delete it, unless it is meant for code outside the repository."},
 }
+
+// ruleShort maps a candidate kind to its rule's short description.
+var ruleShort = func() map[string]string {
+	m := map[string]string{}
+	for _, r := range rules {
+		m[r.ID] = r.Short
+	}
+	return m
+}()
 
 type sarifRule struct {
 	ID    string
@@ -61,11 +71,13 @@ func WriteSARIF(w io.Writer, r Report, toolVersion string) error {
 			related = append(related, loc)
 			others = append(others, fmt.Sprintf("%s:%d-%d %s", o.File, o.StartLine, o.EndLine, o.Name))
 		}
-		message := fmt.Sprintf("Duplicated code (%s): %d copies of %d lines; %s", c.Kind, c.Score.Occurrences, c.Score.Lines, c.Suggestion.Action)
+		message := fmt.Sprintf("%s: %s; %s", ruleShort[c.Kind], size(c), c.Suggestion.Action)
 		if c.Suggestion.Parameters > 0 {
 			message += fmt.Sprintf(" with %d parameter(s)", c.Suggestion.Parameters)
 		}
-		message += ". Other copies: " + strings.Join(others, ", ")
+		if len(others) > 0 {
+			message += ". Other occurrences: " + strings.Join(others, ", ")
+		}
 		results = append(results, map[string]any{
 			"ruleId":              c.Kind,
 			"level":               "warning",

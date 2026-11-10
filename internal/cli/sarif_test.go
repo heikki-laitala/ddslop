@@ -70,7 +70,7 @@ func TestCheckSARIF(t *testing.T) {
 	for _, r := range l.Runs[0].Tool.Driver.Rules {
 		rules = append(rules, r.ID)
 	}
-	if strings.Join(rules, " ") != "exact-clone renamed-clone near-miss block-clone parallel-flow duplicate-type duplicate-constant inlined-constant" {
+	if strings.Join(rules, " ") != "exact-clone renamed-clone near-miss block-clone parallel-flow duplicate-type duplicate-constant inlined-constant dead-code" {
 		t.Errorf("rules = %v, want every candidate kind", rules)
 	}
 	if len(l.Runs[0].Results) != 1 {
@@ -87,7 +87,7 @@ func TestCheckSARIF(t *testing.T) {
 	if len(res.RelatedLocations) != 1 || res.RelatedLocations[0].PhysicalLocation.ArtifactLocation.URI != "src/users.rs" {
 		t.Errorf("related locations = %+v, want src/users.rs", res.RelatedLocations)
 	}
-	for _, want := range []string{"src/users.rs:1-9", "extract-common"} {
+	for _, want := range []string{"Renamed copy of a function", "src/users.rs:1-9", "extract-common"} {
 		if !strings.Contains(res.Message.Text, want) {
 			t.Errorf("message %q is missing %q", res.Message.Text, want)
 		}

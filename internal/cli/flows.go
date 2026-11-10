@@ -144,6 +144,16 @@ func writeFlowsText(w io.Writer, r flowsReport) error {
 	return err
 }
 
+// manifest returns the Cargo.toml of a crate directory under root, or nil
+// when there is none.
+func manifest(root, dir string) []byte {
+	toml, err := os.ReadFile(filepath.Join(root, dir, "Cargo.toml")) //nolint:gosec // a manifest under the analysed root
+	if err != nil {
+		return nil
+	}
+	return toml
+}
+
 // treeOrder orders a breadth-first slice depth first, each function right
 // after the function that called it, so indentation by depth reads as a
 // call tree. Callees keep their call order.
@@ -176,11 +186,7 @@ func graphInputs(root string, files []index.File) flow.Inputs {
 		if _, done := in.Crates[dir]; done {
 			continue
 		}
-		name := ""
-		if toml, err := os.ReadFile(filepath.Join(root, dir, "Cargo.toml")); err == nil { //nolint:gosec // a manifest under the analysed root
-			name = rust.CrateName(toml)
-		}
-		if name != "" {
+		if name := rust.CrateName(manifest(root, dir)); name != "" {
 			in.Crates[dir] = name
 		} else {
 			in.Crates[dir] = strings.ReplaceAll(filepath.Base(dir), "-", "_")

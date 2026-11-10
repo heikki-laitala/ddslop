@@ -110,3 +110,50 @@ mod inner {
 		t.Errorf("constants:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestUnitsRecordVisibilityAndExternalCallers(t *testing.T) {
+	src := `pub fn api() {}
+pub(crate) fn internal() {}
+fn private() {}
+
+#[inline]
+#[must_use]
+#[allow(dead_code)]
+#[tracing::instrument(skip(self))]
+#[cfg(feature = "x")]
+#[deprecated]
+pub fn annotated() {}
+
+#[no_mangle]
+pub extern "C" fn exported() {}
+
+#[tokio::main]
+async fn main() {}
+
+#[get("/health")]
+pub async fn health() {}
+
+pub struct S;
+impl S {
+    pub fn method(&self) {}
+}
+`
+	units := mustUnits(t, src)
+	var got []string
+	for _, u := range units {
+		got = append(got, fmt.Sprintf("%s public=%v external=%v", u.Name, u.Public, u.External))
+	}
+	want := []string{
+		"api public=true external=false",
+		"internal public=false external=false",
+		"private public=false external=false",
+		"annotated public=true external=false",
+		"exported public=true external=true",
+		"main public=false external=true",
+		"health public=true external=true",
+		"S::method public=true external=false",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

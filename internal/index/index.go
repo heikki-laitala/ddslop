@@ -32,6 +32,9 @@ type Parsed struct {
 	TestModules []string
 	// Decls are the file's declarations other than functions.
 	Decls unit.Decls
+	// Words counts the identifier-like words of the file, comments and
+	// strings included.
+	Words map[string]int
 }
 
 // ParseFunc extracts units from one file.
@@ -86,6 +89,7 @@ type stored struct {
 	Imports     map[string]string
 	TestModules []string
 	Decls       unit.Decls
+	Words       map[string]int
 }
 
 // DB is an open index database.
@@ -249,7 +253,7 @@ func (d *DB) write(reset bool, version string, changes []change, deleted []strin
 	defer func() { _ = upsert.Close() }()
 	for _, c := range changes {
 		var blob bytes.Buffer
-		if err = gob.NewEncoder(&blob).Encode(stored{c.parsed.Units, c.parsed.Traits, c.parsed.Imports, c.parsed.TestModules, c.parsed.Decls}); err != nil {
+		if err = gob.NewEncoder(&blob).Encode(stored{c.parsed.Units, c.parsed.Traits, c.parsed.Imports, c.parsed.TestModules, c.parsed.Decls, c.parsed.Words}); err != nil {
 			return err
 		}
 		if _, err = upsert.Exec(c.path, c.stamp.mtime, c.stamp.size, c.parsed.Generated, blob.Bytes()); err != nil {
@@ -304,7 +308,7 @@ func (d *DB) Files() ([]File, error) {
 		if err := gob.NewDecoder(bytes.NewReader(blob)).Decode(&st); err != nil {
 			return nil, fmt.Errorf("index: %s: %w", f.Path, err)
 		}
-		f.Units, f.Traits, f.Imports, f.TestModules, f.Decls = st.Units, st.Traits, st.Imports, st.TestModules, st.Decls
+		f.Units, f.Traits, f.Imports, f.TestModules, f.Decls, f.Words = st.Units, st.Traits, st.Imports, st.TestModules, st.Decls, st.Words
 		out = append(out, f)
 	}
 	return out, rows.Err()

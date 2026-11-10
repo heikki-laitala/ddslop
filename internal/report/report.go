@@ -115,6 +115,8 @@ const (
 	duplicateType  = "duplicate-type"
 	duplicateConst = "duplicate-constant"
 	inlinedConst   = "inlined-constant"
+	deadCode       = "dead-code"
+	deleteDead     = "delete-dead"
 	extractFlow    = "extract-pipeline"
 	reuseExisting  = "reuse-existing"
 	extractCommon  = "extract-common"
@@ -138,6 +140,7 @@ type Findings struct {
 	Structs    []clone.StructGroup
 	Consts     []clone.ConstGroup
 	Inlined    []clone.InlinedConst
+	Dead       []unit.Unit
 }
 
 // Flow is a family of features running the same pipeline through
@@ -159,7 +162,7 @@ type FlowStep struct {
 
 // Build turns findings into a report. Candidates are ranked by duplicated
 // nodes, largest first; on ties, they keep this order: groups, near misses,
-// block clones, flows, structs, constants. The summary's candidate count is filled in.
+// block clones, flows, structs, constants, dead code. The summary's candidate count is filled in.
 func Build(language string, f Findings, summary Summary) Report {
 	candidates := make([]Candidate, 0, len(f.Groups)+len(f.NearMisses)+len(f.Blocks)+len(f.Flows))
 	for _, g := range f.Groups {
@@ -182,6 +185,9 @@ func Build(language string, f Findings, summary Summary) Report {
 	}
 	for _, in := range f.Inlined {
 		candidates = append(candidates, inlinedCandidate(language, in))
+	}
+	for _, u := range f.Dead {
+		candidates = append(candidates, single(language, deadCode, deleteDead, u))
 	}
 	candidates = slices.DeleteFunc(candidates, mostlyParameters)
 	slices.SortStableFunc(candidates, func(a, b Candidate) int {
@@ -426,6 +432,21 @@ func inlinedCandidate(language string, in clone.InlinedConst) Candidate {
 	return c
 }
 
+// single builds a candidate for one function to remove or flatten. Its
+// score counts the function's nodes as the code the change removes.
+func single(language, kind, action string, u unit.Unit) Candidate {
+	return Candidate{
+		Fingerprint: fmt.Sprintf("%s:%s:%016x", language, kind, hashString(u.File+"#"+u.Name)),
+		Language:    language,
+		Kind:        kind,
+		Similarity:  1,
+		Occurrences: []Occurrence{occurrence(u)},
+		Differences: []Difference{},
+		Suggestion:  Suggestion{Action: action},
+		Score:       Score{Nodes: u.Nodes, Lines: u.EndLine - u.StartLine + 1, Occurrences: 1, DuplicatedNodes: u.Nodes},
+	}
+}
+
 func constOccurrence(k unit.Const) Occurrence {
 	return Occurrence{File: k.File, Name: k.Name, StartLine: k.Line, EndLine: k.Line}
 }
@@ -464,6 +485,15 @@ func WriteJSON(w io.Writer, r Report) error {
 	return enc.Encode(r)
 }
 
+// size describes a candidate's extent: its lines, and the number of copies
+// when there are several.
+func size(c Candidate) string {
+	if c.Score.Occurrences == 1 {
+		return fmt.Sprintf("%d lines", c.Score.Lines)
+	}
+	return fmt.Sprintf("%d copies of %d lines", c.Score.Occurrences, c.Score.Lines)
+}
+
 // WriteText writes the report for a human reading a terminal.
 func WriteText(w io.Writer, r Report) error {
 	var b strings.Builder
@@ -472,8 +502,7 @@ func WriteText(w io.Writer, r Report) error {
 		if c.Kind == nearMiss {
 			fmt.Fprintf(&b, " (%.0f%% similar)", 100*c.Similarity)
 		}
-		fmt.Fprintf(&b, ": %d copies of %d lines (%d nodes), %s",
-			c.Score.Occurrences, c.Score.Lines, c.Score.Nodes, c.Suggestion.Action)
+		fmt.Fprintf(&b, ": %s (%d nodes), %s", size(c), c.Score.Nodes, c.Suggestion.Action)
 		if c.Suggestion.Parameters > 0 {
 			fmt.Fprintf(&b, " with %d parameter(s)", c.Suggestion.Parameters)
 		}

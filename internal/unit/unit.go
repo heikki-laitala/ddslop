@@ -40,6 +40,13 @@ type Unit struct {
 	Trait string
 	// Calls are the unit's call sites, in source order.
 	Calls []Call
+	// Public is true when the unit is visible outside its package or crate
+	// (Rust: plain pub).
+	Public bool
+	// External is true when code outside the analysed source calls the
+	// unit: a program's main, or a function whose attributes export it or
+	// register it, such as #[no_mangle], #[tokio::main] or #[get("/")].
+	External bool
 }
 
 // CallKind says how a call names its callee.
