@@ -613,3 +613,46 @@ func TestCheckNearMissesNeedMoreNodesByDefault(t *testing.T) {
 		}
 	}
 }
+
+const debugResponses = `impl fmt::Debug for ResponsesTurn {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ResponsesTurn")
+            .field("items", &self.output.len())
+            .field("incomplete", &self.incomplete)
+            .finish()
+    }
+}
+`
+
+const debugMessages = `impl fmt::Debug for MessagesTurn {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MessagesTurn")
+            .field("blocks", &self.content.len())
+            .field("stop_reason", &self.stop_reason)
+            .finish()
+    }
+}
+`
+
+func TestCheckDropsCandidatesThatAreMostlyParameters(t *testing.T) {
+	// The two Debug impls share a shape but differ in 5 places within 88
+	// nodes: extracting them would turn most of the body into arguments.
+	// users and orders differ in one literal.
+	root := repo(t, map[string]string{
+		"a.rs": debugResponses, "b.rs": debugMessages,
+		"c.rs": users, "d.rs": orders,
+	})
+
+	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+
+	r := decode(t, stdout)
+	if len(r.Candidates) != 1 || r.Candidates[0].Occurrences[0].File != "c.rs" {
+		var found []string
+		for _, c := range r.Candidates {
+			found = append(found, c.Occurrences[0].File)
+		}
+		t.Errorf("candidates start at %v, want only the users/orders pair", found)
+	}
+}
