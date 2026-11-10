@@ -63,7 +63,7 @@ const blockB = `fn sync_orders(client: &Client, orders: &[Order], extra: u32) ->
 func TestBlockClonesFindRunInsideDifferentFunctions(t *testing.T) {
 	units := append(rustUnits(t, "a.rs", blockA), rustUnits(t, "b.rs", blockB)...)
 
-	got := BlockClones(units, 20)
+	got := BlockClones(units, 20, nil)
 
 	if len(got) != 1 {
 		t.Fatalf("got %d block clones, want 1", len(got))
@@ -91,14 +91,18 @@ func TestBlockClonesFindRunInsideDifferentFunctions(t *testing.T) {
 
 func TestBlockClonesIgnoreSmallRuns(t *testing.T) {
 	units := append(rustUnits(t, "a.rs", blockA), rustUnits(t, "b.rs", blockB)...)
-	if got := BlockClones(units, 1000); len(got) != 0 {
+	if got := BlockClones(units, 1000, nil); len(got) != 0 {
 		t.Errorf("got %d block clones above any run's size, want 0", len(got))
 	}
 }
 
 func TestBlockClonesSkipWholeFunctionCopies(t *testing.T) {
 	units := append(rustUnits(t, "a.rs", blockA), rustUnits(t, "c.rs", blockA)...)
-	if got := BlockClones(units, 20); len(got) != 0 {
+	var reported [][]unit.Unit
+	for _, g := range Groups(units, 20) {
+		reported = append(reported, g.Units)
+	}
+	if got := BlockClones(units, 20, reported); len(got) != 0 {
 		t.Errorf("whole-function copies were reported as block clones: %s", occurrenceLines(got[0]))
 	}
 }
@@ -115,7 +119,10 @@ func TestBlockClonesFindRepeatWithinOneFunction(t *testing.T) {
     Ok(())
 }
 `
-	got := BlockClones(rustUnits(t, "a.rs", src), 15)
+	units := rustUnits(t, "a.rs", src)
+	// Even when the function is already reported with others, a repeat
+	// inside it is news.
+	got := BlockClones(units, 15, [][]unit.Unit{units})
 	if len(got) != 1 || occurrenceLines(got[0]) != "[a.rs:2-4 twice a.rs:6-8 twice]" {
 		t.Errorf("block clones = %d, first %v; want one at lines 2-4 and 6-8", len(got), got)
 	}
@@ -129,7 +136,7 @@ func TestBlockClonesNeverOverlap(t *testing.T) {
     client.send(1).unwrap_or_default();
 }
 `
-	got := BlockClones(rustUnits(t, "a.rs", src), 10)
+	got := BlockClones(rustUnits(t, "a.rs", src), 10, nil)
 	if len(got) == 0 {
 		t.Fatal("found no repeats; the test needs some")
 	}
@@ -147,5 +154,17 @@ func TestBlockClonesNeverOverlap(t *testing.T) {
 		if len(c.Occurrences) < 2 {
 			t.Errorf("block clone with %d occurrences", len(c.Occurrences))
 		}
+	}
+}
+
+func TestBlockClonesSkipRunsOfFunctionsReportedTogether(t *testing.T) {
+	units := append(rustUnits(t, "a.rs", blockA), rustUnits(t, "b.rs", blockB)...)
+
+	if got := BlockClones(units, 20, [][]unit.Unit{units}); len(got) != 0 {
+		t.Errorf("got %d block clones between functions already reported together, want 0", len(got))
+	}
+	other := [][]unit.Unit{{units[0]}, {units[1]}}
+	if got := BlockClones(units, 20, other); len(got) != 1 {
+		t.Errorf("got %d block clones between functions reported apart, want 1", len(got))
 	}
 }

@@ -36,10 +36,11 @@ type stmtRef struct{ unit, block, stmt int }
 // block a run of symbols ended by a unique separator, and the maximal
 // repeats of the concatenation (see similarity.Repeats) are the candidate
 // runs. Repeats therefore consist of whole statements and stay inside one
-// block. Overlapping occurrences are dropped, and so are runs lying wholly
-// inside code already reported: functions in a function clone group, or a
-// larger block clone.
-func BlockClones(units []unit.Unit, minNodes int) []BlockClone {
+// block. Overlapping occurrences are dropped, and so are runs that add
+// nothing: occurrences in distinct functions that are reported together
+// (a set in reported, such as a function clone group or near-miss
+// family), or lying wholly inside a larger block clone.
+func BlockClones(units []unit.Unit, minNodes int, reported [][]unit.Unit) []BlockClone {
 	sorted := slices.Clone(units)
 	slices.SortFunc(sorted, compareLocation)
 
@@ -102,18 +103,19 @@ func BlockClones(units []unit.Unit, minNodes int) []BlockClone {
 		return compareLocation(a.Occurrences[0].Unit, b.Occurrences[0].Unit)
 	})
 
-	// Code already reported: whole functions in function clone groups, then
-	// every block clone kept, largest first. A clone all of whose
-	// occurrences lie in reported code adds nothing.
-	cov := coverage{}
-	for _, g := range Groups(sorted, minNodes) {
-		for _, u := range g.Units {
-			cov.add(u, 0, len(u.Seq))
+	// A clone adds nothing when its occurrences are in different functions
+	// already reported together, or all lie inside block clones kept
+	// earlier (larger ones come first).
+	setOf := map[unitKey]int{}
+	for i, set := range reported {
+		for _, u := range set {
+			setOf[unitKey{u.File, u.StartLine}] = i
 		}
 	}
+	cov := coverage{}
 	var out []BlockClone
 	for _, c := range found {
-		if cov.covers(c.Occurrences) {
+		if reportedTogether(c.Occurrences, setOf) || cov.covers(c.Occurrences) {
 			continue
 		}
 		for _, o := range c.Occurrences {
@@ -124,6 +126,23 @@ func BlockClones(units []unit.Unit, minNodes int) []BlockClone {
 		out = append(out, c)
 	}
 	return out
+}
+
+// reportedTogether reports whether the occurrences are in distinct units
+// that all belong to one reported set.
+func reportedTogether(occs []BlockOccurrence, setOf map[unitKey]int) bool {
+	seen := map[unitKey]bool{}
+	set := -1
+	for _, o := range occs {
+		k := unitKey{o.Unit.File, o.Unit.StartLine}
+		s, ok := setOf[k]
+		if !ok || seen[k] || (set >= 0 && s != set) {
+			return false
+		}
+		seen[k] = true
+		set = s
+	}
+	return true
 }
 
 // seqRange returns the occurrence's symbols as a range of its unit's Seq.
