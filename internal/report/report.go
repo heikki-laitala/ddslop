@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"math"
 	"slices"
@@ -51,6 +52,14 @@ type Candidate struct {
 	Differences []Difference `json:"differences"`
 	Suggestion  Suggestion   `json:"suggestion"`
 	Score       Score        `json:"score"`
+	// Steps are the aligned steps of a parallel flow.
+	Steps []Step `json:"steps,omitempty"`
+}
+
+// Step is one aligned step of a parallel flow: the function playing that
+// role in each feature, with its similarity to the anchor's.
+type Step struct {
+	Occurrences []Occurrence `json:"occurrences"`
 }
 
 // Occurrence is one copy.
@@ -99,6 +108,8 @@ const (
 	renamedClone   = "renamed-clone"
 	nearMiss       = "near-miss"
 	blockClone     = "block-clone"
+	parallelFlow   = "parallel-flow"
+	extractFlow    = "extract-pipeline"
 	reuseExisting  = "reuse-existing"
 	extractCommon  = "extract-common"
 	kindIdentifier = "identifier"
@@ -112,20 +123,47 @@ var leafKindNames = map[unit.LeafKind]string{
 	unit.Literal:    kindLiteral,
 }
 
-// Build turns clone groups, near misses and block clones into a report.
-// Candidates are ranked by duplicated nodes, largest first; on ties, they
-// keep this order: groups, near misses, block clones. The summary's
-// candidate count is filled in.
-func Build(language string, groups []clone.Group, nearMisses []clone.NearMiss, blocks []clone.BlockClone, summary Summary) Report {
-	candidates := make([]Candidate, 0, len(groups)+len(nearMisses)+len(blocks))
-	for _, g := range groups {
+// Findings are everything one analysis found.
+type Findings struct {
+	Groups     []clone.Group
+	NearMisses []clone.NearMiss
+	Blocks     []clone.BlockClone
+	Flows      []Flow
+}
+
+// Flow is a family of features running the same pipeline through
+// different functions: the entry points, anchor first, and the aligned
+// steps.
+type Flow struct {
+	Entries      []unit.Unit
+	Steps        []FlowStep
+	MatchedNodes int
+	Cover        float64
+}
+
+// FlowStep is one aligned step: the functions playing that role, the
+// anchor's first, with each one's similarity to the anchor's.
+type FlowStep struct {
+	Units      []unit.Unit
+	Similarity []float64
+}
+
+// Build turns findings into a report. Candidates are ranked by duplicated
+// nodes, largest first; on ties, they keep this order: groups, near misses,
+// block clones, flows. The summary's candidate count is filled in.
+func Build(language string, f Findings, summary Summary) Report {
+	candidates := make([]Candidate, 0, len(f.Groups)+len(f.NearMisses)+len(f.Blocks)+len(f.Flows))
+	for _, g := range f.Groups {
 		candidates = append(candidates, groupCandidate(language, g))
 	}
-	for _, nm := range nearMisses {
+	for _, nm := range f.NearMisses {
 		candidates = append(candidates, nearMissCandidate(language, nm))
 	}
-	for _, b := range blocks {
+	for _, b := range f.Blocks {
 		candidates = append(candidates, blockCandidate(language, b))
+	}
+	for _, fl := range f.Flows {
+		candidates = append(candidates, flowCandidate(language, fl))
 	}
 	candidates = slices.DeleteFunc(candidates, mostlyParameters)
 	slices.SortStableFunc(candidates, func(a, b Candidate) int {
@@ -158,11 +196,17 @@ func Keep(r Report, keep func(c *Candidate) bool) Report {
 func KeepChanged(r Report, base string, touches func(file string, start, end int) bool) Report {
 	r = Keep(r, func(c *Candidate) bool {
 		changed := false
-		for i, o := range c.Occurrences {
-			if touches(o.File, o.StartLine, o.EndLine) {
-				c.Occurrences[i].Changed = true
-				changed = true
+		mark := func(occs []Occurrence) {
+			for i, o := range occs {
+				if touches(o.File, o.StartLine, o.EndLine) {
+					occs[i].Changed = true
+					changed = true
+				}
 			}
+		}
+		mark(c.Occurrences)
+		for _, s := range c.Steps {
+			mark(s.Occurrences)
 		}
 		return changed
 	})
@@ -265,6 +309,39 @@ func blockCandidate(language string, b clone.BlockClone) Candidate {
 	return c
 }
 
+func flowCandidate(language string, f Flow) Candidate {
+	anchor := f.Entries[0]
+	h := fnv.New64a()
+	c := Candidate{
+		Language:    language,
+		Kind:        parallelFlow,
+		Similarity:  math.Round(f.Cover*1000) / 1000,
+		Differences: []Difference{},
+		Suggestion:  Suggestion{Action: extractFlow},
+		Score: Score{
+			Lines:           anchor.EndLine - anchor.StartLine + 1,
+			Occurrences:     len(f.Entries),
+			DuplicatedNodes: f.MatchedNodes,
+		},
+	}
+	for _, e := range f.Entries {
+		c.Occurrences = append(c.Occurrences, occurrence(e))
+		_, _ = h.Write([]byte(e.File + "#" + e.Name + "\x00"))
+	}
+	c.Fingerprint = fmt.Sprintf("%s:flow:%016x", language, h.Sum64())
+	for _, s := range f.Steps {
+		var st Step
+		for i, u := range s.Units {
+			o := occurrence(u)
+			o.Similarity = math.Round(s.Similarity[i]*1000) / 1000
+			st.Occurrences = append(st.Occurrences, o)
+		}
+		c.Score.Nodes += s.Units[0].Nodes
+		c.Steps = append(c.Steps, st)
+	}
+	return c
+}
+
 func occurrence(u unit.Unit) Occurrence {
 	return Occurrence{File: u.File, Name: u.Name, StartLine: u.StartLine, EndLine: u.EndLine}
 }
@@ -323,6 +400,16 @@ func WriteText(w io.Writer, r Report) error {
 				b.WriteString(" (changed)")
 			}
 			b.WriteString("\n")
+		}
+		for _, s := range c.Steps {
+			parts := make([]string, len(s.Occurrences))
+			for i, o := range s.Occurrences {
+				parts[i] = fmt.Sprintf("%s:%d-%d %s", o.File, o.StartLine, o.EndLine, o.Name)
+				if o.Changed {
+					parts[i] += " (changed)"
+				}
+			}
+			fmt.Fprintf(&b, "    step: %s\n", strings.Join(parts, " | "))
 		}
 		for _, d := range c.Differences {
 			label := d.Kind

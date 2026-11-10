@@ -106,6 +106,13 @@ type jsonReport struct {
 	} `json:"summary"`
 }
 
+func decodeInto(t *testing.T, stdout string, v any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(stdout), v); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, stdout)
+	}
+}
+
 func decode(t *testing.T, stdout string) jsonReport {
 	t.Helper()
 	var r jsonReport

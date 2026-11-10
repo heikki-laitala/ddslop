@@ -14,6 +14,7 @@ var rules = []sarifRule{
 	{ID: renamedClone, Short: "Renamed copy of a function", Full: "The functions have the same structure; names, types or values differ. Extract one function taking the differences as parameters."},
 	{ID: nearMiss, Short: "Near-miss copy of a function", Full: "The functions are similar, with statements added, removed or changed. Extract the shared code; make the parts only some copies have optional."},
 	{ID: blockClone, Short: "Copied block of statements", Full: "A run of statements is repeated inside larger functions. Extract it into a helper; names declared outside the run become parameters."},
+	{ID: parallelFlow, Short: "Features running the same pipeline", Full: "Several features call different functions that play the same roles, step by step. Extract one pipeline (a generic handler or service) taking the varying steps as parameters."},
 }
 
 type sarifRule struct {

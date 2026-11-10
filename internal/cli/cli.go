@@ -15,6 +15,7 @@ import (
 
 	"github.com/heikki-laitala/ddslop/internal/baseline"
 	"github.com/heikki-laitala/ddslop/internal/clone"
+	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
 	"github.com/heikki-laitala/ddslop/internal/report"
@@ -404,7 +405,64 @@ func check(root string, opts options) (report.Report, error) {
 		reported = append(reported, set)
 	}
 	blocks := clone.BlockClones(units, max(opts.minBlockNodes, opts.minNodes), reported)
-	return report.Build("rust", groups, nearMisses, blocks, summary), nil
+	flows := parallelFlows(files, opts.minNodes)
+	return report.Build("rust", report.Findings{Groups: groups, NearMisses: nearMisses, Blocks: blocks, Flows: flows}, summary), nil
+}
+
+// parallelFlowOptions compare feature slices. Measured on a 735k-line Rust
+// codebase: pairs of features with 4 or more matched steps covering a fifth
+// of their own code were copies of one pipeline (handler, authorise,
+// fingerprint, read receipt, build event, interpret, refuse), even at 20-30%
+// coverage, since each feature also has steps of its own; a single matched
+// step is already a near miss.
+var parallelFlowOptions = flow.ParallelOptions{
+	Depth:          6,
+	MinSteps:       4,
+	MinCover:       0.2,
+	MinStepSim:     0.7,
+	SharedFraction: 0.25,
+}
+
+// parallelFlows finds features running the same pipeline. Entry points are
+// methods implementing traits declared in generated files; test code is
+// left out of the call graph.
+func parallelFlows(files []index.File, minNodes int) []report.Flow {
+	traits := map[string]bool{}
+	var units []unit.Unit
+	for _, f := range files {
+		if f.Generated {
+			for _, t := range f.Traits {
+				traits[t] = true
+			}
+		}
+		for _, u := range f.Units {
+			if !u.Test {
+				units = append(units, u)
+			}
+		}
+	}
+	g := flow.Build(units)
+	opts := parallelFlowOptions
+	opts.MinNodes = minNodes
+	var out []report.Flow
+	for _, pf := range g.Parallel(g.Entries(traits), opts) {
+		f := report.Flow{MatchedNodes: pf.MatchedNodes, Cover: pf.Cover}
+		for _, e := range pf.Entries {
+			f.Entries = append(f.Entries, g.Units[e])
+		}
+		for _, s := range pf.Steps {
+			var st report.FlowStep
+			for i, u := range s.Units {
+				if u >= 0 {
+					st.Units = append(st.Units, g.Units[u])
+					st.Similarity = append(st.Similarity, s.Similarity[i])
+				}
+			}
+			f.Steps = append(f.Steps, st)
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // indexPath is where the index lives, relative to the analysed root.
