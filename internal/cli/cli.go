@@ -38,6 +38,7 @@ Commands:
   check     report duplicated code (default)
   index     build or refresh the index at <path>/.ddslop/index.db
   init      set ddslop up for coding agents (skill, instructions, .gitignore)
+  stats     describe the index without updating it
   status    show what ddslop has installed in a project
   uninstall remove ddslop's skills, instructions and .gitignore entry
   version   print the version
@@ -68,6 +69,7 @@ var commands = map[string]command{
 	"check":     runCheck,
 	"index":     runIndex,
 	"init":      runInit,
+	"stats":     runStats,
 	"status":    runStatus,
 	"uninstall": runUninstall,
 	"version":   runVersion,

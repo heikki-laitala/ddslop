@@ -3,8 +3,11 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/integrate"
 )
 
@@ -126,5 +129,54 @@ func runUninstall(args []string, stdout, stderr io.Writer) int {
 	if len(changes) == 0 {
 		fmt.Fprintln(stdout, "nothing to remove")
 	}
+	return exitClean
+}
+
+const statsUsage = `usage: ddslop stats [path]
+
+Describes the index at <path>/.ddslop/index.db without updating it: how
+many files and functions it holds.
+
+Flags:
+`
+
+func runStats(args []string, stdout, stderr io.Writer) int {
+	fs := newFlags("stats", statsUsage, stderr)
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
+	}
+	root, err := rootArg(fs)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	path := filepath.Join(root, indexPath)
+	info, err := os.Stat(path)
+	if err != nil {
+		return fail(stderr, fmt.Errorf("no index at %s; run ddslop index first", path))
+	}
+	db, err := index.Open(path)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	defer func() { _ = db.Close() }()
+	files, err := db.Files()
+	if err != nil {
+		return fail(stderr, err)
+	}
+	var generated, functions, tests int
+	for _, f := range files {
+		if f.Generated {
+			generated++
+		}
+		for _, u := range f.Units {
+			functions++
+			if u.Test {
+				tests++
+			}
+		}
+	}
+	fmt.Fprintf(stdout, "index: %s (%.1f MB)\n", path, float64(info.Size())/(1<<20))
+	fmt.Fprintf(stdout, "files: %d (%d generated)\n", len(files), generated)
+	fmt.Fprintf(stdout, "functions: %d (%d test)\n", functions, tests)
 	return exitClean
 }

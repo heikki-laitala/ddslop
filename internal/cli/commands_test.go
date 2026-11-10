@@ -20,7 +20,7 @@ func TestHelpListsCommands(t *testing.T) {
 		if code != 0 {
 			t.Errorf("%s: exit code %d, want 0", arg, code)
 		}
-		for _, cmd := range []string{"check", "index", "init", "status", "uninstall", "version"} {
+		for _, cmd := range []string{"check", "index", "init", "stats", "status", "uninstall", "version"} {
 			if !strings.Contains(stdout, "\n  "+cmd+" ") {
 				t.Errorf("%s: usage does not list %q:\n%s", arg, cmd, stdout)
 			}
@@ -112,5 +112,32 @@ func TestInitSelectedAgentsStatusAndUninstall(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, ".ddslop")); err == nil {
 		t.Error("uninstall --purge left .ddslop/")
+	}
+}
+
+func TestStatsDescribesTheIndexWithoutSyncing(t *testing.T) {
+	root := repo(t, map[string]string{
+		"a.rs":     users,
+		"gen.rs":   "// @generated\n" + users,
+		"tests.rs": orders,
+	})
+
+	if code, _, stderr := run("stats", root); code != 2 || !strings.Contains(stderr, "ddslop index") {
+		t.Errorf("stats before indexing: exit %d, stderr %q; want 2 suggesting ddslop index", code, stderr)
+	}
+
+	run("index", root)
+	if err := os.WriteFile(filepath.Join(root, "new.rs"), []byte(orders), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, _ := run("stats", root)
+
+	if code != 0 {
+		t.Fatalf("stats: exit %d", code)
+	}
+	for _, want := range []string{"files: 3 (1 generated)", "functions: 2 (1 test)", ".ddslop/index.db"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stats output is missing %q (new.rs must not be indexed by stats):\n%s", want, stdout)
+		}
 	}
 }
