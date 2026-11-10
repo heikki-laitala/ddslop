@@ -565,8 +565,11 @@ duplication, and are dropped below a threshold.
 - Test code is skipped by default and counted in the summary (`test_units`);
   `--tests` includes it. In Rust, test code is a function with a test
   attribute (`#[test]`, `#[tokio::test]`, `#[rstest]`, `#[test_case]`), a
-  function in a `#[cfg(test)]` module, or a function in a `tests/` or
-  `benches/` directory or a `tests.rs` module. Analysing tests separately with
+  function in a `#[cfg(test)]` module, a function in a `tests/` or
+  `benches/` directory or a `tests.rs` module, or a function in the file
+  of an out-of-line test module declared in its parent
+  (`#[cfg(test)] mod real_ledger;`) and in that module's submodules.
+  a large Rust codebase has 124 such declarations. Analysing tests separately with
   looser thresholds comes later, since table-driven tests are intentionally
   repetitive.
 
@@ -608,18 +611,35 @@ Resolution is conservative: an ambiguous call stays unresolved rather
 than linking to every candidate, because a wrong edge pollutes every slice
 that crosses it.
 
-- Free calls prefer the caller's file, then a unique function in its
-  crate, then a unique one anywhere.
+- A bare call `foo()` to a name the caller declares itself (a closure or
+  function value, `let unsigned = |v| ...`) is not a function call.
+  Otherwise it prefers the caller's file, then a unique function in its
+  crate. It leaves the crate only through a `use` import, and only into a
+  workspace crate (aliases followed); an import from an outside crate
+  such as `tokio` is never resolved to a repository function.
 - `Type::f` matches methods of `Type` (generics ignored), `Self::f` the
   caller's type. Other paths fall back to free functions only when the
   qualifier is a module (lower case), so `Utc::now()` does not resolve to
-  a repository function named `now`.
+  a repository function named `now`; a module path naming a workspace
+  crate (`acme_token_credentials::is_canonical_key_id`) resolves into that
+  crate, any other into the caller's own.
 - `self.m()` resolves to the caller's type. `x.m()` resolves only when one
   method of that name exists, and never for common standard-library method
   names (`as_ref`, `len`, `push`, `find`, `collect`, ...): on
   a large Rust codebase, resolving those by uniqueness put `ModelId::as_ref`
   into 80 feature slices.
+- Outside its own crate, a call resolves only into workspace crates the
+  caller's crate imports from in its code, not in its tests: a crate used
+  only as a dev-dependency is not a dependency.
+- Crates are named as code names them, from `Cargo.toml` (`[lib] name`,
+  else `[package] name`, dashes as underscores), not after their
+  directory: `crates/token-credentials` is `acme_token_credentials`.
 - Calls inside macros are not visible.
+
+On a large Rust codebase these rules left 13 distinct cross-crate links
+in feature slices, all into crates the services really use
+(`token-credentials`, `traces`, the translation crates). Before them,
+about half of 134 cross-crate links were wrong.
 
 On a large Rust codebase, 84% of free calls to repository functions
 resolve; most unresolved method and path calls are standard-library calls
