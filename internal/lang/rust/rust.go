@@ -5,6 +5,8 @@ import (
 	"errors"
 	"hash"
 	"hash/fnv"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -55,7 +57,7 @@ func Units(path string, src []byte) ([]unit.Unit, error) {
 	defer tree.Close()
 
 	e := extractor{path: path, src: src}
-	e.walk(tree.RootNode(), "")
+	e.walk(tree.RootNode(), "", isTestPath(path))
 	return e.units, nil
 }
 
@@ -65,11 +67,13 @@ type extractor struct {
 	units []unit.Unit
 }
 
-// walk finds function items, tracking the enclosing impl or trait name.
-func (e *extractor) walk(n *sitter.Node, owner string) {
+// walk finds function items, tracking the enclosing impl or trait name and
+// whether the code is test code. Attributes are siblings that come just
+// before the item they apply to.
+func (e *extractor) walk(n *sitter.Node, owner string, test bool) {
 	switch n.Kind() {
 	case "function_item":
-		e.addFunction(n, owner)
+		e.addFunction(n, owner, test)
 		return
 	case "impl_item", "trait_item":
 		field := "type"
@@ -80,12 +84,61 @@ func (e *extractor) walk(n *sitter.Node, owner string) {
 			owner = t.Utf8Text(e.src)
 		}
 	}
+	var attrs []string
 	for i := uint(0); i < n.ChildCount(); i++ {
-		e.walk(n.Child(i), owner)
+		child := n.Child(i)
+		if child.Kind() == "attribute_item" {
+			attrs = append(attrs, child.Utf8Text(e.src))
+			continue
+		}
+		if child.IsExtra() {
+			continue // comments between attributes and their item
+		}
+		childTest := test
+		switch child.Kind() {
+		case "function_item":
+			childTest = test || slices.ContainsFunc(attrs, isTestAttr)
+		case "mod_item":
+			childTest = test || slices.ContainsFunc(attrs, isCfgTest)
+		}
+		e.walk(child, owner, childTest)
+		attrs = nil
 	}
 }
 
-func (e *extractor) addFunction(n *sitter.Node, owner string) {
+// isTestAttr reports whether an attribute marks a test function, such as
+// #[test], #[tokio::test(...)], #[rstest] or #[test_case(...)].
+func isTestAttr(attr string) bool {
+	path := strings.TrimPrefix(attr, "#[")
+	if i := strings.IndexAny(path, "(]="); i >= 0 {
+		path = path[:i]
+	}
+	path = strings.TrimSpace(path)
+	if i := strings.LastIndex(path, "::"); i >= 0 {
+		path = path[i+2:]
+	}
+	return path == "test" || path == "rstest" || path == "test_case"
+}
+
+// isCfgTest reports whether an attribute limits an item to test builds.
+func isCfgTest(attr string) bool {
+	compact := strings.Join(strings.Fields(attr), "")
+	return compact == "#[cfg(test)]" || strings.HasPrefix(compact, "#[cfg(all(test,")
+}
+
+// isTestPath reports whether a file holds tests by Cargo and Rust
+// convention: under a tests/ or benches/ directory, or a tests.rs module.
+func isTestPath(path string) bool {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	for _, dir := range parts[:len(parts)-1] {
+		if dir == "tests" || dir == "benches" {
+			return true
+		}
+	}
+	return parts[len(parts)-1] == "tests.rs"
+}
+
+func (e *extractor) addFunction(n *sitter.Node, owner string, test bool) {
 	if n.HasError() {
 		return
 	}
@@ -105,6 +158,7 @@ func (e *extractor) addFunction(n *sitter.Node, owner string) {
 		EndLine:   line(n.EndPosition()),
 		Shape:     s.h.Sum64(),
 		Nodes:     s.nodes,
+		Test:      test,
 		Leaves:    s.leaves,
 	})
 }

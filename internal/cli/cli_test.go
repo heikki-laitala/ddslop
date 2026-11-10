@@ -92,6 +92,7 @@ type jsonReport struct {
 		Files          int `json:"files"`
 		GeneratedFiles int `json:"generated_files"`
 		Units          int `json:"units"`
+		TestUnits      int `json:"test_units"`
 		Candidates     int `json:"candidates"`
 	} `json:"summary"`
 }
@@ -286,5 +287,31 @@ func TestCheckSkipsGeneratedFilesAndCountsThem(t *testing.T) {
 	r := decode(t, stdout)
 	if r.Summary.Files != 1 || r.Summary.GeneratedFiles != 2 || r.Summary.Units != 1 {
 		t.Errorf("summary = %+v, want 1 analysed file, 2 generated files, 1 unit", r.Summary)
+	}
+}
+
+func TestCheckSkipsTestsUnlessAsked(t *testing.T) {
+	root := repo(t, map[string]string{
+		"src/users.rs": users,
+		"src/lib.rs":   "#[cfg(test)]\nmod tests {\n" + orders + "}\n",
+		"tests/it.rs":  users,
+	})
+
+	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0: the only copies are in tests", code)
+	}
+	r := decode(t, stdout)
+	if r.Summary.Units != 1 || r.Summary.TestUnits != 2 {
+		t.Errorf("summary = %+v, want 1 unit analysed and 2 test units skipped", r.Summary)
+	}
+
+	code, stdout, _ = run("check", "--format", "json", "--min-nodes", "20", "--tests", root)
+	if code != 1 {
+		t.Fatalf("exit code with --tests = %d, want 1", code)
+	}
+	r = decode(t, stdout)
+	if r.Summary.Units != 3 || r.Summary.TestUnits != 0 || len(r.Candidates) != 1 || len(r.Candidates[0].Occurrences) != 3 {
+		t.Errorf("with --tests: summary = %+v, candidates = %d; want all 3 units in one candidate", r.Summary, len(r.Candidates))
 	}
 }

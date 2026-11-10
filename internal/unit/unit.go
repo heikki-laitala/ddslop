@@ -13,6 +13,9 @@ type Unit struct {
 	Shape uint64
 	// Nodes is the number of syntax nodes in the unit, used as its size.
 	Nodes int
+	// Test is true for test code: test functions, functions in test
+	// modules and functions in test files.
+	Test bool
 	// Leaves are the blanked-out tokens in pre-order. Units with equal shapes
 	// have leaves that line up one to one, which is how differences are found.
 	Leaves []Leaf

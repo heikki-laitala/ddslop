@@ -23,6 +23,7 @@ type Summary struct {
 	Files          int `json:"files"`
 	GeneratedFiles int `json:"generated_files"`
 	Units          int `json:"units"`
+	TestUnits      int `json:"test_units"`
 	Candidates     int `json:"candidates"`
 }
 
@@ -168,8 +169,8 @@ func WriteText(w io.Writer, r Report) error {
 			fmt.Fprintf(&b, "    %s (%s)\n", strings.Join(d.Values, " | "), label)
 		}
 	}
-	fmt.Fprintf(&b, "%d candidate(s) in %d file(s), %d function(s) analysed, %d generated file(s) skipped\n",
-		r.Summary.Candidates, r.Summary.Files, r.Summary.Units, r.Summary.GeneratedFiles)
+	fmt.Fprintf(&b, "%d candidate(s) in %d file(s), %d function(s) analysed; skipped %d generated file(s) and %d test function(s)\n",
+		r.Summary.Candidates, r.Summary.Files, r.Summary.Units, r.Summary.GeneratedFiles, r.Summary.TestUnits)
 	_, err := io.WriteString(w, b.String())
 	return err
 }

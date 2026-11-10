@@ -26,7 +26,8 @@ const (
 const usage = `usage: ddslop [check] [flags] [path]
 
 Finds duplicated Rust functions under path (default ".") and proposes
-refactoring candidates. Generated files are skipped. Exits 0 when nothing is found, 1 when candidates
+refactoring candidates. Generated files are skipped, and so is test code
+unless --tests is given. Exits 0 when nothing is found, 1 when candidates
 are found, 2 on error.
 
 Flags:
@@ -46,6 +47,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fs.PrintDefaults()
 	}
 	minNodes := fs.Int("min-nodes", 50, "ignore functions with fewer syntax nodes than this")
+	tests := fs.Bool("tests", false, "include test functions, test modules and test files")
 	format := fs.String("format", "", `output format, "text" or "json" (default: text on a terminal, json otherwise)`)
 	if err := fs.Parse(args); err != nil {
 		return exitError
@@ -70,7 +72,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, errors.New("expected at most one path"))
 	}
 
-	r, err := check(root, *minNodes)
+	r, err := check(root, *minNodes, *tests)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -88,7 +90,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	return exitClean
 }
 
-func check(root string, minNodes int) (report.Report, error) {
+func check(root string, minNodes int, tests bool) (report.Report, error) {
 	files, err := source.Files(root, ".rs")
 	if err != nil {
 		return report.Report{}, err
@@ -109,7 +111,13 @@ func check(root string, minNodes int) (report.Report, error) {
 		if err != nil {
 			return report.Report{}, fmt.Errorf("%s: %w", f, err)
 		}
-		units = append(units, fileUnits...)
+		for _, u := range fileUnits {
+			if u.Test && !tests {
+				summary.TestUnits++
+				continue
+			}
+			units = append(units, u)
+		}
 	}
 	summary.Units = len(units)
 	return report.Build("rust", clone.Groups(units, minNodes), summary), nil
