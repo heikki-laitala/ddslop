@@ -442,8 +442,11 @@ func TestCheckExactCopiesHaveSimilarityOneAndNoNearMissDuplicate(t *testing.T) {
 func TestCheckMinSimilarity(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users, "b.rs": usersLogged})
 
-	if code, _, _ := run("check", "--format", "json", "--min-nodes", "20", "--min-similarity", "1", root); code != 0 {
-		t.Errorf("exit code with --min-similarity 1 = %d, want 0: near misses are below 1", code)
+	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", "--min-similarity", "1", root)
+	for _, c := range decode(t, stdout).Candidates {
+		if c.Kind == "near-miss" {
+			t.Errorf("near miss reported with --min-similarity 1: similarity %v", c.Similarity)
+		}
 	}
 	for _, bad := range []string{"0", "1.5", "-0.2"} {
 		if code, _, stderr := run("check", "--min-similarity", bad, root); code != 2 || stderr == "" {
@@ -506,5 +509,79 @@ func TestCheckReportsNearMissFamilyAsOneCandidate(t *testing.T) {
 	}
 	if fmt.Sprint(c.Occurrences[1].UnmatchedLines) != "[[3 3]]" || fmt.Sprint(c.Occurrences[2].UnmatchedLines) != "[[5 5]]" {
 		t.Errorf("unmatched lines = %v and %v, want [[3 3]] and [[5 5]]", c.Occurrences[1].UnmatchedLines, c.Occurrences[2].UnmatchedLines)
+	}
+}
+
+const syncUsers = `fn sync_users(client: &Client, users: &[User]) -> Result<(), Error> {
+    let started = Instant::now();
+    for user in users {
+        client.push(user)?;
+    }
+    let mut attempt = 0;
+    let body = client.render(users)?;
+    while attempt < 3 {
+        attempt += 1;
+        client.send(&body)?;
+    }
+    metrics::record("users", started.elapsed());
+    Ok(())
+}
+`
+
+const syncOrders = `fn sync_orders(client: &Client, orders: &[Order], extra: u32) -> Result<(), Error> {
+    if orders.is_empty() {
+        return Ok(());
+    }
+    let mut tries = 0;
+    let body = client.render(orders)?;
+    while tries < 5 {
+        tries += 1;
+        client.send(&body)?;
+    }
+    audit(extra);
+    Ok(())
+}
+`
+
+func TestCheckReportsCopiedBlocksInsideFunctions(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": syncUsers, "b.rs": syncOrders})
+
+	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	r := decode(t, stdout)
+	if len(r.Candidates) != 1 {
+		t.Fatalf("got %d candidates, want 1", len(r.Candidates))
+	}
+	c := r.Candidates[0]
+	if c.Kind != "block-clone" || c.Similarity != 1 {
+		t.Errorf("candidate = %s, similarity %v; want block-clone, 1", c.Kind, c.Similarity)
+	}
+	var occ []string
+	for _, o := range c.Occurrences {
+		occ = append(occ, fmt.Sprintf("%s:%d-%d %s", o.File, o.StartLine, o.EndLine, o.Name))
+	}
+	if fmt.Sprint(occ) != "[a.rs:6-11 sync_users b.rs:5-10 sync_orders]" {
+		t.Errorf("occurrences = %v", occ)
+	}
+	if c.Suggestion.Action != "extract-common" || c.Suggestion.Parameters != 2 {
+		t.Errorf("suggestion = %+v, want extract-common with 2 parameters (3 | 5, users | orders)", c.Suggestion)
+	}
+	if c.Score.Lines != 6 || c.Score.Occurrences != 2 || c.Score.DuplicatedNodes != c.Score.Nodes {
+		t.Errorf("score = %+v, want 6 lines, 2 occurrences", c.Score)
+	}
+}
+
+func TestCheckTextFormatShowsBlockClone(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": syncUsers, "b.rs": syncOrders})
+
+	_, stdout, _ := run("check", "--format", "text", "--min-nodes", "20", root)
+
+	for _, want := range []string{"c1 block-clone: 2 copies of 6 lines", "a.rs:6-11 sync_users", "b.rs:5-10 sync_orders"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("text output is missing %q:\n%s", want, stdout)
+		}
 	}
 }

@@ -31,8 +31,9 @@ const (
 const usage = `usage: ddslop [check] [flags] [path]
 
 Finds duplicated Rust functions under path (default ".") and proposes
-refactoring candidates: exact copies, renamed copies, and near-miss copies
-with added, removed or changed statements. Generated files are skipped, and so is test code
+refactoring candidates: exact copies, renamed copies, near-miss copies
+with added, removed or changed statements, and copied blocks of statements
+inside larger functions. Generated files are skipped, and so is test code
 unless --tests is given. Extracted functions are kept in an index at
 <path>/.ddslop/index.db so unchanged files are not parsed again. Files are
 parsed on half the CPU cores; set DDSLOP_INDEX_THREADS to change that. Exits 0 when nothing is found, 1 when candidates
@@ -146,7 +147,27 @@ func check(root string, minNodes int, minSim float64, tests bool) (report.Report
 	summary.Units = len(units)
 	groups := clone.Groups(units, minNodes)
 	nearMisses := clone.NearMisses(units, minNodes, minSim, threads)
-	return report.Build("rust", groups, nearMisses, summary), nil
+	// Functions reported together. A near-miss member represents its whole
+	// shape, so a family also covers the member's exact and renamed copies.
+	var reported [][]unit.Unit
+	copiesOf := map[uint64][]unit.Unit{}
+	for _, g := range groups {
+		reported = append(reported, g.Units)
+		copiesOf[g.Units[0].Shape] = g.Units
+	}
+	for _, nm := range nearMisses {
+		var set []unit.Unit
+		for _, u := range nm.Units {
+			if copies, ok := copiesOf[u.Shape]; ok {
+				set = append(set, copies...)
+			} else {
+				set = append(set, u)
+			}
+		}
+		reported = append(reported, set)
+	}
+	blocks := clone.BlockClones(units, minNodes, reported)
+	return report.Build("rust", groups, nearMisses, blocks, summary), nil
 }
 
 // indexPath is where the index lives, relative to the analysed root.

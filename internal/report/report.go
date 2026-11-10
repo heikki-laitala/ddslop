@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/clone"
+	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -88,6 +89,7 @@ const (
 	exactClone     = "exact-clone"
 	renamedClone   = "renamed-clone"
 	nearMiss       = "near-miss"
+	blockClone     = "block-clone"
 	reuseExisting  = "reuse-existing"
 	extractCommon  = "extract-common"
 	kindIdentifier = "identifier"
@@ -101,17 +103,20 @@ var leafKindNames = map[unit.LeafKind]string{
 	unit.Literal:    kindLiteral,
 }
 
-// Build turns clone groups and near misses into a report. Candidates are
-// ranked by duplicated nodes, largest first; on ties, groups keep their
-// order and come before near misses. The summary's candidate count is
-// filled in.
-func Build(language string, groups []clone.Group, nearMisses []clone.NearMiss, summary Summary) Report {
-	candidates := make([]Candidate, 0, len(groups)+len(nearMisses))
+// Build turns clone groups, near misses and block clones into a report.
+// Candidates are ranked by duplicated nodes, largest first; on ties, they
+// keep this order: groups, near misses, block clones. The summary's
+// candidate count is filled in.
+func Build(language string, groups []clone.Group, nearMisses []clone.NearMiss, blocks []clone.BlockClone, summary Summary) Report {
+	candidates := make([]Candidate, 0, len(groups)+len(nearMisses)+len(blocks))
 	for _, g := range groups {
 		candidates = append(candidates, groupCandidate(language, g))
 	}
 	for _, nm := range nearMisses {
 		candidates = append(candidates, nearMissCandidate(language, nm))
+	}
+	for _, b := range blocks {
+		candidates = append(candidates, blockCandidate(language, b))
 	}
 	slices.SortStableFunc(candidates, func(a, b Candidate) int {
 		return cmp.Compare(b.Score.DuplicatedNodes, a.Score.DuplicatedNodes)
@@ -175,6 +180,31 @@ func nearMissCandidate(language string, nm clone.NearMiss) Candidate {
 	c.Differences, c.Suggestion = differences(nm.Differences)
 	// Code present in only some copies has to become optional in a shared
 	// function, so a near miss is never a plain reuse.
+	c.Suggestion.Action = extractCommon
+	return c
+}
+
+func blockCandidate(language string, b clone.BlockClone) Candidate {
+	first := b.Occurrences[0]
+	start, end := first.Unit.Blocks[first.Block][first.Start].SeqStart, first.Unit.Blocks[first.Block][first.End-1].SeqEnd
+	c := Candidate{
+		Fingerprint: fmt.Sprintf("%s:block:%016x", language, similarity.HashSymbols(first.Unit.Seq[start:end])),
+		Language:    language,
+		Kind:        blockClone,
+		Similarity:  1,
+		Occurrences: make([]Occurrence, len(b.Occurrences)),
+		Score: Score{
+			Nodes:           b.Nodes,
+			Lines:           first.EndLine - first.StartLine + 1,
+			Occurrences:     len(b.Occurrences),
+			DuplicatedNodes: b.Nodes * (len(b.Occurrences) - 1),
+		},
+	}
+	for i, o := range b.Occurrences {
+		c.Occurrences[i] = Occurrence{File: o.Unit.File, Name: o.Unit.Name, StartLine: o.StartLine, EndLine: o.EndLine}
+	}
+	c.Differences, c.Suggestion = differences(b.Differences)
+	// A run of statements can only be shared by extracting it.
 	c.Suggestion.Action = extractCommon
 	return c
 }
