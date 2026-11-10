@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,7 +15,15 @@ import (
 // fakeParse records which files it parsed and turns each line of a file
 // into a unit named after the line.
 type fakeParse struct {
+	mu     sync.Mutex
 	parsed []string
+}
+
+// parseLocked is parse, safe to call from several goroutines.
+func (f *fakeParse) parseLocked(path string, src []byte) (Parsed, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.parse(path, src)
 }
 
 func (f *fakeParse) parse(path string, src []byte) (Parsed, error) {

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite driver
 
@@ -36,6 +37,9 @@ type Options struct {
 	// every file is parsed again.
 	Version string
 	Parse   ParseFunc
+	// Threads is how many files are parsed in parallel; below 1 means 1.
+	// Parse must be safe for concurrent use when Threads is above 1.
+	Threads int
 }
 
 // Stats says what a sync did.
@@ -145,15 +149,8 @@ func (d *DB) Sync(opts Options) (Stats, error) {
 		}
 	}
 
-	for i := range changes {
-		c := &changes[i]
-		src, err := os.ReadFile(filepath.Join(opts.Root, c.path))
-		if err != nil {
-			return stats, err
-		}
-		if c.parsed, err = opts.Parse(c.path, src); err != nil {
-			return stats, fmt.Errorf("%s: %w", c.path, err)
-		}
+	if err := parseAll(opts, changes); err != nil {
+		return stats, err
 	}
 
 	if err := d.write(reset, opts.Version, changes, deleted); err != nil {
@@ -162,6 +159,43 @@ func (d *DB) Sync(opts Options) (Stats, error) {
 	stats.Parsed = len(changes)
 	stats.Deleted = len(deleted)
 	return stats, nil
+}
+
+// parseAll reads and parses the changed files on opts.Threads workers. On
+// failure it returns the error of the first failing file in path order, so
+// the reported error does not depend on scheduling.
+func parseAll(opts Options, changes []change) error {
+	errs := make([]error, len(changes))
+	next := make(chan int)
+	var wg sync.WaitGroup
+	for range max(opts.Threads, 1) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				c := &changes[i]
+				src, err := os.ReadFile(filepath.Join(opts.Root, c.path))
+				if err == nil {
+					c.parsed, err = opts.Parse(c.path, src)
+					if err != nil {
+						err = fmt.Errorf("%s: %w", c.path, err)
+					}
+				}
+				errs[i] = err
+			}
+		}()
+	}
+	for i := range changes {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (d *DB) write(reset bool, version string, changes []change, deleted []string) (err error) {

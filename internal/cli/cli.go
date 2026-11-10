@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/heikki-laitala/ddslop/internal/clone"
 	"github.com/heikki-laitala/ddslop/internal/index"
@@ -31,7 +32,8 @@ const usage = `usage: ddslop [check] [flags] [path]
 Finds duplicated Rust functions under path (default ".") and proposes
 refactoring candidates. Generated files are skipped, and so is test code
 unless --tests is given. Extracted functions are kept in an index at
-<path>/.ddslop/index.db so unchanged files are not parsed again. Exits 0 when nothing is found, 1 when candidates
+<path>/.ddslop/index.db so unchanged files are not parsed again. Files are
+parsed on half the CPU cores; set DDSLOP_INDEX_THREADS to change that. Exits 0 when nothing is found, 1 when candidates
 are found, 2 on error.
 
 Flags:
@@ -109,7 +111,8 @@ func check(root string, minNodes int, tests bool) (report.Report, error) {
 	}
 	defer func() { _ = db.Close() }()
 
-	stats, err := db.Sync(index.Options{Root: root, Paths: paths, Version: version, Parse: parseRust})
+	threads := index.ResolveThreads(os.Getenv("DDSLOP_INDEX_THREADS"), runtime.NumCPU())
+	stats, err := db.Sync(index.Options{Root: root, Paths: paths, Version: version, Parse: parseRust, Threads: threads})
 	if err != nil {
 		return report.Report{}, err
 	}
