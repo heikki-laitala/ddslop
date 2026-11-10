@@ -19,7 +19,23 @@ type Unit struct {
 	// Leaves are the blanked-out tokens in pre-order. Units with equal shapes
 	// have leaves that line up one to one, which is how differences are found.
 	Leaves []Leaf
+	// Seq is the syntax tree flattened in pre-order: one symbol per node
+	// kind, a Close symbol after each node's children, and LeafSymbol(kind)
+	// for each blanked-out token, in the same order as Leaves. Equal shapes
+	// have equal sequences; similar code has similar sequences.
+	Seq []uint32
+	// SeqLines holds the source line of each symbol in Seq.
+	SeqLines []int
 }
+
+// Close is the Seq symbol that ends a node's children.
+const Close uint32 = 0
+
+// LeafSymbol is the Seq symbol of a blanked-out token of the given kind.
+func LeafSymbol(k LeafKind) uint32 { return uint32(k) } //nolint:gosec // leaf kinds are 1 to 3
+
+// IsLeaf reports whether a Seq symbol stands for a blanked-out token.
+func IsLeaf(sym uint32) bool { return sym >= uint32(Identifier) && sym <= uint32(Literal) }
 
 // LeafKind says what a blanked-out token is.
 type LeafKind int

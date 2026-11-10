@@ -2,8 +2,8 @@
 package rust
 
 import (
+	"encoding/binary"
 	"errors"
-	"hash"
 	"hash/fnv"
 	"path/filepath"
 	"slices"
@@ -32,15 +32,6 @@ var leafKinds = map[string]unit.LeafKind{
 	"float_literal":              unit.Literal,
 	"boolean_literal":            unit.Literal,
 }
-
-// leafMarkers are what a blanked-out leaf contributes to the shape hash.
-var leafMarkers = map[unit.LeafKind][]byte{
-	unit.Identifier: []byte("#id\x00"),
-	unit.Type:       []byte("#type\x00"),
-	unit.Literal:    []byte("#lit\x00"),
-}
-
-var closeMarker = []byte(")\x00")
 
 // Units parses Rust source and returns one unit per function or method, in
 // source order. Functions containing syntax errors are skipped.
@@ -149,26 +140,54 @@ func (e *extractor) addFunction(n *sitter.Node, owner string, test bool) {
 	if owner != "" {
 		name = owner + "::" + name
 	}
-	s := shaper{src: e.src, h: fnv.New64a()}
+	s := shaper{src: e.src}
 	s.visit(n, false)
 	e.units = append(e.units, unit.Unit{
 		File:      e.path,
 		Name:      name,
 		StartLine: line(n.StartPosition()),
 		EndLine:   line(n.EndPosition()),
-		Shape:     s.h.Sum64(),
+		Shape:     shapeOf(s.seq),
 		Nodes:     s.nodes,
 		Test:      test,
 		Leaves:    s.leaves,
+		Seq:       s.seq,
+		SeqLines:  s.lines,
 	})
 }
 
-// shaper hashes a subtree's structure and collects its blanked-out leaves.
+// shaper flattens a subtree into a symbol sequence and collects its
+// blanked-out leaves.
 type shaper struct {
 	src    []byte
-	h      hash.Hash64
 	nodes  int
 	leaves []unit.Leaf
+	seq    []uint32
+	lines  []int
+}
+
+func (s *shaper) emit(sym uint32, line int) {
+	s.seq = append(s.seq, sym)
+	s.lines = append(s.lines, line)
+}
+
+// kindSymbol maps a node kind to a Seq symbol. The top bit keeps it apart
+// from unit.Close and the leaf symbols.
+func kindSymbol(kind string) uint32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(kind))
+	return h.Sum32() | 1<<31
+}
+
+// shapeOf hashes a symbol sequence.
+func shapeOf(seq []uint32) uint64 {
+	h := fnv.New64a()
+	buf := make([]byte, 4*len(seq))
+	for i, sym := range seq {
+		binary.LittleEndian.PutUint32(buf[4*i:], sym)
+	}
+	_, _ = h.Write(buf)
+	return h.Sum64()
 }
 
 func (s *shaper) visit(n *sitter.Node, declares bool) {
@@ -177,7 +196,7 @@ func (s *shaper) visit(n *sitter.Node, declares bool) {
 	}
 	s.nodes++
 	if kind, ok := leafKinds[n.Kind()]; ok {
-		_, _ = s.h.Write(leafMarkers[kind])
+		s.emit(unit.LeafSymbol(kind), line(n.StartPosition()))
 		text := n.Utf8Text(s.src)
 		s.leaves = append(s.leaves, unit.Leaf{
 			Kind:     kind,
@@ -187,14 +206,13 @@ func (s *shaper) visit(n *sitter.Node, declares bool) {
 		})
 		return
 	}
-	_, _ = s.h.Write([]byte(n.Kind()))
-	_, _ = s.h.Write([]byte{0})
+	s.emit(kindSymbol(n.Kind()), line(n.StartPosition()))
 	for i := uint(0); i < n.ChildCount(); i++ {
 		child := n.Child(i)
 		field := n.FieldNameForChild(uint32(i))
 		s.visit(child, childDeclares(n.Kind(), declares, field, child.Kind()))
 	}
-	_, _ = s.h.Write(closeMarker)
+	s.emit(unit.Close, line(n.EndPosition()))
 }
 
 // childDeclares reports whether a child sits in a position that introduces

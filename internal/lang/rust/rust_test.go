@@ -1,6 +1,7 @@
 package rust
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/heikki-laitala/ddslop/internal/unit"
@@ -224,5 +225,61 @@ func TestTraitDefaultMethodsAreNamedAfterTheTrait(t *testing.T) {
 `)
 	if got := names(units); len(got) != 1 || got[0] != "Greeter::greet" {
 		t.Errorf("names = %v, want [Greeter::greet]", got)
+	}
+}
+
+func TestSeqFlattensStructureWithLeavesInOrder(t *testing.T) {
+	src := `fn a(x: u32) -> u32 {
+    x + 1
+}
+
+fn b(y: i64) -> i64 {
+    y + 2
+}
+
+fn c(x: u32) -> u32 {
+    log(x);
+    x + 1
+}
+`
+	units := mustUnits(t, src)
+	a, b, c := byName(t, units, "a"), byName(t, units, "b"), byName(t, units, "c")
+
+	if fmt.Sprint(a.Seq) != fmt.Sprint(b.Seq) {
+		t.Errorf("renamed copies have different sequences:\n%v\n%v", a.Seq, b.Seq)
+	}
+	if len(c.Seq) <= len(a.Seq) {
+		t.Errorf("function with an extra statement has a sequence of %d symbols, want more than %d", len(c.Seq), len(a.Seq))
+	}
+	if len(a.SeqLines) != len(a.Seq) {
+		t.Fatalf("SeqLines has %d entries for %d symbols", len(a.SeqLines), len(a.Seq))
+	}
+	if a.SeqLines[0] != a.StartLine || a.SeqLines[len(a.SeqLines)-1] != a.EndLine {
+		t.Errorf("SeqLines run %d..%d, want %d..%d", a.SeqLines[0], a.SeqLines[len(a.SeqLines)-1], a.StartLine, a.EndLine)
+	}
+
+	// Leaf symbols appear in Seq in the same order and kinds as Leaves.
+	var leafKinds []uint32
+	opens, closes := 0, 0
+	for _, sym := range a.Seq {
+		switch {
+		case unit.IsLeaf(sym):
+			leafKinds = append(leafKinds, sym)
+		case sym == unit.Close:
+			closes++
+		default:
+			opens++
+		}
+	}
+	if len(leafKinds) != len(a.Leaves) {
+		t.Fatalf("Seq has %d leaf symbols, unit has %d leaves", len(leafKinds), len(a.Leaves))
+	}
+	for i, l := range a.Leaves {
+		if leafKinds[i] != unit.LeafSymbol(l.Kind) {
+			t.Errorf("leaf symbol %d = %d, want %d", i, leafKinds[i], unit.LeafSymbol(l.Kind))
+		}
+	}
+	if opens != closes || opens+len(a.Leaves) != a.Nodes {
+		t.Errorf("opens=%d closes=%d leaves=%d nodes=%d: every non-leaf node needs one open and one close", opens, closes, len(a.Leaves), a.Nodes)
 	}
 }
