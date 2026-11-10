@@ -41,8 +41,22 @@ supported today; Go and TypeScript are planned. Runs on Linux and macOS.
 
 ## Install
 
-From source (needs Go 1.25 and a C compiler, since tree-sitter and SQLite
-are C):
+```sh
+curl -sSfL https://raw.githubusercontent.com/heikki-laitala/ddslop/main/install.sh | bash
+```
+
+The script fetches a prebuilt binary of the latest
+[release](https://github.com/heikki-laitala/ddslop/releases) for Linux or
+macOS, x86_64 or aarch64, verifies its checksum, installs it to
+`~/.local/bin` and, inside a Git repository, offers to set ddslop up for
+your coding agent. Options: `--claude`, `--codex`, `--copilot` (set up
+without asking), `--dir DIR`, `--version V` (a release tag such as
+`v2026.11.10_0`), `--no-interactive`.
+
+<details>
+<summary>Build from source</summary>
+
+Needs Go 1.25 and a C compiler, since tree-sitter and SQLite are C:
 
 ```sh
 go install github.com/heikki-laitala/ddslop@latest
@@ -50,18 +64,7 @@ go install github.com/heikki-laitala/ddslop@latest
 
 or clone the repository and run `make build` (binary in `bin/ddslop`).
 
-The install script fetches a prebuilt binary of the latest
-[release](https://github.com/heikki-laitala/ddslop/releases) for Linux or
-macOS, x86_64 or aarch64:
-
-```sh
-curl -sSfL https://raw.githubusercontent.com/heikki-laitala/ddslop/main/install.sh | bash
-```
-
-It installs to `~/.local/bin`, verifies the release checksum and, inside a
-Git repository, offers to set ddslop up for your coding agent. Options:
-`--claude`, `--codex`, `--copilot` (set up without asking), `--dir DIR`,
-`--version V`, `--no-interactive`.
+</details>
 
 ## Quick start
 
