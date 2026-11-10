@@ -107,7 +107,7 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool) {
 		}
 		sc.trait = ""
 		if t := n.ChildByFieldName("trait"); t != nil {
-			sc.trait = simpleName(t.Utf8Text(e.src))
+			sc.trait = unit.SimpleName(t.Utf8Text(e.src))
 		}
 	case "trait_item":
 		if t := n.ChildByFieldName("name"); t != nil {
@@ -167,18 +167,6 @@ func isTestPath(path string) bool {
 		}
 	}
 	return parts[len(parts)-1] == "tests.rs"
-}
-
-// simpleName reduces a type or trait path to its last segment without
-// generic arguments: "fmt::Display" and "From<T>" become "Display", "From".
-func simpleName(path string) string {
-	if i := strings.Index(path, "<"); i >= 0 {
-		path = path[:i]
-	}
-	if i := strings.LastIndex(path, "::"); i >= 0 {
-		path = path[i+2:]
-	}
-	return strings.TrimSpace(path)
 }
 
 func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool) {

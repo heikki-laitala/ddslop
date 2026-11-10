@@ -2,6 +2,8 @@
 // detector works on. Language adapters produce units; detectors compare them.
 package unit
 
+import "strings"
+
 // Unit is one comparable piece of code, such as a function or method.
 type Unit struct {
 	File      string
@@ -96,4 +98,17 @@ type Leaf struct {
 	// Declares is true when this occurrence introduces a name inside the
 	// unit: the unit's own name, a parameter, or a local binding.
 	Declares bool
+}
+
+// SimpleName reduces a type or trait path to its last segment without
+// generic arguments: "fmt::Display" and "Endpoint<P>" become "Display" and
+// "Endpoint". Calls and owners are matched on simple names.
+func SimpleName(path string) string {
+	if i := strings.Index(path, "<"); i >= 0 {
+		path = path[:i]
+	}
+	if i := strings.LastIndex(path, "::"); i >= 0 {
+		path = path[i+2:]
+	}
+	return strings.TrimSpace(path)
 }
