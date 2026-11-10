@@ -107,6 +107,7 @@ tests.
 | `--format` | text on a terminal, JSON otherwise | `text` or `json` |
 | `--min-nodes` | 50 | ignore functions smaller than this many syntax nodes |
 | `--min-block-nodes` | 100 | ignore copied blocks smaller than this (never below `--min-nodes`) |
+| `--min-near-nodes` | 150 | ignore near misses of functions smaller than this (never below `--min-nodes`) |
 | `--min-similarity` | 0.8 | threshold for near misses |
 | `--tests` | off | include test code |
 | `--diff` | off | only report candidates touching lines changed since this Git ref |

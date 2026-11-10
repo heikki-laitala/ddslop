@@ -429,6 +429,16 @@ neighbour. One shape is represented by one function, so a group of exact
 copies takes part once. A family is reported as one candidate. On the same
 codebase this turned 3,883 near-miss pairs into 504 candidates.
 
+**Size floor for near misses.** Small functions often share Rust's usual
+shape (a `match` writing messages, a one-line delegation) without being
+copies, and the agreement filter cannot tell them apart. A hand audit on
+a large Rust codebase of 5 random near misses found 3 false and 1 trivial
+one, all with 61-119 nodes, while every real near miss checked had 220
+nodes or more. Near misses therefore need `--min-near-nodes` (default 150,
+never below `--min-nodes`). A fresh audit of 8 random near misses after
+the change found 5 worth fixing, 3 marginal and none false; near-miss
+families on that codebase dropped from 502 to 208.
+
 Partial-region verification (Smith-Waterman for winnowing regions) comes
 with winnowing.
 
@@ -800,6 +810,7 @@ Main flags of `check`:
 | `--format` | `text` / `json` | `text`, `json`, `md`, `sarif` |
 | `--min-similarity` | `0.8` | drop near misses below this similarity |
 | `--min-block-nodes` | `100` | drop copied blocks smaller than this (never below `--min-nodes`) |
+| `--min-near-nodes` | `150` | drop near misses of functions smaller than this (never below `--min-nodes`) |
 | `--min-nodes` | `50` | drop fragments with fewer syntax nodes than this (about 6–8 lines; to be tuned) |
 | `--tests` | off | include test code, which is skipped by default |
 | `--fail-on` | `0` | exit 1 if any candidate scores above this; `never` to only report |

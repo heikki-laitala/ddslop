@@ -30,9 +30,9 @@ candidates found, 2 error. The first run
 builds `.ddslop/index.db`; later runs only parse changed files. Generated
 files and test code are skipped (`--tests` includes tests).
 
-Useful flags: `--min-nodes` (default 50) and `--min-block-nodes` (default
-100) set the smallest code reported, `--min-similarity` (default 0.8) the
-threshold for near misses.
+Useful flags: `--min-nodes` (default 50), `--min-block-nodes` (default
+100) and `--min-near-nodes` (default 150) set the smallest code reported,
+`--min-similarity` (default 0.8) the threshold for near misses.
 
 ## Checking your change
 
