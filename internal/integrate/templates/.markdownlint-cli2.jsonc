@@ -1,0 +1,10 @@
+// The section template is inserted into other files under their own
+// headings, so it starts at a level-two heading. Scoped here rather than
+// disabled repository-wide.
+{
+  "config": {
+    "default": true,
+    "MD013": { "line_length": 100, "code_blocks": false, "tables": false },
+    "MD041": false
+  }
+}

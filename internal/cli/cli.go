@@ -37,6 +37,9 @@ coding agents. Without a command, it runs check.
 Commands:
   check     report duplicated code (default)
   index     build or refresh the index at <path>/.ddslop/index.db
+  init      set ddslop up for coding agents (skill, instructions, .gitignore)
+  status    show what ddslop has installed in a project
+  uninstall remove ddslop's skills, instructions and .gitignore entry
   version   print the version
   help      show this help
 
@@ -62,9 +65,12 @@ type command func(args []string, stdout, stderr io.Writer) int
 
 // commands maps subcommand names to their implementations.
 var commands = map[string]command{
-	"check":   runCheck,
-	"index":   runIndex,
-	"version": runVersion,
+	"check":     runCheck,
+	"index":     runIndex,
+	"init":      runInit,
+	"status":    runStatus,
+	"uninstall": runUninstall,
+	"version":   runVersion,
 }
 
 // Run executes ddslop with the given arguments and returns the exit code.

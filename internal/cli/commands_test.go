@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -18,7 +20,7 @@ func TestHelpListsCommands(t *testing.T) {
 		if code != 0 {
 			t.Errorf("%s: exit code %d, want 0", arg, code)
 		}
-		for _, cmd := range []string{"check", "index", "version"} {
+		for _, cmd := range []string{"check", "index", "init", "status", "uninstall", "version"} {
 			if !strings.Contains(stdout, "\n  "+cmd+" ") {
 				t.Errorf("%s: usage does not list %q:\n%s", arg, cmd, stdout)
 			}
@@ -56,5 +58,59 @@ func TestIndexErrors(t *testing.T) {
 	}
 	if code, _, _ := run("index", "-h"); code != 0 {
 		t.Errorf("index -h: exit %d, want 0", code)
+	}
+}
+
+func TestInitInstallsForClaudeByDefaultAndIndexes(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users})
+
+	code, stdout, stderr := run("init", root)
+
+	if code != 0 {
+		t.Fatalf("init: exit %d, stderr %s", code, stderr)
+	}
+	for _, want := range []string{"claude skill", "CLAUDE.md", ".gitignore", "indexed 1 files"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("init output is missing %q:\n%s", want, stdout)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, ".codex")); err == nil {
+		t.Error("init without flags installed Codex too")
+	}
+}
+
+func TestInitSelectedAgentsStatusAndUninstall(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users})
+
+	if code, _, stderr := run("init", "--codex", "--copilot", root); code != 0 {
+		t.Fatalf("init: exit %d, stderr %s", code, stderr)
+	}
+
+	_, stdout, _ := run("status", root)
+	for _, want := range []string{
+		".gitignore: .ddslop/ present",
+		"index: present",
+		"claude: not installed",
+		"codex: skill, instructions",
+		"copilot: skill, instructions",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("status output is missing %q:\n%s", want, stdout)
+		}
+	}
+
+	if code, _, stderr := run("uninstall", root); code != 0 {
+		t.Fatalf("uninstall: exit %d, stderr %s", code, stderr)
+	}
+	_, stdout, _ = run("status", root)
+	if !strings.Contains(stdout, "codex: not installed") || !strings.Contains(stdout, "index: present") {
+		t.Errorf("status after uninstall:\n%s\nwant codex removed and the index kept", stdout)
+	}
+
+	if code, _, _ := run("uninstall", "--purge", root); code != 0 {
+		t.Fatalf("uninstall --purge: exit %d", code)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".ddslop")); err == nil {
+		t.Error("uninstall --purge left .ddslop/")
 	}
 }
