@@ -38,6 +38,7 @@ coding agents. Without a command, it runs check.
 Commands:
   check     report duplicated code (default)
   baseline  record known duplication, so check --baseline reports only new
+  flows     list feature entry points and the functions they reach
   index     build or refresh the index at <path>/.ddslop/index.db
   init      set ddslop up for coding agents (skill, instructions, .gitignore)
   stats     describe the index without updating it
@@ -76,6 +77,7 @@ type command func(args []string, stdout, stderr io.Writer) int
 var commands = map[string]command{
 	"check":     runCheck,
 	"baseline":  runBaseline,
+	"flows":     runFlows,
 	"index":     runIndex,
 	"init":      runInit,
 	"stats":     runStats,
