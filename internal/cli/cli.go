@@ -423,7 +423,11 @@ func check(root string, opts options) (report.Report, error) {
 		}
 		reported = append(reported, set)
 	}
-	blocks := clone.BlockClones(units, max(opts.minBlockNodes, opts.minNodes), reported)
+	blocks := clone.BlockClones(units, clone.BlockSize{
+		MinNodes:           max(opts.minBlockNodes, opts.minNodes),
+		FrequentNodes:      frequentBlockNodes,
+		FrequentDuplicated: frequentBlockDuplicated,
+	}, reported)
 	g, traits := callGraph(root, files)
 	internal := internalCrates(root, files)
 	flows := parallelFlows(g, traits, opts.minNodes)
@@ -464,6 +468,17 @@ func internalCrates(root string, files []index.File) func(file string) bool {
 	}
 	return func(file string) bool { return internal[flow.CrateOf(file)] }
 }
+
+// frequentBlockNodes and frequentBlockDuplicated keep small copied blocks
+// that are copied often. Measured on a 735k-line Rust codebase: blocks of
+// 25 to 100 nodes whose copies duplicated 400 nodes or more in all (as
+// much as a 100-node block in five places) were 17 shared idioms worth a
+// helper, such as a 46-node connection guard in 27 methods; below 400
+// they were mostly two or three copies of ordinary statements.
+const (
+	frequentBlockNodes      = 25
+	frequentBlockDuplicated = 400
+)
 
 // minStructFields is the fewest fields a struct needs to be compared with
 // others. Measured on a 735k-line Rust codebase: two-field structs

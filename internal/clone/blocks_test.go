@@ -3,6 +3,7 @@ package clone
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
@@ -63,7 +64,7 @@ const blockB = `fn sync_orders(client: &Client, orders: &[Order], extra: u32) ->
 func TestBlockClonesFindRunInsideDifferentFunctions(t *testing.T) {
 	units := append(rustUnits(t, "a.rs", blockA), rustUnits(t, "b.rs", blockB)...)
 
-	got := BlockClones(units, 20, nil)
+	got := BlockClones(units, BlockSize{MinNodes: 20}, nil)
 
 	if len(got) != 1 {
 		t.Fatalf("got %d block clones, want 1", len(got))
@@ -91,7 +92,7 @@ func TestBlockClonesFindRunInsideDifferentFunctions(t *testing.T) {
 
 func TestBlockClonesIgnoreSmallRuns(t *testing.T) {
 	units := append(rustUnits(t, "a.rs", blockA), rustUnits(t, "b.rs", blockB)...)
-	if got := BlockClones(units, 1000, nil); len(got) != 0 {
+	if got := BlockClones(units, BlockSize{MinNodes: 1000}, nil); len(got) != 0 {
 		t.Errorf("got %d block clones above any run's size, want 0", len(got))
 	}
 }
@@ -102,7 +103,7 @@ func TestBlockClonesSkipWholeFunctionCopies(t *testing.T) {
 	for _, g := range Groups(units, 20) {
 		reported = append(reported, g.Units)
 	}
-	if got := BlockClones(units, 20, reported); len(got) != 0 {
+	if got := BlockClones(units, BlockSize{MinNodes: 20}, reported); len(got) != 0 {
 		t.Errorf("whole-function copies were reported as block clones: %s", occurrenceLines(got[0]))
 	}
 }
@@ -122,7 +123,7 @@ func TestBlockClonesFindRepeatWithinOneFunction(t *testing.T) {
 	units := rustUnits(t, "a.rs", src)
 	// Even when the function is already reported with others, a repeat
 	// inside it is news.
-	got := BlockClones(units, 15, [][]unit.Unit{units})
+	got := BlockClones(units, BlockSize{MinNodes: 15}, [][]unit.Unit{units})
 	if len(got) != 1 || occurrenceLines(got[0]) != "[a.rs:2-4 twice a.rs:6-8 twice]" {
 		t.Errorf("block clones = %d, first %v; want one at lines 2-4 and 6-8", len(got), got)
 	}
@@ -136,7 +137,7 @@ func TestBlockClonesNeverOverlap(t *testing.T) {
     client.send(1).unwrap_or_default();
 }
 `
-	got := BlockClones(rustUnits(t, "a.rs", src), 10, nil)
+	got := BlockClones(rustUnits(t, "a.rs", src), BlockSize{MinNodes: 10}, nil)
 	if len(got) == 0 {
 		t.Fatal("found no repeats; the test needs some")
 	}
@@ -160,11 +161,42 @@ func TestBlockClonesNeverOverlap(t *testing.T) {
 func TestBlockClonesSkipRunsOfFunctionsReportedTogether(t *testing.T) {
 	units := append(rustUnits(t, "a.rs", blockA), rustUnits(t, "b.rs", blockB)...)
 
-	if got := BlockClones(units, 20, [][]unit.Unit{units}); len(got) != 0 {
+	if got := BlockClones(units, BlockSize{MinNodes: 20}, [][]unit.Unit{units}); len(got) != 0 {
 		t.Errorf("got %d block clones between functions already reported together, want 0", len(got))
 	}
 	other := [][]unit.Unit{{units[0]}, {units[1]}}
-	if got := BlockClones(units, 20, other); len(got) != 1 {
+	if got := BlockClones(units, BlockSize{MinNodes: 20}, other); len(got) != 1 {
 		t.Errorf("got %d block clones between functions reported apart, want 1", len(got))
+	}
+}
+
+// guarded returns n methods that each start with the same small guard and
+// then do something of their own.
+func guarded(n int) string {
+	var b strings.Builder
+	for i := range n {
+		fmt.Fprintf(&b, `fn op%d(&mut self) -> Result<(), NotCopied> {
+    if !self.usable {
+        return Err(NotCopied::Unavailable("unusable".to_owned()));
+    }
+    self.usable = false;
+    self.step%d(%d)
+}
+`, i, i, i)
+	}
+	return b.String()
+}
+
+func TestBlockClonesKeepSmallRunsCopiedManyTimes(t *testing.T) {
+	size := BlockSize{MinNodes: 100, FrequentNodes: 20, FrequentDuplicated: 300}
+	many := BlockClones(rustUnits(t, "a.rs", guarded(12)), size, nil)
+	if len(many) != 1 || len(many[0].Occurrences) != 12 {
+		t.Fatalf("got %d block clones, want the guard with 12 occurrences", len(many))
+	}
+	if many[0].Nodes >= size.MinNodes || many[0].Nodes < size.FrequentNodes {
+		t.Fatalf("the guard has %d nodes; the test needs it between %d and %d", many[0].Nodes, size.FrequentNodes, size.MinNodes)
+	}
+	if few := BlockClones(rustUnits(t, "a.rs", guarded(2)), size, nil); len(few) != 0 {
+		t.Errorf("a small run copied twice was reported: %s", occurrenceLines(few[0]))
 	}
 }

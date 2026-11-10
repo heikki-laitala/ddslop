@@ -28,11 +28,36 @@ type BlockClone struct {
 	Differences []Difference
 }
 
+// BlockSize says which repeated runs are large enough to report.
+type BlockSize struct {
+	MinNodes int // least nodes in one occurrence
+	// A smaller run is still reported when it has at least FrequentNodes
+	// nodes and is copied often enough to duplicate FrequentDuplicated
+	// nodes in all: a guard repeated in twenty methods costs more than a
+	// large block copied once.
+	FrequentNodes, FrequentDuplicated int
+}
+
+// keeps reports whether a run of nodes with copies occurrences is large
+// enough.
+func (s BlockSize) keeps(nodes, copies int) bool {
+	return nodes >= s.MinNodes ||
+		(s.FrequentNodes > 0 && nodes >= s.FrequentNodes && nodes*(copies-1) >= s.FrequentDuplicated)
+}
+
+// least is the smallest run that can be kept.
+func (s BlockSize) least() int {
+	if s.FrequentNodes > 0 {
+		return min(s.MinNodes, s.FrequentNodes)
+	}
+	return s.MinNodes
+}
+
 // stmtRef locates a statement in the concatenated sequence.
 type stmtRef struct{ unit, block, stmt int }
 
-// BlockClones finds repeated runs of whole statements of at least minNodes
-// nodes. Every statement becomes one symbol identifying its structure, each
+// BlockClones finds repeated runs of whole statements large enough by
+// size. Every statement becomes one symbol identifying its structure, each
 // block a run of symbols ended by a unique separator, and the maximal
 // repeats of the concatenation (see similarity.Repeats) are the candidate
 // runs. Repeats therefore consist of whole statements and stay inside one
@@ -40,7 +65,7 @@ type stmtRef struct{ unit, block, stmt int }
 // nothing: occurrences in distinct functions that are reported together
 // (a set in reported, such as a function clone group or near-miss
 // family), or lying wholly inside a larger block clone.
-func BlockClones(units []unit.Unit, minNodes int, reported [][]unit.Unit) []BlockClone {
+func BlockClones(units []unit.Unit, size BlockSize, reported [][]unit.Unit) []BlockClone {
 	sorted := slices.Clone(units)
 	slices.SortFunc(sorted, compareLocation)
 
@@ -73,7 +98,7 @@ func BlockClones(units []unit.Unit, minNodes int, reported [][]unit.Unit) []Bloc
 		for _, st := range sorted[first.unit].Blocks[first.block][first.stmt : first.stmt+r.Length] {
 			nodes += st.Nodes
 		}
-		if nodes < minNodes {
+		if nodes < size.least() {
 			continue
 		}
 		var occs []BlockOccurrence
@@ -92,7 +117,7 @@ func BlockClones(units []unit.Unit, minNodes int, reported [][]unit.Unit) []Bloc
 				StartLine: block[ref.stmt].StartLine, EndLine: block[ref.stmt+r.Length-1].EndLine,
 			})
 		}
-		if len(occs) >= 2 {
+		if len(occs) >= 2 && size.keeps(nodes, len(occs)) {
 			found = append(found, BlockClone{Occurrences: occs, Nodes: nodes})
 		}
 	}
