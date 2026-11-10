@@ -42,6 +42,17 @@ ddslop check    # report duplicated code
 `ddslop check` prints text in a terminal and JSON when piped. Exit codes:
 0 nothing found, 1 candidates found, 2 error.
 
+To check only what a change introduced, compare against a Git ref:
+
+```sh
+ddslop check --diff HEAD          # uncommitted work
+ddslop check --diff origin/main   # everything on this branch
+```
+
+The whole repository is still analysed, so new code is compared against
+all existing code, but only candidates touching changed lines are
+reported, and the changed copies are marked `"changed": true`.
+
 ## What it finds
 
 | Kind | Meaning | Suggestion |
@@ -98,6 +109,7 @@ tests.
 | `--min-block-nodes` | 100 | ignore copied blocks smaller than this (never below `--min-nodes`) |
 | `--min-similarity` | 0.8 | threshold for near misses |
 | `--tests` | off | include test code |
+| `--diff` | off | only report candidates touching lines changed since this Git ref |
 
 The index keeps parsed functions between runs, so only changed files are
 parsed again: on a 735k-line Rust codebase a first run takes about 5
@@ -123,15 +135,19 @@ together to install for several agents.
 
 ## In CI
 
-`check` exits 1 when it finds candidates, so it can gate a pipeline:
+`check` exits 1 when it finds candidates, so it can gate a pipeline. With
+`--diff` against the pull request's base, only new duplication fails it:
 
 ```yaml
+- uses: actions/checkout@v6
+  with:
+    fetch-depth: 0   # --diff needs the base commit
 - run: curl -sSfL https://raw.githubusercontent.com/heikki-laitala/ddslop/main/install.sh | bash -s -- --no-interactive
-- run: ~/.local/bin/ddslop check --format text .
+- run: ~/.local/bin/ddslop check --format text --diff origin/${{ github.base_ref }} .
 ```
 
-On an existing codebase this fails until the duplication is cleaned up; a
-baseline file and a diff mode that only reports new duplication are
+Without `--diff`, the check fails until all existing duplication is
+cleaned up; a baseline file for adopting ddslop on an existing codebase is
 planned.
 
 ## How it works

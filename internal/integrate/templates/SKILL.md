@@ -15,8 +15,7 @@ ranges, what differs between the copies, and a suggested action.
 ## When to run it
 
 - Before finishing a change: check that you did not add another copy of
-  existing code. There is no diff mode yet, so focus on candidates whose
-  occurrences include files you changed.
+  existing code (see "Checking your change" below).
 - When asked to clean up, deduplicate or "deslop" code.
 - Before writing a new helper: an existing function may already do it.
 
@@ -26,13 +25,26 @@ ranges, what differs between the copies, and a suggested action.
 ddslop check --format json .
 ```
 
-Exit codes: 0 nothing found, 1 candidates found, 2 error. The first run
+reports all duplication in the repository. Exit codes: 0 nothing found, 1
+candidates found, 2 error. The first run
 builds `.ddslop/index.db`; later runs only parse changed files. Generated
 files and test code are skipped (`--tests` includes tests).
 
 Useful flags: `--min-nodes` (default 50) and `--min-block-nodes` (default
 100) set the smallest code reported, `--min-similarity` (default 0.8) the
 threshold for near misses.
+
+## Checking your change
+
+```sh
+ddslop check --format json --diff HEAD .         # uncommitted work
+ddslop check --format json --diff origin/main .  # a whole branch
+```
+
+`--diff <ref>` still compares against the whole repository, but only
+reports candidates touching lines changed since `<ref>`. Occurrences with
+`"changed": true` are the copies your change added or edited; usually the
+fix is to replace them with a call to an unchanged occurrence.
 
 ## Reading the output
 

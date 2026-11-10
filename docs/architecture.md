@@ -652,12 +652,25 @@ agent can make the final semantic call.
 ## Modes
 
 - **Full scan:** analyse the whole repository.
-- **Diff mode (`--diff <ref>`):** analyse only units added or changed since
-  `<ref>`, compared against the whole repository. This is the main agent
-  workflow: the agent writes code, ddslop reports what it just reinvented, the
-  agent fixes it before opening a PR. It also restricts comparisons to
-  changed-versus-all, keeping it fast. Suitable for a Claude Code hook or a
-  CI step.
+- **Diff mode (`--diff <ref>`):** report only candidates touching lines
+  changed since `<ref>`, compared against the whole repository. This is the
+  main agent workflow: the agent writes code, ddslop reports what it just
+  reinvented, the agent fixes it before opening a PR. Suitable for a CI
+  step on pull requests (`--diff origin/<base>`), and later a Claude Code
+  hook.
+
+  As built: changed lines come from `git diff --unified=0 --relative <ref>`
+  (committed, staged and unstaged changes), and untracked files count as
+  changed in full. A deletion marks the lines on both sides of it, since
+  removing code can make two functions identical. The analysis itself still
+  covers the whole repository (about 1 second with an index), and the
+  report keeps the candidates with an occurrence overlapping a change,
+  marks those occurrences `"changed": true`, renumbers the candidates and
+  records the ref as `summary.diff`. Restricting the comparison itself to
+  changed-versus-all is left until the full analysis gets too slow. A bad
+  ref, or a path outside Git, is an error rather than an empty report. On
+  a large Rust codebase, `--diff HEAD~20` reported 5 candidates, such as
+  recently edited near copies `Credits::attempt` and `Reversals::attempt`.
 
 ```mermaid
 sequenceDiagram
