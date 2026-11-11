@@ -73,9 +73,11 @@ BINARY="ddslop-${OS_LABEL}-${ARCH_LABEL}"
 
 if [ "$VERSION" = "latest" ]; then
     echo "Fetching the latest release..."
-    VERSION=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" |
-        grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
-    if [ -z "$VERSION" ]; then
+    # The web redirect names the latest tag without the API, whose limit for
+    # requests without a login shared CI runners hit.
+    latest=$(curl -sSfI -o /dev/null -w '%{redirect_url}' "https://github.com/${REPO}/releases/latest" || true)
+    VERSION="${latest##*/tag/}"
+    if [ -z "$latest" ] || [ "$VERSION" = "$latest" ]; then
         echo "Could not find the latest release. See https://github.com/${REPO}/releases" >&2
         exit 1
     fi
