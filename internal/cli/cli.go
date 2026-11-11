@@ -123,15 +123,32 @@ func newFlags(name, help string, stderr io.Writer) *flag.FlagSet {
 }
 
 // parseFlags parses args and reports the exit code to return when parsing
-// ends the command: 0 for -h, 2 for bad flags.
+// ends the command: 0 for -h, 2 for bad flags. Flags may come before or
+// after the path ("check ~/x --format json"), and "--" ends them: the
+// standard flag package stops at the first non-flag, so parsing resumes
+// after each one. The non-flag arguments are left in fs.Args().
 func parseFlags(fs *flag.FlagSet, args []string) (int, bool) {
-	err := fs.Parse(args)
-	switch {
-	case errors.Is(err, flag.ErrHelp):
-		return exitClean, false
-	case err != nil:
-		return exitError, false
+	var positional []string
+	for {
+		err := fs.Parse(args)
+		switch {
+		case errors.Is(err, flag.ErrHelp):
+			return exitClean, false
+		case err != nil:
+			return exitError, false
+		}
+		rest := fs.Args()
+		if consumed := len(args) - len(rest); consumed > 0 && args[consumed-1] == "--" {
+			positional = append(positional, rest...) // everything after -- is an argument
+			break
+		}
+		if len(rest) == 0 {
+			break
+		}
+		positional = append(positional, rest[0])
+		args = rest[1:]
 	}
+	_ = fs.Parse(append([]string{"--"}, positional...)) // only sets fs.Args()
 	return 0, true
 }
 
