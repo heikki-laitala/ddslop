@@ -54,15 +54,11 @@ func runSimilar(args []string, stdout, stderr io.Writer) int {
 	if *minSim <= 0 || *minSim > 1 {
 		return fail(stderr, fmt.Errorf("--min-similarity %v is not above 0 and at most 1", *minSim))
 	}
-	if *format == "" {
-		*format = "json"
-		if isTerminal(stdout) {
-			*format = "text"
-		}
+	resolved, err := outputFormat(*format, stdout, "text", "json")
+	if err != nil {
+		return fail(stderr, err)
 	}
-	if *format != "text" && *format != "json" {
-		return fail(stderr, fmt.Errorf("unknown format %q, want text or json", *format))
-	}
+	*format = resolved
 	if fs.NArg() == 0 || fs.NArg() > 2 {
 		return fail(stderr, errors.New("expected FILE:LINE and at most one path"))
 	}

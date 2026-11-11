@@ -61,15 +61,11 @@ func runFlows(args []string, stdout, stderr io.Writer) int {
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
-	if *format == "" {
-		*format = "json"
-		if isTerminal(stdout) {
-			*format = "text"
-		}
+	resolved, err := outputFormat(*format, stdout, "text", "json")
+	if err != nil {
+		return fail(stderr, err)
 	}
-	if *format != "text" && *format != "json" {
-		return fail(stderr, fmt.Errorf("unknown format %q, want text or json", *format))
-	}
+	*format = resolved
 	root, err := rootArg(fs)
 	if err != nil {
 		return fail(stderr, err)
