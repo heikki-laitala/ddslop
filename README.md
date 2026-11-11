@@ -3,6 +3,11 @@
 **Find the duplicated and dead code AI agents leave behind, and hand the
 agent a fix it can apply.**
 
+> [!NOTE]
+> **ddslop supports Rust repositories only, for now.** Go and TypeScript
+> support is planned. On a repository in another language it finds no
+> files to analyse and reports nothing.
+
 Coding agents regenerate rather than reuse. Each session that cannot see
 the helper written in the last one writes it again, a little differently:
 a second `load_user`, a struct copied into another service, a constant
@@ -36,8 +41,8 @@ on 12 cores), ddslop reported 713 candidates:
 
 Works with **Claude Code**, **Codex** and **Copilot** through a skill that
 `ddslop init` installs: the agent runs ddslop before it finishes a change,
-when you ask it to clean up, and before it writes a new helper. Rust is
-supported today; Go and TypeScript are planned. Runs on Linux and macOS.
+when you ask it to clean up, and before it writes a new helper. Runs on
+Linux and macOS.
 
 ## Install
 
@@ -313,7 +318,7 @@ measurements behind the thresholds.
 
 | Tool | Approach | What ddslop adds |
 | --- | --- | --- |
-| `dupl` (golangci-lint) | suffix tree over Go syntax trees | values and renames, near misses, suggestions, more languages |
+| `dupl` (golangci-lint) | suffix tree over Go syntax trees | values and renames, near misses, suggestions (ddslop covers Rust today; Go is planned) |
 | jscpd, PMD CPD | token windows, many languages | near misses and drift, matches on whole syntax units, refactoring candidates |
 | `mizchi/similarity` | tree-sitter and tree edit distance | refactoring candidates, agent output, feature flows |
 | Compiler warnings | unused private code | unused public code across a workspace, copies and wrappers |
