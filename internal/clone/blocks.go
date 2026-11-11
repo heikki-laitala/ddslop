@@ -67,7 +67,7 @@ type stmtRef struct{ unit, block, stmt int }
 // block. Overlapping occurrences are dropped, and so are runs that add
 // nothing: occurrences in distinct functions that are reported together
 // (a set in reported, such as a function clone group or near-miss
-// family), or lying wholly inside a larger block clone.
+// family), or lying mostly inside block clones kept before it.
 func BlockClones(units []unit.Unit, size BlockSize, reported [][]unit.Unit) []BlockClone {
 	sorted := slices.Clone(units)
 	slices.SortFunc(sorted, compareLocation)
@@ -132,7 +132,7 @@ func BlockClones(units []unit.Unit, size BlockSize, reported [][]unit.Unit) []Bl
 	})
 
 	// A clone adds nothing when its occurrences are in different functions
-	// already reported together, or all lie inside block clones kept
+	// already reported together, or lie mostly inside block clones kept
 	// earlier (larger ones come first).
 	setOf := map[unitKey]int{}
 	for i, set := range reported {
@@ -143,7 +143,7 @@ func BlockClones(units []unit.Unit, size BlockSize, reported [][]unit.Unit) []Bl
 	cov := coverage{}
 	var out []BlockClone
 	for _, c := range found {
-		if reportedTogether(c.Occurrences, setOf) || cov.covers(c.Occurrences) {
+		if reportedTogether(c.Occurrences, setOf) || cov.mostlyCovers(c.Occurrences) {
 			continue
 		}
 		for _, o := range c.Occurrences {
@@ -193,22 +193,41 @@ func (c coverage) add(u unit.Unit, start, end int) {
 	c[k] = append(c[k], [2]int{start, end})
 }
 
-// covers reports whether every occurrence lies inside a recorded range.
-func (c coverage) covers(occs []BlockOccurrence) bool {
+// mostlyCovers reports whether at least half of every occurrence lies
+// inside recorded ranges: the run then mostly repeats clones already
+// reported, such as a guard copied in twenty places reported again with
+// one more statement in ten of them. A long run merely containing a
+// reported one is still new.
+func (c coverage) mostlyCovers(occs []BlockOccurrence) bool {
 	for _, o := range occs {
 		start, end := o.seqRange()
-		inside := false
+		var inside [][2]int // recorded ranges clipped to the run
 		for _, r := range c[unitKey{o.Unit.File, o.Unit.StartLine}] {
-			if r[0] <= start && end <= r[1] {
-				inside = true
-				break
+			if lo, hi := max(r[0], start), min(r[1], end); lo < hi {
+				inside = append(inside, [2]int{lo, hi})
 			}
 		}
-		if !inside {
+		if 2*unionLength(inside) < end-start {
 			return false
 		}
 	}
 	return true
+}
+
+// unionLength returns the length of the union of half-open ranges. It
+// sorts ranges.
+func unionLength(ranges [][2]int) int {
+	slices.SortFunc(ranges, func(a, b [2]int) int { return cmp.Compare(a[0], b[0]) })
+	total, reach := 0, -1
+	for _, r := range ranges {
+		if r[0] > reach {
+			total += r[1] - r[0]
+		} else if r[1] > reach {
+			total += r[1] - reach
+		}
+		reach = max(reach, r[1])
+	}
+	return total
 }
 
 // runDifferences compares the leaves of the runs. Each run is treated as a

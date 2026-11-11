@@ -225,3 +225,49 @@ func TestBlockClonesSkipShortIdiomsHoweverOftenCopied(t *testing.T) {
 		t.Errorf("got %d block clones, want the four-line guard copied 12 times", len(got))
 	}
 }
+
+// layered returns functions sharing one guard: 10 also read a query just
+// before it, 10 have the guard alone, and 2 follow it with the same long
+// tail. Each ends with a call of its own arity, so no two functions are
+// copies.
+func layered() string {
+	guard := `    if !conn.usable {
+        return Err(NotCopied::Unavailable("unusable".to_owned()));
+    }
+    conn.usable = false;
+`
+	tail := `    let first = conn.fetch(&key, Limit::new(10))?;
+    let second = conn.fetch(&first.next, Limit::new(20))?;
+    let merged = first.merge(second).map_err(|e| NotCopied::Corrupt(e.to_string()))?;
+    conn.store(&merged, Mode::Replace)?;
+    conn.audit("merged", merged.len())?;
+`
+	var b strings.Builder
+	for i := range 22 {
+		fmt.Fprintf(&b, "fn op%d(conn: &mut Conn, key: Key) -> Result<(), NotCopied> {\n", i)
+		switch {
+		case i < 10:
+			b.WriteString("    let query = conn.query(&key)?;\n" + guard)
+		case i < 20:
+			b.WriteString(guard)
+		default:
+			b.WriteString(guard + tail)
+		}
+		fmt.Fprintf(&b, "    conn.step(%s)\n}\n", strings.Repeat("1, ", i))
+	}
+	return b.String()
+}
+
+func TestBlockClonesSkipRunsMostlyInsideReportedOnes(t *testing.T) {
+	size := BlockSize{MinNodes: 100, FrequentNodes: 20, FrequentLines: 3, FrequentDuplicated: 300}
+	got := BlockClones(rustUnits(t, "a.rs", layered()), size, nil)
+	var runs []string
+	for _, c := range got {
+		runs = append(runs, fmt.Sprintf("%d copies of %d nodes", len(c.Occurrences), c.Nodes))
+	}
+	// The guard, and the long tail with it; the guard with one more
+	// statement in front repeats the guard.
+	if len(got) != 2 || len(got[0].Occurrences) != 22 || len(got[1].Occurrences) != 2 {
+		t.Errorf("block clones = %v, want the guard in 22 places and the guard with its long tail in 2", runs)
+	}
+}

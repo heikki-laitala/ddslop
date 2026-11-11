@@ -349,9 +349,12 @@ stages:
    Repeats are then filtered: overlapping occurrences in one block are
    dropped; a run is skipped when its occurrences sit in distinct functions
    already reported together (a function clone group, or a near-miss family
-   including its members' exact and renamed copies), or lie wholly inside
-   a larger block clone, so a nested block of a copied run is not reported
-   again. A run repeated inside one function is always reported. Only names
+   including its members' exact and renamed copies), or when at least half
+   of every occurrence lies inside block clones kept before it (larger
+   ones come first), so a nested block of a copied run, or a guard copied
+   in twenty places that ten of them extend by one statement, is not
+   reported again. A long run merely containing a reported one is still
+   new. A run repeated inside one function is always reported. Only names
    declared inside the run count as local renames; names declared outside
    it, even in the same function, become parameters of the extracted
    helper. Extracting a helper costs more than calling an existing
@@ -605,7 +608,13 @@ Rust codebase before it was built.
   that differs in most of its types is dropped as shape similarity. Two
   fields matched mostly by coincidence (host and port); from three fields
   on, 31 candidates remained, mostly one type copied into several
-  services, or a wire type mirroring a domain type.
+  services, or a wire type mirroring a domain type. A second, 188k-line
+  codebase refined the rule: three-field structs must match in their
+  field types too (`{id, name, count}` with `i64` and `usize` was a
+  coincidence, a view over a database model a different type), and a
+  struct another one names in `#[serde(try_from = "...")]`, `from` or
+  `into` is left out, since validating an authored form into a checked
+  type is a deliberate second type.
 - **Duplicate constants** (`duplicate-constant`): constants declared with
   the same name and value. The same value alone is no evidence (64 and
   1000 are everywhere); the same name too means a copy. Macro values
@@ -618,9 +627,10 @@ Rust codebase before it was built.
   keys, Redis commands); a literal matching a named constant is the
   constant's meaning written out again. Short plain words (`"status"`,
   `"model"`) still matched unrelated keys, so a value needs 10 characters
-  or anything besides letters, digits and underscores. 41 candidates,
-  such as a Redis field name the code writes out 25 times next to its
-  constant.
+  or anything besides letters, digits and underscores, and at least one
+  letter: `"*"`, `"/"` and `"1.5"` mean something different wherever they
+  are written. 41 candidates, such as a Redis field name the code writes
+  out 25 times next to its constant.
 - **Stdlib reinvention** (planned): a small, curated catalogue of patterns
   per language (for example, a loop returning true on match →
   `slices.Contains`).
