@@ -77,6 +77,9 @@ func TestInlinedConstantsAreDistinctiveValues(t *testing.T) {
 		`"x-request-id"`:       true,  // punctuation
 		`"pending"`:            false, // a short word
 		`""`:                   false,
+		`"*"`:                  false, // punctuation alone: a wildcard, a separator
+		`"1.5"`:                false, // a number in a string
+		`"/"`:                  false,
 	}
 	for value, want := range cases {
 		if got := distinctive(value); got != want {

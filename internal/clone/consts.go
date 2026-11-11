@@ -107,11 +107,13 @@ func InlinedConstants(consts []unit.Const, units []unit.Unit, crateOf func(file 
 // own meaning written out again.
 const minDistinctiveLength = 10
 
-// distinctive reports whether a string literal's content is long, or holds
-// anything other than letters, digits and underscores.
+// distinctive reports whether a string literal's content has a letter and
+// is long, or holds anything other than letters, digits and underscores.
+// Without a letter it is a wildcard, a separator or a number ("*", "/",
+// "1.5"), which means something different wherever it is written.
 func distinctive(literal string) bool {
 	content := strings.Trim(strings.TrimLeft(literal, "rb#"), `"#`)
-	if content == "" {
+	if !strings.ContainsFunc(content, func(r rune) bool { return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') }) {
 		return false
 	}
 	if len(content) >= minDistinctiveLength {
