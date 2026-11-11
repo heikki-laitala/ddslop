@@ -236,6 +236,7 @@ together to install for several agents.
 | `--tests` | off | include test code |
 | `--diff` | off | only report candidates touching lines changed since this Git ref |
 | `--baseline` | off | do not report duplication recorded in this baseline file |
+| `--fail-over` | off | exit 1 only when the repository's duplication percentage is above this, still reporting every candidate |
 
 The index keeps parsed code between runs, so only changed files are
 parsed again. Files are parsed on half the CPU cores; set
@@ -306,7 +307,8 @@ steps:
 
 Either `--baseline` or `--diff` alone also works: the baseline gates the
 whole codebase on new duplication, the diff limits a pull request to what
-it changed.
+it changed. For a softer gate, `--fail-over 5` fails only while the whole
+repository's duplication is above 5%, and still reports every candidate.
 
 ## How it works
 
