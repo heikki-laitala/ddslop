@@ -83,42 +83,154 @@ func (grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	return nil
 }
 
-// Units parses Go source and returns one unit per function or method, in
-// source order. Functions containing syntax errors are skipped.
-func Units(path string, src []byte) ([]unit.Unit, error) {
+// Parse parses Go source and returns one unit per function or method, in
+// source order, and its package-level declarations: structs and constants.
+// Functions containing syntax errors are skipped, and declarations inside
+// functions are not seen.
+func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var units []unit.Unit
+	var decls unit.Decls
 	test := IsTestPath(path)
 	err := syntax.Parse(language, src, func(root *sitter.Node) {
 		for i := uint(0); i < root.NamedChildCount(); i++ {
 			n := root.NamedChild(i)
-			if (n.Kind() != "function_declaration" && n.Kind() != "method_declaration") || n.HasError() {
+			if n.HasError() {
 				continue
 			}
-			name := n.ChildByFieldName("name")
-			if name == nil {
-				continue
+			switch n.Kind() {
+			case "function_declaration", "method_declaration":
+				if u, ok := function(n, path, src, test); ok {
+					units = append(units, u)
+				}
+			case "const_declaration":
+				decls.Consts = append(decls.Consts, constants(n, path, src, test)...)
+			case "type_declaration":
+				decls.Structs = append(decls.Structs, structs(n, path, src, test)...)
 			}
-			full := name.Utf8Text(src)
-			if owner := receiverType(n, src); owner != "" {
-				full = owner + "." + full
-			}
-			s := syntax.Flatten(n, src, grammar{})
-			units = append(units, unit.Unit{
-				File:      path,
-				Name:      full,
-				StartLine: syntax.Line(n.StartPosition()),
-				EndLine:   syntax.Line(n.EndPosition()),
-				Shape:     similarity.HashSymbols(s.Seq),
-				Nodes:     s.Nodes,
-				Test:      test,
-				Leaves:    s.Leaves,
-				Seq:       s.Seq,
-				SeqLines:  s.Lines,
-				Blocks:    s.Blocks,
-			})
 		}
 	})
-	return units, err
+	return units, decls, err
+}
+
+// function makes a unit of a function or method declaration.
+func function(n *sitter.Node, path string, src []byte, test bool) (unit.Unit, bool) {
+	name := n.ChildByFieldName("name")
+	if name == nil {
+		return unit.Unit{}, false
+	}
+	full := name.Utf8Text(src)
+	if owner := receiverType(n, src); owner != "" {
+		full = owner + "." + full
+	}
+	s := syntax.Flatten(n, src, grammar{})
+	return unit.Unit{
+		File:      path,
+		Name:      full,
+		StartLine: syntax.Line(n.StartPosition()),
+		EndLine:   syntax.Line(n.EndPosition()),
+		Shape:     similarity.HashSymbols(s.Seq),
+		Nodes:     s.Nodes,
+		Test:      test,
+		Leaves:    s.Leaves,
+		Seq:       s.Seq,
+		SeqLines:  s.Lines,
+		Blocks:    s.Blocks,
+	}, true
+}
+
+// fieldNodes returns n's named children under a field name, in order: a
+// const spec or struct field can declare several names. The commas between
+// them carry the field name too, but are not named nodes.
+func fieldNodes(n *sitter.Node, field string) []*sitter.Node {
+	var out []*sitter.Node
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if c := n.Child(i); c.IsNamed() && n.FieldNameForChild(uint32(i)) == field {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// constants returns a const declaration's constants with written values,
+// each name paired with its value by position; iota and implicit values
+// have nothing to compare.
+func constants(n *sitter.Node, path string, src []byte, test bool) []unit.Const {
+	var out []unit.Const
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		spec := n.NamedChild(i)
+		values := spec.ChildByFieldName("value")
+		if spec.Kind() != "const_spec" || values == nil {
+			continue
+		}
+		for j, name := range fieldNodes(spec, "name") {
+			if j >= int(values.NamedChildCount()) { //nolint:gosec // a child count fits in int
+				break
+			}
+			v := values.NamedChild(uint(j))
+			if v.Kind() == "iota" {
+				continue
+			}
+			literal := v.Kind() == "interpreted_string_literal" || v.Kind() == "raw_string_literal"
+			text := v.Utf8Text(src)
+			if !literal {
+				text = syntax.Compact(text)
+			}
+			out = append(out, unit.Const{
+				File: path, Name: name.Utf8Text(src), Value: text, Line: syntax.Line(spec.StartPosition()),
+				Nodes: syntax.CountNodes(v), Literal: literal, Test: test,
+			})
+		}
+	}
+	return out
+}
+
+// structs returns a type declaration's struct types. An embedded field is
+// named after its type, as Go names it.
+func structs(n *sitter.Node, path string, src []byte, test bool) []unit.Struct {
+	var out []unit.Struct
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		spec := n.NamedChild(i)
+		name, typ := spec.ChildByFieldName("name"), spec.ChildByFieldName("type")
+		if spec.Kind() != "type_spec" || name == nil || typ == nil || typ.Kind() != "struct_type" {
+			continue
+		}
+		s := unit.Struct{
+			File: path, Name: name.Utf8Text(src),
+			StartLine: syntax.Line(spec.StartPosition()), EndLine: syntax.Line(spec.EndPosition()),
+			Nodes: syntax.CountNodes(spec), Test: test,
+		}
+		list := typ.NamedChild(0)
+		for j := uint(0); list != nil && j < list.NamedChildCount(); j++ {
+			f := list.NamedChild(j)
+			ftype := f.ChildByFieldName("type")
+			if f.Kind() != "field_declaration" || ftype == nil {
+				continue
+			}
+			t := syntax.Compact(ftype.Utf8Text(src))
+			names := fieldNodes(f, "name")
+			if len(names) == 0 { // embedded
+				s.Fields = append(s.Fields, unit.Field{Name: embeddedName(t), Type: t, Line: syntax.Line(f.StartPosition())})
+			}
+			for _, fn := range names {
+				s.Fields = append(s.Fields, unit.Field{Name: fn.Utf8Text(src), Type: t, Line: syntax.Line(f.StartPosition())})
+			}
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// embeddedName is the field name Go gives an embedded type: *pkg.Mutex
+// is Mutex.
+func embeddedName(typ string) string {
+	typ = strings.TrimPrefix(typ, "*")
+	if i := strings.LastIndex(typ, "."); i >= 0 {
+		typ = typ[i+1:]
+	}
+	if i := strings.Index(typ, "["); i >= 0 {
+		typ = typ[:i]
+	}
+	return typ
 }
 
 // receiverType returns a method's receiver type name, without pointer or

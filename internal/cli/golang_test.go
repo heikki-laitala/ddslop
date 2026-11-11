@@ -61,3 +61,54 @@ func TestCheckReportsCopiesInGoCode(t *testing.T) {
 		t.Errorf("summary = %+v, want 1 generated file and 1 test function", r.Summary)
 	}
 }
+
+func TestCheckReportsGoTypesAndConstantsDeclaredAgain(t *testing.T) {
+	billing := `package billing
+
+const MaxGrantedModels = 64
+
+const CodeUnavailable = "ledger_unavailable"
+
+type Budget struct {
+	ID        string
+	Limit     int64
+	Spent     int64
+	UpdatedAt time.Time
+}
+
+func refuse(code string) bool {
+	return code == "ledger_unavailable"
+}
+`
+	reports := `package reports
+
+const MaxGrantedModels = 64
+
+type Budget struct {
+	ID        string
+	Limit     int64
+	Spent     int64
+	UpdatedAt time.Time
+}
+`
+	root := repo(t, map[string]string{"billing/billing.go": billing, "reports/reports.go": reports})
+
+	_, stdout, stderr := run("check", "--format", "json", root)
+
+	var got []string
+	for _, c := range decode(t, stdout).Candidates {
+		var occs []string
+		for _, o := range c.Occurrences {
+			occs = append(occs, filepath.ToSlash(o.File)+" "+o.Name)
+		}
+		got = append(got, fmt.Sprintf("%s %s [%s]", c.Language, c.Kind, strings.Join(occs, ", ")))
+	}
+	want := []string{
+		"go duplicate-type [billing/billing.go Budget, reports/reports.go Budget]",
+		"go duplicate-constant [billing/billing.go MaxGrantedModels, reports/reports.go MaxGrantedModels]",
+		"go inlined-constant [billing/billing.go CodeUnavailable, billing/billing.go refuse]",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("candidates:\n%s\nwant:\n%s\nstderr: %s", strings.Join(got, "\n"), strings.Join(want, "\n"), stderr)
+	}
+}

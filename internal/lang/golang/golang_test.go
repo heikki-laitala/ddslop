@@ -11,7 +11,7 @@ import (
 
 func mustUnits(t *testing.T, path, src string) []unit.Unit {
 	t.Helper()
-	units, err := Units(path, []byte(src))
+	units, _, err := Parse(path, []byte(src))
 	if err != nil {
 		t.Fatalf("Units: %v", err)
 	}
@@ -140,5 +140,69 @@ func TestGoSymbolsAreApartFromOtherLanguages(t *testing.T) {
 		if kind, ok := shared[sym]; ok {
 			t.Fatalf("a Go %s has the same symbol as an unprefixed %s", kind, kind)
 		}
+	}
+}
+
+func TestParseListsStructsAndPackageConstants(t *testing.T) {
+	src := `package store
+
+const MaxGrantedModels = 64
+
+const (
+	CodeUnavailable = "ledger_unavailable"
+	Timeout         = 5 * time.Second
+	first, second   = "a", "b"
+)
+
+const (
+	Low Level = iota
+	High
+)
+
+var mutable = "not a constant"
+
+type Budget struct {
+	ID, Name   string
+	Limit      *int64 ` + "`json:\"limit\"`" + `
+	sync.Mutex
+}
+
+type Alias = Budget
+
+func f() {
+	const local = 1
+	type inner struct{ a int }
+}
+`
+	_, decls, err := Parse("store/store.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var consts []string
+	for _, c := range decls.Consts {
+		consts = append(consts, fmt.Sprintf("%s=%s:%d literal=%v", c.Name, c.Value, c.Line, c.Literal))
+	}
+	wantConsts := []string{
+		"MaxGrantedModels=64:3 literal=false",
+		`CodeUnavailable="ledger_unavailable":6 literal=true`,
+		"Timeout=5*time.Second:7 literal=false",
+		`first="a":8 literal=true`,
+		`second="b":8 literal=true`,
+	}
+	if strings.Join(consts, "\n") != strings.Join(wantConsts, "\n") {
+		t.Errorf("constants:\n%s\nwant:\n%s", strings.Join(consts, "\n"), strings.Join(wantConsts, "\n"))
+	}
+	var structs []string
+	for _, s := range decls.Structs {
+		var fields []string
+		for _, f := range s.Fields {
+			fields = append(fields, f.Name+":"+f.Type)
+		}
+		structs = append(structs, fmt.Sprintf("%s %d-%d %v", s.Name, s.StartLine, s.EndLine, fields))
+	}
+	// Each name of a multi-name field is a field; an embedded field is
+	// named after its type.
+	if want := "Budget 18-22 [ID:string Name:string Limit:*int64 Mutex:sync.Mutex]"; strings.Join(structs, "\n") != want {
+		t.Errorf("structs:\n%s\nwant:\n%s", strings.Join(structs, "\n"), want)
 	}
 }
