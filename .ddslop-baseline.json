@@ -16,6 +16,14 @@
         "internal/lang/rust/rust.go#extractor.addEnum",
         "internal/lang/rust/rust.go#extractor.addStruct"
       ]
+    },
+    {
+      "fingerprint": "go:type:f1d200e4a3cf86e5",
+      "kind": "duplicate-type",
+      "occurrences": [
+        "internal/clone/diff.go#Difference",
+        "internal/report/report.go#Difference"
+      ]
     }
   ]
 }

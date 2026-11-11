@@ -751,16 +751,17 @@ func languageOf(path string) string {
 	return "rust"
 }
 
-// parseGo extracts a Go file's units; generated files are only counted.
+// parseGo extracts a Go file's units and declarations; generated files
+// are only counted.
 func parseGo(path string, src []byte) (index.Parsed, error) {
 	if syntax.IsGenerated(src) {
 		return index.Parsed{Generated: true, Words: source.Words(src)}, nil
 	}
-	units, err := golang.Units(path, src)
+	units, decls, err := golang.Parse(path, src)
 	for i := range units {
 		units[i].Signature = similarity.Signature(units[i].Seq)
 	}
-	return index.Parsed{Units: units, Words: source.Words(src)}, err
+	return index.Parsed{Units: units, Decls: decls, Words: source.Words(src)}, err
 }
 
 func parseRust(path string, src []byte) (index.Parsed, error) {

@@ -290,9 +290,16 @@ extracts functions and methods (named `Type.Method`, the receiver
 without pointer or type arguments); function literals stay part of their
 function; `_test.go` files and `testdata/` directories are test code; the
 generated-file header rule (`// Code generated ... DO NOT EDIT.`) is
-shared. Go declarations, calls and the Rust-specific detectors follow in
-later slices. On a 100-file Go service: 43 candidates and 12.2%
-duplication, led by an authentication check in 14 handlers.
+shared. Go's package-level structs and constants feed the same detectors
+as Rust's: a multi-name field (`ID, Name string`) or constant
+(`a, b = "x", "y"`) gives one entry per name, an embedded field is named
+after its type as Go names it, and `iota` or implicit constant values have
+nothing to compare; the package directory plays the crate's part for
+inlined constants. Go calls and the call-graph detectors follow later.
+On a 100-file Go service: 43 candidates and 12.2% duplication, led by an
+authentication check in 14 handlers; with declarations, a client package
+re-declaring the server's response types (`MemoryItem`, `SearchResponse`,
+...) was the main new finding.
 
 All three languages are parsed with tree-sitter
 (`github.com/tree-sitter/go-tree-sitter` plus the Go, TypeScript/TSX and Rust
