@@ -205,8 +205,9 @@ are meant to diverge alone:
 | `--copilot` | `.copilot/skills/ddslop/SKILL.md` | `## ddslop` section in `.github/copilot-instructions.md` |
 
 The agent decides when to run it; no hook forces it to stop or continue.
-Running `init` again only updates what changed. When `CLAUDE.md` is a
-symlink to `AGENTS.md`, the section is written once. Add the agent flags
+Running `init` again only updates what changed. When `CLAUDE.md` and
+`AGENTS.md` are one file through a symlink, in either direction, the
+section is written once, into the real file, and the symlink stays. Add the agent flags
 together to install for several agents.
 
 ## Commands

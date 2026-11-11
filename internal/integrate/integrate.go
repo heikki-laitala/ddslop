@@ -70,7 +70,8 @@ type Status struct {
 
 // Install sets ddslop up for the given agents in root and returns a line
 // per change made. Running it again changes nothing. An instructions file
-// shared through a symlink (CLAUDE.md -> AGENTS.md) gets one section.
+// shared through a symlink, in either direction (CLAUDE.md -> AGENTS.md or
+// the reverse), gets one section, written into the real file.
 func Install(root string, agents []Agent) ([]string, error) {
 	var changes []string
 	note := func(changed bool, err error, format string, args ...any) error {
@@ -108,7 +109,7 @@ func Install(root string, agents []Agent) ([]string, error) {
 		}
 		written[resolved] = true
 		changed, err = upsertSection(path)
-		if err := note(changed, err, "updated %s", path); err != nil {
+		if err := note(changed, err, "updated %s", describe(path)); err != nil {
 			return changes, err
 		}
 	}
@@ -161,7 +162,7 @@ func Uninstall(root string, purge bool) ([]string, error) {
 			return changes, err
 		}
 		if changed {
-			changes = append(changes, "removed the ddslop section from "+path)
+			changes = append(changes, "removed the ddslop section from "+describe(path))
 		}
 	}
 	gitignore := filepath.Join(root, ".gitignore")
@@ -184,6 +185,20 @@ func Uninstall(root string, purge bool) ([]string, error) {
 func exists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
+}
+
+// describe names the file a path's content lives in, for reports: the
+// path itself, or for a symlink (AGENTS.md -> CLAUDE.md) the file it links
+// to, named as the user wrote it rather than fully resolved.
+func describe(path string) string {
+	target, err := os.Readlink(path)
+	if err != nil {
+		return path // not a symlink
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(path), target)
+	}
+	return target + " (through the " + filepath.Base(path) + " symlink)"
 }
 
 // resolve returns the file a path finally refers to, following symlinks.
