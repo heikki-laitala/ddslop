@@ -154,3 +154,48 @@ func Helper() int { return 1 }
 		t.Errorf("dead code:\n%s\nwant:\n%s\nstderr: %s", strings.Join(got, "\n"), want, stderr)
 	}
 }
+
+func TestCheckReportsGoWrappers(t *testing.T) {
+	root := repo(t, map[string]string{"store/store.go": `package store
+
+func (s *Store) Visible(principal string, tokenID int) bool {
+	return s.inNamespace(principal, tokenID)
+}
+
+func (s *Store) inNamespace(principal string, tokenID int) bool {
+	return len(principal) > tokenID
+}
+`})
+
+	_, stdout, stderr := run("check", "--format", "json", root)
+
+	got := patternCandidates(t, stdout, "pass-through")
+	// Go methods may satisfy an interface, so a method wrapper is left out
+	// like a trait method; a wrapper function is reported.
+	if len(got) != 0 {
+		t.Errorf("a Go method wrapper was reported: %+v; stderr: %s", got, stderr)
+	}
+
+	root = repo(t, map[string]string{"store/store.go": `package store
+
+func visible(principal string, tokenID int) bool {
+	return inNamespace(principal, tokenID)
+}
+
+func inNamespace(principal string, tokenID int) bool {
+	return len(principal) > tokenID
+}
+`})
+	_, stdout, _ = run("check", "--format", "json", root)
+	var r targetReport
+	decodeInto(t, stdout, &r)
+	var found bool
+	for _, c := range r.Candidates {
+		if c.Kind == "pass-through" {
+			found = c.Occurrences[0].Name == "visible" && c.Target != nil && c.Target.Name == "inNamespace"
+		}
+	}
+	if !found {
+		t.Errorf("want visible reported as a wrapper of inNamespace:\n%s", stdout)
+	}
+}

@@ -264,3 +264,29 @@ func TestOtherCratesMethodsNeedADependency(t *testing.T) {
 		t.Errorf("handle calls %s, want only the translation crate's encode_frames", got)
 	}
 }
+
+func TestBuildResolvesGoCalls(t *testing.T) {
+	units := []unit.Unit{
+		fn("store/store.go", "Store.Visible", method("self", "inNamespace")),
+		fn("store/store.go", "Store.inNamespace"),
+		fn("other/other.go", "Other.inNamespace"),
+		fn("store/load.go", "load", unit.Call{Kind: unit.FreeCall, Name: "open"}),
+		fn("store/open.go", "open"),
+		fn("store/check.go", "Check", unit.Call{Kind: unit.PathCall, Qualifier: "auth", Name: "Verify"}),
+		fn("internal/auth/auth.go", "Verify"),
+		// json is an outside package: its Unmarshal is not this package's
+		fn("store/decode.go", "Decode", unit.Call{Kind: unit.PathCall, Qualifier: "json", Name: "Unmarshal"}),
+		fn("store/unmarshal.go", "Unmarshal"),
+	}
+	g := Build(Inputs{}, units)
+	for caller, want := range map[string]string{
+		"store/store.go Store.Visible": "[store/store.go Store.inNamespace]",
+		"store/load.go load":           "[store/open.go open]",
+		"store/check.go Check":         "[internal/auth/auth.go Verify]",
+		"store/decode.go Decode":       "[]",
+	} {
+		if got := callees(g, caller); got != want {
+			t.Errorf("%s calls %s, want %s", caller, got, want)
+		}
+	}
+}

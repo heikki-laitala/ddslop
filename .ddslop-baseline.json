@@ -2,11 +2,27 @@
   "version": 1,
   "candidates": [
     {
+      "fingerprint": "go:00dc0044484e798f~2",
+      "kind": "near-miss",
+      "occurrences": [
+        "internal/lang/golang/golang.go#forwards",
+        "internal/lang/rust/rust.go#forwards"
+      ]
+    },
+    {
       "fingerprint": "go:4ee3b05e929030f1~2",
       "kind": "near-miss",
       "occurrences": [
         "internal/clone/enums.go#Enums",
         "internal/clone/structs.go#Structs"
+      ]
+    },
+    {
+      "fingerprint": "go:54073c84575d5802~2",
+      "kind": "near-miss",
+      "occurrences": [
+        "internal/lang/golang/golang.go#grammar.Visit",
+        "internal/lang/rust/rust.go#grammar.Visit"
       ]
     },
     {

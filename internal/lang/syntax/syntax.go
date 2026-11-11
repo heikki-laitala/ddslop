@@ -208,3 +208,23 @@ func commentText(line string) (string, bool) {
 	}
 	return "", false
 }
+
+// PassesOn reports whether a call's argument list is exactly names, in
+// order, each written as is or behind a borrow that borrow unwraps (&x),
+// returning nil when an argument is no borrow: the rule for a wrapper that
+// only forwards its parameters.
+func PassesOn(args *sitter.Node, names []string, src []byte, borrow func(n *sitter.Node, src []byte) *sitter.Node) bool {
+	if args == nil || args.NamedChildCount() != uint(len(names)) {
+		return false
+	}
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		a := args.NamedChild(i)
+		if inner := borrow(a, src); inner != nil {
+			a = inner
+		}
+		if a.Kind() != "identifier" || a.Utf8Text(src) != names[i] {
+			return false
+		}
+	}
+	return true
+}

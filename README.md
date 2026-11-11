@@ -7,8 +7,9 @@ agent a fix it can apply.**
 > **ddslop supports Rust fully, and most of Go.** In Go it finds exact,
 > renamed and near-miss copies, copied blocks, shared preambles, structs
 > and constants declared again, constants' values written inline, and
-> unused exported functions, and reports duplication; Go's call-graph
-> detectors (wrappers, parallel flows) are in progress. TypeScript is planned. Files in
+> unused exported functions and wrappers that only forward their
+> parameters, and reports duplication; parallel flows and Go's pattern
+> proposals are in progress. TypeScript is planned. Files in
 > other languages are not analysed.
 
 Coding agents regenerate rather than reuse. Each session that cannot see

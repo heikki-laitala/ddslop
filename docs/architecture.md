@@ -295,7 +295,18 @@ as Rust's: a multi-name field (`ID, Name string`) or constant
 (`a, b = "x", "y"`) gives one entry per name, an embedded field is named
 after its type as Go names it, and `iota` or implicit constant values have
 nothing to compare; the package directory plays the crate's part for
-inlined constants. Go calls and the call-graph detectors follow later.
+inlined constants. Go calls are recorded too: `f(x)` is a free call, a
+selector on the method's receiver (`s.load(x)`) a call on self, one on an
+imported package name (`json.Marshal`, aliases and `/vN` suffixes
+understood) a path call, and any other selector a method call. The call
+graph splits Go names at the dot (`Store.Load`), resolves a package call
+to the workspace package of that name, and never guesses for an outside
+package. Pass-through wrappers work the same way as in Rust; Go methods
+are left out, since they may satisfy an interface. The rule "the
+arguments are the parameters, in order, as is or borrowed" lives once in
+`syntax.PassesOn`; the per-grammar rest of wrapper detection and of the
+grammar hooks stays per adapter until a third language (extract on the
+third occurrence), recorded in ddslop's own baseline.
 On a 100-file Go service: 43 candidates and 12.2% duplication, led by an
 authentication check in 14 handlers; with declarations, a client package
 re-declaring the server's response types (`MemoryItem`, `SearchResponse`,
