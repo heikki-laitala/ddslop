@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "candidates": [
+    {
+      "fingerprint": "go:4ee3b05e929030f1~2",
+      "kind": "near-miss",
+      "occurrences": [
+        "internal/clone/enums.go#Enums",
+        "internal/clone/structs.go#Structs"
+      ]
+    },
+    {
+      "fingerprint": "go:93bd16ea2a46ecbd~2",
+      "kind": "near-miss",
+      "occurrences": [
+        "internal/lang/rust/rust.go#extractor.addEnum",
+        "internal/lang/rust/rust.go#extractor.addStruct"
+      ]
+    }
+  ]
+}
