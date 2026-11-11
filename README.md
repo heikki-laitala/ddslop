@@ -284,26 +284,29 @@ by line, so unrelated edits do not invalidate it; a known family stays
 known while you clean it up, and a new copy of it is reported. Re-run
 `ddslop baseline` after cleaning up to shrink the file.
 
-With `--format sarif`, results show as annotations on pull requests in
-GitHub code scanning. In diff mode the annotation sits on the changed copy:
+The ddslop GitHub Action installs ddslop, runs `check`, and shows the
+results as annotations on pull requests through GitHub code scanning. In
+diff mode the annotation sits on the changed copy:
 
 ```yaml
 permissions:
   contents: read
-  security-events: write   # upload-sarif
+  security-events: write   # upload results to code scanning
 steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     with:
-      fetch-depth: 0   # --diff needs the base commit
-  - run: curl -sSfL https://raw.githubusercontent.com/heikki-laitala/ddslop/main/install.sh | bash -s -- --no-interactive
-  - run: >
-      ~/.local/bin/ddslop check --format sarif --baseline .ddslop-baseline.json
-      --diff origin/${{ github.base_ref }} . > ddslop.sarif
-  - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
-    if: always()
+      fetch-depth: 0   # diff needs the base commit
+  - uses: heikki-laitala/ddslop@vYYYY.MM.DD_N   # pin a release; it installs that version
     with:
-      sarif_file: ddslop.sarif
+      diff: origin/${{ github.base_ref }}
+      baseline: .ddslop-baseline.json
 ```
+
+Replace `vYYYY.MM.DD_N` with a [release](https://github.com/heikki-laitala/ddslop/releases)
+tag; the tag you pin is the ddslop version the action installs. Other
+inputs: `path` (default `.`), `fail-over`, `args` (further `check`
+arguments) and `upload-sarif` (`false` to skip code scanning). Outside
+GitHub, run `ddslop check --format sarif` the same way.
 
 Either `--baseline` or `--diff` alone also works: the baseline gates the
 whole codebase on new duplication, the diff limits a pull request to what
