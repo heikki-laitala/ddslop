@@ -16,9 +16,16 @@ var (
 	goLanguage   = sitter.NewLanguage(gogrammar.Language())
 )
 
+func parseIgnored(language *sitter.Language, src string) (lines map[int]bool, err error) {
+	if perr := Parse(language, []byte(src), func(root *sitter.Node) { lines, err = Ignored(root, []byte(src)) }); perr != nil {
+		return nil, perr
+	}
+	return lines, err
+}
+
 func ignoredLines(t *testing.T, language *sitter.Language, src string) string {
 	t.Helper()
-	lines, err := Ignored(language, []byte(src))
+	lines, err := parseIgnored(language, src)
 	if err != nil {
 		t.Fatalf("Ignored: %v", err)
 	}
@@ -83,7 +90,7 @@ func TestIgnoredNeedsAReason(t *testing.T) {
 		"//   ddslop:ignore   \nfn f() {}\n",
 		"/* ddslop:ignore */\nfn f() {}\n",
 	} {
-		_, err := Ignored(rustLanguage, []byte(src))
+		_, err := parseIgnored(rustLanguage, src)
 		if err == nil || !strings.Contains(err.Error(), "line 1: ddslop:ignore needs a reason") {
 			t.Errorf("%q: error = %v, want one asking for a reason on line 1", src, err)
 		}
@@ -91,7 +98,7 @@ func TestIgnoredNeedsAReason(t *testing.T) {
 }
 
 func TestIgnoredSkipsFilesWithoutMarkers(t *testing.T) {
-	lines, err := Ignored(rustLanguage, []byte("fn f() {} // ordinary comment\n"))
+	lines, err := parseIgnored(rustLanguage, "fn f() {} // ordinary comment\n")
 	if err != nil || len(lines) != 0 {
 		t.Errorf("Ignored = %v, %v; want no lines", lines, err)
 	}

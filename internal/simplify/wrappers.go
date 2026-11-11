@@ -21,7 +21,7 @@ type Wrapper struct {
 func PassThrough(g *flow.Graph) []Wrapper {
 	var out []Wrapper
 	for i, u := range g.Units {
-		if u.Forwards == "" || u.ViaInterface() || u.External || u.Test {
+		if u.Forwards == "" || u.ViaInterface() || u.External || u.Test || u.Ignored {
 			continue
 		}
 		if callees := g.Callees[i]; len(callees) == 1 && callees[0] != i {

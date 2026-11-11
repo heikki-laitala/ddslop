@@ -475,27 +475,18 @@ func check(root string, opts options) (report.Report, error) {
 		}
 		summary.Files++
 		for _, u := range f.Units {
-			if u.Test && !opts.tests {
+			switch {
+			case u.Test && !opts.tests:
 				summary.TestUnits++
-				continue
-			}
-			units = append(units, u)
-		}
-		for _, s := range f.Decls.Structs {
-			if !s.Test || opts.tests {
-				structs = append(structs, s)
+			case u.Ignored:
+				summary.Ignored++
+			default:
+				units = append(units, u)
 			}
 		}
-		for _, c := range f.Decls.Consts {
-			if !c.Test || opts.tests {
-				consts = append(consts, c)
-			}
-		}
-		for _, e := range f.Decls.Enums {
-			if !e.Test || opts.tests {
-				enums = append(enums, e)
-			}
-		}
+		structs = appendAnalysed(structs, f.Decls.Structs, opts.tests, &summary, func(s unit.Struct) (bool, bool) { return s.Test, s.Ignored })
+		consts = appendAnalysed(consts, f.Decls.Consts, opts.tests, &summary, func(c unit.Const) (bool, bool) { return c.Test, c.Ignored })
+		enums = appendAnalysed(enums, f.Decls.Enums, opts.tests, &summary, func(e unit.Enum) (bool, bool) { return e.Test, e.Ignored })
 		decls.Traits = append(decls.Traits, f.Decls.Traits...)
 		decls.Impls = append(decls.Impls, f.Decls.Impls...)
 		decls.TypeNames = append(decls.TypeNames, f.Decls.TypeNames...)
@@ -626,6 +617,23 @@ var parallelFlowOptions = flow.ParallelOptions{
 	MinCover:       0.2,
 	MinStepSim:     0.7,
 	SharedFraction: 0.25,
+}
+
+// appendAnalysed appends the declarations to analyse: test code only when
+// tests are asked for, and none a ddslop:ignore comment marks, which the
+// summary counts.
+func appendAnalysed[T any](to, decls []T, tests bool, summary *report.Summary, flags func(T) (test, ignored bool)) []T {
+	for _, d := range decls {
+		test, ignored := flags(d)
+		switch {
+		case test && !tests:
+		case ignored:
+			summary.Ignored++
+		default:
+			to = append(to, d)
+		}
+	}
+	return to
 }
 
 // callGraph builds the call graph of the non-test code and returns it with

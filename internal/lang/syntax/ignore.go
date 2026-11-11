@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
+
+	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
 // IgnoreMarker starts a comment that leaves code out of the analysis:
@@ -13,20 +15,44 @@ import (
 // reviewable.
 const IgnoreMarker = "ddslop:ignore"
 
-// Ignored returns the lines ddslop:ignore comments apply to. A marker
-// after code applies to its own line; a marker on a line of its own
-// applies to the first line below it that is neither a comment nor an
-// attribute (a blank line ends the search: the marker applies to nothing).
-// A declaration or literal starting on such a line is left out. Comments
-// come from the syntax tree, so a marker inside a string is no marker.
-func Ignored(language *sitter.Language, src []byte) (map[int]bool, error) {
+// MarkIgnored marks the units, structs, enums, constants and literal
+// leaves that start on a line a ddslop:ignore comment applies to (see
+// Ignored).
+func MarkIgnored(root *sitter.Node, src []byte, units []unit.Unit, decls *unit.Decls) error {
+	lines, err := Ignored(root, src)
+	if err != nil || len(lines) == 0 {
+		return err
+	}
+	for i := range units {
+		u := &units[i]
+		u.Ignored = lines[u.StartLine]
+		for j := range u.Leaves {
+			u.Leaves[j].Ignored = u.Leaves[j].Kind == unit.Literal && lines[u.Leaves[j].Line]
+		}
+	}
+	for i := range decls.Structs {
+		decls.Structs[i].Ignored = lines[decls.Structs[i].StartLine]
+	}
+	for i := range decls.Enums {
+		decls.Enums[i].Ignored = lines[decls.Enums[i].StartLine]
+	}
+	for i := range decls.Consts {
+		decls.Consts[i].Ignored = lines[decls.Consts[i].Line]
+	}
+	return nil
+}
+
+// Ignored returns the lines ddslop:ignore comments in the syntax tree at
+// root apply to. A marker after code applies to its own line; a marker on
+// a line of its own applies to the first line below it that is neither a
+// comment nor an attribute (a blank line ends the search: the marker
+// applies to nothing). Comments come from the syntax tree, so a marker
+// inside a string is no marker.
+func Ignored(root *sitter.Node, src []byte) (map[int]bool, error) {
 	if !bytes.Contains(src, []byte(IgnoreMarker)) {
 		return nil, nil
 	}
-	var comments []comment
-	if err := Parse(language, src, func(root *sitter.Node) { comments = collectComments(root, src) }); err != nil {
-		return nil, err
-	}
+	comments := collectComments(root, src)
 	lines := strings.Split(string(src), "\n")
 	ownLine := map[int]bool{} // lines holding only comments
 	for _, c := range comments {

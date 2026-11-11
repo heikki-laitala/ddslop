@@ -18,6 +18,9 @@ type Unit struct {
 	// Test is true for test code: test functions, functions in test
 	// modules and functions in test files.
 	Test bool
+	// Ignored is true when a ddslop:ignore comment marks the unit: it is
+	// left out of the analysis.
+	Ignored bool
 	// Leaves are the blanked-out tokens in pre-order. Units with equal shapes
 	// have leaves that line up one to one, which is how differences are found.
 	Leaves []Leaf
@@ -155,6 +158,8 @@ type Leaf struct {
 	// Declares is true when this occurrence introduces a name inside the
 	// unit: the unit's own name, a parameter, or a local binding.
 	Declares bool
+	// Ignored is true when a ddslop:ignore comment marks the leaf's line.
+	Ignored bool
 }
 
 // SimpleName reduces a type or trait path to its last segment without
@@ -224,6 +229,8 @@ type Const struct {
 	// whose meaning can depend on where it is written.
 	Macro bool
 	Test  bool
+	// Ignored is true when a ddslop:ignore comment marks the constant.
+	Ignored bool
 }
 
 // Struct is a struct with named fields.
@@ -235,6 +242,8 @@ type Struct struct {
 	Nodes  int
 	Fields []Field
 	Test   bool
+	// Ignored is true when a ddslop:ignore comment marks the struct.
+	Ignored bool
 	// Converts are the types the struct is deserialised from or serialised
 	// into, as simple names (#[serde(try_from = "X", from = "Y", into = "Z")]):
 	// a struct validating another is a deliberate second type, not a copy.
@@ -249,6 +258,8 @@ type Enum struct {
 	Nodes              int
 	Variants           []Variant
 	Test               bool
+	// Ignored is true when a ddslop:ignore comment marks the enum.
+	Ignored bool
 }
 
 // Variant is one enum variant: its name and its payload as written,
