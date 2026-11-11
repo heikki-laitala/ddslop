@@ -543,6 +543,9 @@ type shaper struct {
 	lines  []int
 	blocks [][]unit.Statement
 	calls  []unit.Call
+	// exits counts the early returns seen so far, and closures how deep in
+	// closures the walk is: a return in a closure leaves the closure.
+	exits, closures int
 }
 
 // recordCall notes a call expression by the shape of its function.
@@ -610,8 +613,20 @@ func (s *shaper) visit(n *sitter.Node, declares bool) {
 		return
 	}
 	s.emit(kindSymbol(n.Kind()), line(n.StartPosition()))
-	if n.Kind() == "call_expression" {
+	switch n.Kind() {
+	case "call_expression":
 		s.recordCall(n)
+	case "return_expression":
+		if s.closures == 0 {
+			s.exits++
+		}
+	case "let_declaration":
+		if s.closures == 0 && n.ChildByFieldName("alternative") != nil {
+			s.exits++ // let-else
+		}
+	case "closure_expression":
+		s.closures++
+		defer func() { s.closures-- }()
 	}
 	block := -1
 	if n.Kind() == "block" {
@@ -623,10 +638,12 @@ func (s *shaper) visit(n *sitter.Node, declares bool) {
 		field := n.FieldNameForChild(uint32(i))
 		statement := block >= 0 && !child.IsExtra() && child.Kind() != "{" && child.Kind() != "}"
 		st := unit.Statement{SeqStart: len(s.seq), LeafStart: len(s.leaves), Nodes: s.nodes}
+		exits := s.exits
 		s.visit(child, childDeclares(n.Kind(), declares, field, child.Kind()))
 		if statement {
 			st.SeqEnd, st.LeafEnd, st.Nodes = len(s.seq), len(s.leaves), s.nodes-st.Nodes
 			st.StartLine, st.EndLine = line(child.StartPosition()), line(child.EndPosition())
+			st.Exits = s.exits > exits
 			s.blocks[block] = append(s.blocks[block], st)
 		}
 	}

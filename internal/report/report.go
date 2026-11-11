@@ -117,6 +117,10 @@ type Difference struct {
 type Suggestion struct {
 	Action     string `json:"action"`
 	Parameters int    `json:"parameters"`
+	// Pattern names the idiom the refactoring introduces, when there is
+	// one, and GoF its Gang of Four counterpart.
+	Pattern string `json:"pattern,omitempty"`
+	GoF     string `json:"gof,omitempty"`
 }
 
 // Score says how much duplication the candidate represents.
@@ -142,6 +146,8 @@ const (
 	passThrough    = "pass-through"
 	inlineWrapper  = "inline-wrapper"
 	singleImpl     = "single-impl-trait"
+	sharedPreamble = "shared-preamble"
+	extractPre     = "extract-preamble"
 	removeTrait    = "remove-trait"
 	extractFlow    = "extract-pipeline"
 	reuseExisting  = "reuse-existing"
@@ -244,7 +250,7 @@ func Build(language string, f Findings, summary Summary) Report {
 // constant's occurrences are single literals.
 var duplicationKinds = map[string]bool{
 	exactClone: true, renamedClone: true, nearMiss: true, blockClone: true,
-	duplicateType: true, duplicateConst: true,
+	sharedPreamble: true, duplicateType: true, duplicateConst: true,
 }
 
 // health measures the candidates against the analysed lines. The first
@@ -445,6 +451,11 @@ func blockCandidate(language string, b clone.BlockClone) Candidate {
 	c.Differences, c.Suggestion = differences(b.Differences)
 	// A run of statements can only be shared by extracting it.
 	c.Suggestion.Action = extractCommon
+	if b.Preamble {
+		c.Kind = sharedPreamble
+		c.Suggestion.Action = extractPre
+		c.Suggestion.Pattern, c.Suggestion.GoF = "extractor", "Chain of Responsibility"
+	}
 	return c
 }
 
@@ -635,6 +646,9 @@ func WriteText(w io.Writer, r Report) error {
 			fmt.Fprintf(&b, " (%.0f%% similar)", 100*c.Similarity)
 		}
 		fmt.Fprintf(&b, ": %s (%d nodes), %s", size(c), c.Score.Nodes, c.Suggestion.Action)
+		if c.Suggestion.Pattern != "" {
+			fmt.Fprintf(&b, " (%s; GoF: %s)", c.Suggestion.Pattern, c.Suggestion.GoF)
+		}
 		if c.Suggestion.Parameters > 0 {
 			fmt.Fprintf(&b, " with %d parameter(s)", c.Suggestion.Parameters)
 		}

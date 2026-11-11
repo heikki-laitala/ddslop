@@ -676,6 +676,33 @@ flattened, the other half of cleaning up generated code:
 A further idea, generic parameters only ever instantiated with one type,
 needs type inference and is not planned.
 
+### Pattern proposals
+
+Some repeated code is a missing idiom rather than a missing helper. A
+pattern detector is a fixed rule over evidence ddslop already has
+(copied blocks and their positions, the call graph, declarations); a
+match names the idiom in `suggestion.pattern`, the Rust form first, and
+its Gang of Four counterpart in `suggestion.gof`. No model is involved:
+the same code always gives the same proposal, and the agent judges
+whether it fits.
+
+- **Shared preamble** (`shared-preamble`, `extract-preamble`, pattern
+  `extractor`, GoF Chain of Responsibility): a copied block that holds
+  the first early return (a `return` or a `let ... else`) of at least 5
+  functions, with statements after it. Setup before it is allowed
+  (tracing, a page title, parsing the query), so a sign-in check after two
+  to five such statements still counts. A block clone that is a preamble
+  is reported as one, not twice. Measured on both codebases: openings
+  that return early were sign-in, credential, permission and readiness
+  checks (7 candidates, all real), while openings whose only exit was a
+  `?` were setup (acquire a lease, run a query), and those without an
+  exit were matches, view templates and closures. A whole function body
+  is a copied function, not a preamble.
+
+Planned, from the same measurement: paired setup and teardown (a
+closure-taking helper or an RAII guard), strings used as kinds (an enum),
+and repeated error conversions (`impl From`).
+
 ## Flow layer
 
 ### Symbol index and call graph

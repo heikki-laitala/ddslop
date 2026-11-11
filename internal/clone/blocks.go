@@ -26,7 +26,42 @@ type BlockClone struct {
 	// declared inside the run itself; anything else becomes a parameter of
 	// an extracted helper.
 	Differences []Difference
+	// Preamble is true when the run opens at least minPreambleFunctions
+	// functions and returns early: a shared check (sign-in, permission,
+	// readiness) that belongs in one guard or extractor.
+	Preamble bool
 }
+
+// Preambles: a run opens a function when it lies in the function's body,
+// more statements follow it, and nothing before it returns early: it holds
+// the function's first check. Setup before it (tracing, a page title,
+// parsing the query) is allowed, whatever its length. A run is a shared
+// preamble when it opens at least minPreambleFunctions functions and
+// returns early by its own decision (a return or a let-else). Measured on
+// a 735k- and a 188k-line Rust codebase: such openings were sign-in,
+// credential, permission and readiness checks repeated across handlers,
+// such as a permission check refusing with Forbidden in nine services and
+// a sign-in check after two to five setup statements in fifteen pages;
+// openings whose only exit was a ? were setup (acquire a lease, run a
+// query), and those without an exit matches, view templates and local
+// closures.
+const minPreambleFunctions = 5
+
+// isPreamble reports whether a run opens enough functions and returns
+// early.
+func isPreamble(occs []BlockOccurrence) bool {
+	opens := map[unitKey]bool{}
+	for _, o := range occs {
+		body := o.Unit.Blocks[0]
+		if o.Block == 0 && o.End < len(body) && !slices.ContainsFunc(body[:o.Start], exits) {
+			opens[unitKey{o.Unit.File, o.Unit.StartLine}] = true
+		}
+	}
+	first := occs[0]
+	return len(opens) >= minPreambleFunctions && slices.ContainsFunc(first.Unit.Blocks[first.Block][first.Start:first.End], exits)
+}
+
+func exits(s unit.Statement) bool { return s.Exits }
 
 // BlockSize says which repeated runs are large enough to report.
 type BlockSize struct {
@@ -155,6 +190,7 @@ func BlockClones(units []unit.Unit, size BlockSize, reported [][]unit.Unit) []Bl
 			start, end := o.seqRange()
 			cov.add(o.Unit, start, end)
 		}
+		c.Preamble = isPreamble(c.Occurrences)
 		out = append(out, c)
 	}
 	return out

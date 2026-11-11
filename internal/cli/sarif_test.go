@@ -70,7 +70,7 @@ func TestCheckSARIF(t *testing.T) {
 	for _, r := range l.Runs[0].Tool.Driver.Rules {
 		rules = append(rules, r.ID)
 	}
-	if strings.Join(rules, " ") != "exact-clone renamed-clone near-miss block-clone parallel-flow duplicate-type duplicate-constant inlined-constant dead-code pass-through single-impl-trait" {
+	if strings.Join(rules, " ") != "exact-clone renamed-clone near-miss block-clone parallel-flow duplicate-type duplicate-constant inlined-constant dead-code pass-through single-impl-trait shared-preamble" {
 		t.Errorf("rules = %v, want every candidate kind", rules)
 	}
 	if len(l.Runs[0].Results) != 1 {

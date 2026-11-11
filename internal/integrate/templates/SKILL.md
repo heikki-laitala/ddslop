@@ -80,6 +80,13 @@ What to do per `kind`:
   Extract one pipeline (a generic handler or service) and pass the varying
   steps in, rather than deduplicating each step on its own. This is a
   larger refactor: propose it before doing it.
+- `shared-preamble` (`extract-preamble`): the occurrences are the same
+  opening check in many functions, which returns early (sign-in,
+  permission, credential, readiness). `suggestion.pattern` names the idiom:
+  an `extractor`. In request handlers, move the check into an extractor or
+  middleware that hands the handler what the check produced (the signed-in
+  user, the principal); elsewhere, into one guard function returning the
+  checked value or the early result. Differences become its parameters.
 - `duplicate-type`: structs with the same field names. Keep one type and
   use it everywhere. Differences list field types that differ; when one
   struct is a wire format (serde) and the other a domain type, converting

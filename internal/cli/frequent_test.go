@@ -8,12 +8,13 @@ import (
 
 func TestCheckReportsSmallBlocksCopiedManyTimes(t *testing.T) {
 	// Each function makes a call of a different arity after the shared
-	// guard, so the functions themselves are not copies.
+	// block, so the functions themselves are not copies. The block cannot
+	// exit early, so it is no shared preamble (see preamble_test.go).
 	var src strings.Builder
 	for i := range 12 {
 		fmt.Fprintf(&src, `pub fn op%d(conn: &mut Conn) -> Result<(), NotCopied> {
     if !conn.usable {
-        return Err(NotCopied::Unavailable("unusable".to_owned()));
+        conn.reset(Reason::Unavailable("unusable".to_owned()));
     }
     conn.usable = false;
     conn.step(%s)

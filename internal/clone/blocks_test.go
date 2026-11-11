@@ -310,3 +310,89 @@ func TestBlockClonesLeaveOutRunsThatAreMostlyParameters(t *testing.T) {
 		t.Errorf("block clones = %v, want only the shared three statements: %s", all, want)
 	}
 }
+
+// handlers returns n functions that open with a trace call and then the
+// given lines, and end with a call of their own arity.
+func handlers(n int, opening string) string {
+	var b strings.Builder
+	for i := range n {
+		fmt.Fprintf(&b, "fn page%d(cx: &Cx) -> Result<Response> {\n    trace::tag_event(%d);\n%s    render(%s)\n}\n",
+			i, i, opening, strings.Repeat("1, ", i))
+	}
+	return b.String()
+}
+
+const signIn = `    let user = match access(cx).await {
+        Access::Anonymous => return sign_in_offer(cx),
+        Access::SignedIn(user) => user,
+    };
+    let org = visited(cx, &user.sub).await?.ok_or_else(not_found)?;
+`
+
+// prefixed returns n functions that run prefix(i) and then the given
+// opening, and end with a call of their own arity. The prefixes differ in
+// shape, so they are not part of the shared run.
+func prefixed(n int, prefix func(i int) string, opening string) string {
+	var b strings.Builder
+	for i := range n {
+		fmt.Fprintf(&b, "fn page%d(cx: &Cx) -> Result<Response> {\n%s%s    render(%s)\n}\n",
+			i, prefix(i), opening, strings.Repeat("1, ", i))
+	}
+	return b.String()
+}
+
+// setupLines are 2 to 7 statements that return nothing early: tracing,
+// titles and parsing before the guard.
+func setupLines(i int) string { return strings.Repeat("    tick(cx);\n", 2+i) }
+
+// earlyReturn makes the guard the second check of the function.
+func earlyReturn(i int) string {
+	return fmt.Sprintf("    if cx.closing(%s) {\n        return Ok(Response::closed());\n    }\n", strings.Repeat("1, ", i))
+}
+
+// setup propagates errors with ? but makes no check of its own.
+const setup = `    let mut lease = pool.acquire(Mode::Shared).await?;
+    let session = lease.session(Deadline::Default)?;
+`
+
+// wholeBodies returns n functions that are nothing but a guard: copies of
+// a function, not functions sharing an opening.
+func wholeBodies(n int) string {
+	var b strings.Builder
+	for i := range n {
+		fmt.Fprintf(&b, "fn check%d(cx: &Cx) -> Option<u32> {\n    let user = match access(cx) {\n        Access::Anonymous => return None,\n        Access::SignedIn(user) => user,\n    };\n    Some(user.id + %d)\n}\n", i, i)
+	}
+	return b.String()
+}
+
+const noExit = `    let user = lookup(cx, Mode::Lenient, Retry::Never);
+    let org = visited(cx, &user.sub, Mode::Lenient, Retry::Never);
+`
+
+func TestBlockClonesMarkOpeningsThatReturnEarlyAsPreambles(t *testing.T) {
+	size := BlockSize{MinNodes: 20}
+	cases := map[string]struct {
+		src  string
+		want bool
+	}{
+		"guard opening six functions":   {handlers(6, signIn), true},
+		"guard in only four":            {handlers(4, signIn), false},
+		"opening without an exit":       {handlers(6, noExit), false},
+		"opening exiting only by ?":     {handlers(6, setup), false},
+		"guard that is the whole body":  {wholeBodies(6), false},
+		"guard after setup lines":       {prefixed(6, setupLines, signIn), true},
+		"guard after an earlier return": {prefixed(6, earlyReturn, signIn), false},
+	}
+	for name, c := range cases {
+		got := BlockClones(rustUnits(t, "a.rs", c.src), size, nil)
+		if len(got) == 0 {
+			t.Errorf("%s: no block clones, want the guard", name)
+			continue
+		}
+		// Setup lines can form runs of their own; only the guard can be a
+		// preamble.
+		if preamble := slices.ContainsFunc(got, func(b BlockClone) bool { return b.Preamble }); preamble != c.want {
+			t.Errorf("%s: preamble = %v, want %v", name, preamble, c.want)
+		}
+	}
+}

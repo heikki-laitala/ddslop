@@ -80,6 +80,10 @@ type Statement struct {
 	LeafStart, LeafEnd int // its leaves are Leaves[LeafStart:LeafEnd]
 	StartLine, EndLine int
 	Nodes              int
+	// Exits is true when the statement can return early by its own
+	// decision: it holds a return or a let-else outside any closure. A ?
+	// only propagates an error, as setup code does too.
+	Exits bool
 }
 
 // Close is the Seq symbol that ends a node's children.

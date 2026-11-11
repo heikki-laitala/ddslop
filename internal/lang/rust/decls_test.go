@@ -283,3 +283,29 @@ struct Other {
 		t.Errorf("conversions:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+func TestStatementsRecordWhetherTheyReturnEarly(t *testing.T) {
+	src := `fn handle(cx: &Cx) -> Result<Response> {
+    trace::tag_event(EVENT);
+    let user = current_user(cx).await.signed_in().ok_or_unauthorized()?;
+    if !user.admin {
+        return Err(Forbidden);
+    }
+    let Some(org) = visited(cx, &user) else {
+        return not_found();
+    };
+    let names = org.members.iter().map(|m| m.name.parse::<Name>()).collect::<Result<Vec<_>>>();
+    render(org, names)
+}
+`
+	var got []bool
+	for _, st := range byName(t, mustUnits(t, src), "handle").Blocks[0] {
+		got = append(got, st.Exits)
+	}
+	// Only an explicit return or a let-else counts: a ? propagates errors,
+	// as setup code does too, and the one in the closure leaves the
+	// closure, not the function.
+	if want := "[false false true true false false]"; fmt.Sprint(got) != want {
+		t.Errorf("exits = %v, want %s", got, want)
+	}
+}

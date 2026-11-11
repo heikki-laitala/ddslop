@@ -21,6 +21,7 @@ var rules = []sarifRule{
 	{ID: deadCode, Short: "Public function nothing uses", Full: "The function is public in a crate that is not published, and its name appears nowhere else in the code: no call, import, macro or comment. Delete it, unless it is meant for code outside the repository."},
 	{ID: passThrough, Short: "Wrapper that only forwards its parameters", Full: "The function's whole body calls another function (the target) with its own parameters, unchanged. Call the target directly and delete the wrapper, or rename the target if the wrapper's name is the better one."},
 	{ID: singleImpl, Short: "Trait with a single implementation", Full: "The trait is implemented once, for a type the code declares, and no test double implements it. Make its methods the type's own and use the type directly, unless a second implementation is planned."},
+	{ID: sharedPreamble, Short: "Shared preamble that can exit early", Full: "Several functions open with the same check, which can return early (sign-in, permission, input parsing). Move it into one guard: in request handlers, an extractor or middleware that hands the handler what it needs; elsewhere, a function returning the checked value or the early result."},
 }
 
 // ruleShort maps a candidate kind to its rule's short description.
