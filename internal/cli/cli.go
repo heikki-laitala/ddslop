@@ -166,6 +166,21 @@ func parseFlags(fs *flag.FlagSet, args []string) (int, bool) {
 	return 0, true
 }
 
+// outputFormat resolves a --format flag: empty means text on a terminal
+// and JSON otherwise; anything else must be one of allowed.
+func outputFormat(format string, stdout io.Writer, allowed ...string) (string, error) {
+	if format == "" {
+		format = "json"
+		if isTerminal(stdout) {
+			format = "text"
+		}
+	}
+	if !slices.Contains(allowed, format) {
+		return "", fmt.Errorf("unknown format %q, want %s", format, strings.Join(allowed, ", "))
+	}
+	return format, nil
+}
+
 // rootArg returns the single optional path argument, "." by default.
 func rootArg(fs *flag.FlagSet) (string, error) {
 	switch fs.NArg() {
@@ -264,14 +279,8 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	if *format == "" {
-		*format = "json"
-		if isTerminal(stdout) {
-			*format = "text"
-		}
-	}
-	if *format != "text" && *format != "json" && *format != "sarif" {
-		return fail(stderr, fmt.Errorf("unknown format %q, want text, json or sarif", *format))
+	if *format, err = outputFormat(*format, stdout, "text", "json", "sarif"); err != nil {
+		return fail(stderr, err)
 	}
 	root, err := rootArg(fs)
 	if err != nil {

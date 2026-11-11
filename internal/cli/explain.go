@@ -53,14 +53,8 @@ func runExplain(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	if *format == "" {
-		*format = "json"
-		if isTerminal(stdout) {
-			*format = "text"
-		}
-	}
-	if *format != "text" && *format != "json" {
-		return fail(stderr, fmt.Errorf("unknown format %q, want text or json", *format))
+	if *format, err = outputFormat(*format, stdout, "text", "json"); err != nil {
+		return fail(stderr, err)
 	}
 	if fs.NArg() == 0 || fs.NArg() > 2 {
 		return fail(stderr, errors.New("expected a candidate id and at most one path"))
