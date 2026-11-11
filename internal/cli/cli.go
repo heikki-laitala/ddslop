@@ -424,21 +424,32 @@ func syncIndex(root string) (*index.DB, index.Stats, error) {
 	return db, stats, nil
 }
 
+// openFiles brings the index under root up to date and loads its files
+// (see loadFiles). The caller closes the database.
+func openFiles(root string) (*index.DB, []index.File, index.Stats, error) {
+	db, stats, err := syncIndex(root)
+	if err != nil {
+		return nil, nil, stats, err
+	}
+	files, err := loadFiles(db)
+	if err != nil {
+		_ = db.Close()
+		return nil, nil, stats, err
+	}
+	return db, files, stats, nil
+}
+
 // threadCount is how many goroutines parse files and verify near misses.
 func threadCount() int {
 	return index.ResolveThreads(os.Getenv("DDSLOP_INDEX_THREADS"), runtime.NumCPU())
 }
 
 func check(root string, opts options) (report.Report, error) {
-	db, stats, err := syncIndex(root)
+	db, files, stats, err := openFiles(root)
 	if err != nil {
 		return report.Report{}, err
 	}
 	defer func() { _ = db.Close() }()
-	files, err := loadFiles(db)
-	if err != nil {
-		return report.Report{}, err
-	}
 	threads := threadCount()
 
 	summary := report.Summary{ParsedFiles: stats.Parsed, UnchangedFiles: stats.Unchanged}
