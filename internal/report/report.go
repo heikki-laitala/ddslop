@@ -256,18 +256,10 @@ func KeepChanged(r Report, base string, touches func(file string, start, end int
 	return r
 }
 
-// minNodesPerParameter is the least code a candidate needs per parameter.
-// Below it, extracting the shared code would turn most of its body into
-// arguments: the copies share a shape, not logic. Measured on a 735k-line
-// Rust codebase: every audited real target had 24 or more nodes per
-// parameter, while Debug and Display impls, match tables mapping variants
-// to different strings, and same-shaped one-line delegations had 12.7-19.8.
-const minNodesPerParameter = 20
-
-// mostlyParameters reports whether a candidate has fewer than
-// minNodesPerParameter nodes per parameter.
+// mostlyParameters reports whether a candidate's shared code would be
+// mostly parameters (see clone.MostlyParameters).
 func mostlyParameters(c Candidate) bool {
-	return c.Score.Nodes < minNodesPerParameter*c.Suggestion.Parameters
+	return clone.MostlyParameters(c.Score.Nodes, c.Suggestion.Parameters)
 }
 
 func groupCandidate(language string, g clone.Group) Candidate {

@@ -271,3 +271,42 @@ func TestBlockClonesSkipRunsMostlyInsideReportedOnes(t *testing.T) {
 		t.Errorf("block clones = %v, want the guard in 22 places and the guard with its long tail in 2", runs)
 	}
 }
+
+// shared returns four functions starting with the same three statements:
+// two continue with log calls, two with note calls, every call with values
+// of its own. The longer runs are mostly parameters.
+func shared() string {
+	var b strings.Builder
+	for i := range 4 {
+		fmt.Fprintf(&b, `fn sync%d(key: &Key) -> Result<(), Error> {
+    let total = load(key)?;
+    let checked = total.verify(Mode::Strict)?;
+    store(&checked, Mode::Replace)?;
+`, i)
+		for j := range 12 {
+			if i < 2 {
+				fmt.Fprintf(&b, "    log(\"f%d_%d\", %d);\n", i, j, 10*i+j)
+			} else {
+				fmt.Fprintf(&b, "    note(\"g%d_%d\");\n", i, j)
+			}
+		}
+		fmt.Fprintf(&b, "    finish(%s)\n}\n", strings.Repeat("1, ", i))
+	}
+	return b.String()
+}
+
+// Runs that are mostly parameters are no candidates. They are left out of
+// BlockClones itself, not only of the report, because a kept run hides the
+// runs mostly inside it: on a 735k-line codebase such runs hid a block
+// copied into three request encoders.
+func TestBlockClonesLeaveOutRunsThatAreMostlyParameters(t *testing.T) {
+	got := BlockClones(rustUnits(t, "a.rs", shared()), BlockSize{MinNodes: 20}, nil)
+	var all []string
+	for _, c := range got {
+		all = append(all, occurrenceLines(c))
+	}
+	want := "[[a.rs:2-4 sync0 a.rs:20-22 sync1 a.rs:38-40 sync2 a.rs:56-58 sync3]]"
+	if fmt.Sprint(all) != want {
+		t.Errorf("block clones = %v, want only the shared three statements: %s", all, want)
+	}
+}

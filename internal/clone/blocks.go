@@ -146,11 +146,15 @@ func BlockClones(units []unit.Unit, size BlockSize, reported [][]unit.Unit) []Bl
 		if reportedTogether(c.Occurrences, setOf) || cov.mostlyCovers(c.Occurrences) {
 			continue
 		}
+		// A run that is mostly parameters is no candidate, so it must not
+		// hide the runs inside it either.
+		if c.Differences = runDifferences(c.Occurrences); MostlyParameters(c.Nodes, parameters(c.Differences)) {
+			continue
+		}
 		for _, o := range c.Occurrences {
 			start, end := o.seqRange()
 			cov.add(o.Unit, start, end)
 		}
-		c.Differences = runDifferences(c.Occurrences)
 		out = append(out, c)
 	}
 	return out

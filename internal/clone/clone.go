@@ -63,3 +63,30 @@ func compareLocation(a, b unit.Unit) int {
 	}
 	return cmp.Compare(a.StartLine, b.StartLine)
 }
+
+// minNodesPerParameter is the least code a candidate needs per parameter.
+// Below it, extracting the shared code would turn most of its body into
+// arguments: the copies share a shape, not logic. Measured on a 735k-line
+// Rust codebase: every audited real target had 24 or more nodes per
+// parameter, while Debug and Display impls, match tables mapping variants
+// to different strings, and same-shaped one-line delegations had 12.7-19.8.
+const minNodesPerParameter = 20
+
+// MostlyParameters reports whether shared code of the given size would
+// need too many parameters to be worth extracting: fewer than
+// minNodesPerParameter nodes per parameter.
+func MostlyParameters(nodes, parameters int) bool {
+	return nodes < minNodesPerParameter*parameters
+}
+
+// parameters counts the differences that become parameters: those that
+// are not local renames.
+func parameters(diffs []Difference) int {
+	n := 0
+	for _, d := range diffs {
+		if !d.Local {
+			n++
+		}
+	}
+	return n
+}
