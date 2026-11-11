@@ -268,27 +268,9 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 
-	var known baseline.Baseline
-	if *baselinePath != "" {
-		if known, err = baseline.Load(*baselinePath); err != nil {
-			return fail(stderr, err)
-		}
-	}
-	var changes source.Changes
-	if *diff != "" {
-		if changes, err = source.ChangedLines(root, *diff); err != nil {
-			return fail(stderr, err)
-		}
-	}
-	r, err := check(root, opts)
+	r, err := filteredCheck(root, opts, *diff, *baselinePath)
 	if err != nil {
 		return fail(stderr, err)
-	}
-	if *baselinePath != "" {
-		r = baseline.Filter(r, known)
-	}
-	if *diff != "" {
-		r = report.KeepChanged(r, *diff, changes.Touches)
 	}
 	if limited {
 		r.Summary.Health.Limit(*failOver)
@@ -315,6 +297,37 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		return exitFound
 	}
 	return exitClean
+}
+
+// filteredCheck analyses root and narrows the candidates as check reports
+// them: to those not in the baseline file, if one is given, and to those
+// touching lines changed since diffRef, if one is given. Candidate IDs
+// refer to this list, so commands that take an ID filter the same way.
+func filteredCheck(root string, opts options, diffRef, baselinePath string) (report.Report, error) {
+	var known baseline.Baseline
+	var err error
+	if baselinePath != "" {
+		if known, err = baseline.Load(baselinePath); err != nil {
+			return report.Report{}, err
+		}
+	}
+	var changes source.Changes
+	if diffRef != "" {
+		if changes, err = source.ChangedLines(root, diffRef); err != nil {
+			return report.Report{}, err
+		}
+	}
+	r, err := check(root, opts)
+	if err != nil {
+		return report.Report{}, err
+	}
+	if baselinePath != "" {
+		r = baseline.Filter(r, known)
+	}
+	if diffRef != "" {
+		r = report.KeepChanged(r, diffRef, changes.Touches)
+	}
+	return r, nil
 }
 
 const baselineUsage = `usage: ddslop baseline [flags] [path]
