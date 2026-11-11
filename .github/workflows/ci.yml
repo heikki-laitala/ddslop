@@ -41,6 +41,8 @@ jobs:
         run: make cover
       - name: Build
         run: make build
+      - name: ddslop on its own code
+        run: bin/ddslop check --format text --baseline .ddslop-baseline.json .
       - name: Smoke test
         run: scripts/smoke-test.sh bin/ddslop
 

@@ -65,8 +65,11 @@ These are requirements, not suggestions.
   writing a new one. DRY is about duplicated knowledge, not similar-looking
   code: extract on the third occurrence, and only when the copies change for
   the same reason; a wrong abstraction is worse than two copies. As a
-  duplication linter, ddslop must stay clean under its own analysis (and
-  `dupl` in `make lint` until it can).
+  duplication linter, ddslop must stay clean under its own analysis: CI
+  runs it on its own code against `.ddslop-baseline.json`. Fix new
+  candidates; record one in the baseline (`ddslop baseline`) only when the
+  copies share a shape rather than logic, and say why in the commit.
+  `dupl` in `make lint` stays as a second check.
 
 ## TDD (mandatory for features and behaviour fixes)
 
