@@ -53,6 +53,7 @@ Commands:
   stats     describe the index without updating it
   status    show what ddslop has installed in a project
   uninstall remove ddslop's skills, instructions and .gitignore entry
+  upgrade   replace this ddslop with the latest release
   version   print the version
   help      show this help
 
@@ -94,6 +95,7 @@ var commands = map[string]command{
 	"flows":     runFlows,
 	"similar":   runSimilar,
 	"explain":   runExplain,
+	"upgrade":   runUpgrade,
 	"index":     runIndex,
 	"init":      runInit,
 	"stats":     runStats,

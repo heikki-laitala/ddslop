@@ -14,11 +14,13 @@ is published with credit to you, unless you prefer otherwise.
 
 ddslop reads source files and writes only its own index (`.ddslop/`) and
 the files `ddslop init` and `ddslop baseline` create. It never runs the
-code it analyses and makes no network calls. Relevant reports include:
+code it analyses. Only `ddslop upgrade` uses the network: it downloads a
+release from this repository, verifies it against the release's checksums
+and replaces the running binary. Relevant reports include:
 
 - ddslop writing, deleting or reading outside the repository it is given;
-- the install script (`install.sh`) installing something other than a
-  verified release binary;
+- the install script (`install.sh`) or `ddslop upgrade` installing
+  something other than a verified release binary;
 - release binaries or checksums that do not match the source and workflow
   they were built from;
 - a crafted source file that makes ddslop crash or hang in a way that

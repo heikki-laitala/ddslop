@@ -68,6 +68,18 @@ go install github.com/heikki-laitala/ddslop@latest
 
 or clone the repository and run `make build` (binary in `bin/ddslop`).
 
+### Upgrade
+
+```sh
+ddslop upgrade           # replace ddslop with the latest release
+ddslop upgrade --check   # only say whether a newer release exists
+```
+
+It verifies the download against the release's checksums before
+replacing the binary, and is the only command that uses the network.
+`--version V` installs a particular release. A build from source is not
+replaced unless you add `--force`.
+
 ### Uninstall
 
 Remove ddslop from each repository you set it up in, then delete the
@@ -227,7 +239,8 @@ together to install for several agents.
 | `ddslop stats [path]` | describe the index, and the duplication trend over past checks |
 | `ddslop status [path]` | show what ddslop has installed in a project |
 | `ddslop uninstall [path]` | remove the skills, sections and `.gitignore` entry; `--purge` also the index |
-| `ddslop version` | print the version |
+| `ddslop upgrade` | replace ddslop with the latest release (`--check` only reports) |
+| `ddslop version` | print the version (also `--version`) |
 
 `check` flags:
 
