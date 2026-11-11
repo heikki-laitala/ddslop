@@ -96,7 +96,11 @@ func ParameterGroups(units []unit.Unit) []ParamGroup {
 		if c := cmp.Compare(len(b.Params), len(a.Params)); c != 0 {
 			return c
 		}
-		return cmp.Compare(a.Units[0].Name, b.Units[0].Name)
+		// Complete the order on the parameters themselves: which group
+		// represents a family must not depend on map iteration.
+		return slices.CompareFunc(a.Params, b.Params, func(x, y unit.Param) int {
+			return cmp.Or(cmp.Compare(x.Name, y.Name), cmp.Compare(x.Type, y.Type))
+		})
 	})
 	// One group per family: groups sharing familyParams parameters are one
 	// concept (an ingest context split by which three of its four fields a
