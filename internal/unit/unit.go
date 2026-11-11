@@ -51,6 +51,21 @@ type Unit struct {
 	// order and unchanged, to another function: the callee as written,
 	// such as "load", "super::load" or "self.load".
 	Forwards string
+	// Scope is set when the unit opens a value at its start and closes it
+	// at its end, such as a transaction it begins and commits.
+	Scope *Scope
+}
+
+// Scope is a value a function opens in one of its first statements and
+// closes in one of its last.
+type Scope struct {
+	// Opens is the name of the function or method that produced the value
+	// ("transaction"), and Closes the method that ends it ("commit"), or
+	// "drop".
+	Opens, Closes      string
+	StartLine, EndLine int
+	// Nodes is the size of the opening and closing statements.
+	Nodes int
 }
 
 // CallKind says how a call names its callee.

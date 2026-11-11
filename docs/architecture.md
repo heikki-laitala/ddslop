@@ -699,9 +699,23 @@ whether it fits.
   exit were matches, view templates and closures. A whole function body
   is a copied function, not a preamble.
 
-Planned, from the same measurement: paired setup and teardown (a
-closure-taking helper or an RAII guard), strings used as kinds (an enum),
-and repeated error conversions (`impl From`).
+- **Setup and teardown** (`setup-teardown`, `extract-scope`, pattern
+  `closure-helper`, GoF Template Method): at least 5 functions that bind a
+  value from a call in one of their first three statements and, in one of
+  their last three, call a closing method on it (`commit`, `rollback`,
+  `close`, `release`, `finish`, `shutdown`, `abort`) or drop it, grouped
+  by the producing call and the closing method. A looser rule (any value
+  used again at the end) matched vectors filled in a loop and hashers;
+  requiring a closing method left only scopes: a transaction begun and
+  committed in 57 functions of the 188k-line codebase, and on the 735k-line
+  one a pool lease acquired and released in 15 and a transaction in 6.
+
+Not built, from the same measurement: repeated error conversions as
+`impl From`. The repeated `.map_err` calls mostly go through helpers
+the code already names (`db`, `unavailable`, `store`), each choosing which
+variant to produce; replacing them with `From` is correct only when a
+source error type always maps to one variant, which ddslop cannot see
+without types.
 
 ## Flow layer
 

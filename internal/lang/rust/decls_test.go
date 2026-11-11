@@ -309,3 +309,44 @@ func TestStatementsRecordWhetherTheyReturnEarly(t *testing.T) {
 		t.Errorf("exits = %v, want %s", got, want)
 	}
 }
+
+func TestUnitsRecordAValueOpenedAtTheStartAndClosedAtTheEnd(t *testing.T) {
+	src := `async fn reserve(db: &Db) -> Result<()> {
+    let mut db = db.clone();
+    let mut tx = db.transaction().await?;
+    lock(&mut tx).await?;
+    write(&mut tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+fn hashed(data: &[u8]) -> Digest {
+    let mut digest = Sha256::new();
+    digest.update(data);
+    digest.finalize()
+}
+fn dropped(pool: &Pool) {
+    let lease = pool.acquire();
+    use_it(&lease);
+    drop(lease);
+}
+fn closed_in_the_middle(db: &Db) {
+    let tx = db.begin();
+    tx.commit();
+    one();
+    two();
+    three();
+    four();
+}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		if s := u.Scope; s != nil {
+			got = append(got, fmt.Sprintf("%s %s..%s %d-%d", u.Name, s.Opens, s.Closes, s.StartLine, s.EndLine))
+		}
+	}
+	// finalize consumes a hasher, but it computes, not closes: not a scope.
+	want := "reserve transaction..commit 3-6\ndropped acquire..drop 15-17"
+	if strings.Join(got, "\n") != want {
+		t.Errorf("scopes:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}

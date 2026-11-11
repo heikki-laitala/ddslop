@@ -87,6 +87,13 @@ What to do per `kind`:
   middleware that hands the handler what the check produced (the signed-in
   user, the principal); elsewhere, into one guard function returning the
   checked value or the early result. Differences become its parameters.
+- `setup-teardown` (`extract-scope`, pattern `closure-helper`): the
+  functions open the same kind of value at their start (a transaction, a
+  lease) and close it at their end (`commit`, `release`). Write one helper
+  that opens the value, runs the work passed in as a closure and closes
+  it, or an RAII guard that closes on drop, so no copy can forget the
+  teardown. Mind early returns and commits in the middle: the helper must
+  keep their behaviour.
 - `duplicate-type`: structs with the same field names. Keep one type and
   use it everywhere. Differences list field types that differ; when one
   struct is a wire format (serde) and the other a domain type, converting

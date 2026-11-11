@@ -292,7 +292,113 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 		Public:    isPublic(n, e.src),
 		External:  (owner == "" && name == "main") || slices.ContainsFunc(attrs, isExternalAttr),
 		Forwards:  forwards(n, e.src),
+		Scope:     scopeOf(n, e.src),
 	})
+}
+
+// closers are the methods that end a value's use: committing or rolling
+// back a transaction, closing or releasing a connection, finishing work.
+var closers = map[string]bool{
+	"commit": true, "rollback": true, "close": true, "release": true,
+	"finish": true, "shutdown": true, "abort": true,
+}
+
+// scopeEdge is how many statements at each end of a body are searched for
+// a scope's opening and closing.
+const scopeEdge = 3
+
+// scopeOf finds a value one of a function's first statements binds from a
+// call (let mut tx = db.transaction().await?) and one of its last closes
+// (tx.commit() or drop(tx)).
+func scopeOf(fn *sitter.Node, src []byte) *unit.Scope {
+	body := fn.ChildByFieldName("body")
+	if body == nil {
+		return nil
+	}
+	var stmts []*sitter.Node
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		if c := body.NamedChild(i); !c.IsExtra() {
+			stmts = append(stmts, c)
+		}
+	}
+	for i := 0; i < len(stmts) && i < scopeEdge; i++ {
+		name, opens := binding(stmts[i], src)
+		if name == "" {
+			continue
+		}
+		for j := len(stmts) - 1; j > i && j >= len(stmts)-scopeEdge; j-- {
+			if closes := closing(stmts[j], name, src); closes != "" {
+				return &unit.Scope{
+					Opens: opens, Closes: closes,
+					StartLine: line(stmts[i].StartPosition()), EndLine: line(stmts[j].EndPosition()),
+					Nodes: countNodes(stmts[i]) + countNodes(stmts[j]),
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// binding returns the name a let statement binds and the name of the
+// function or method whose call produced the value.
+func binding(stmt *sitter.Node, src []byte) (name, opens string) {
+	if stmt.Kind() != "let_declaration" {
+		return "", ""
+	}
+	pat, value := stmt.ChildByFieldName("pattern"), stmt.ChildByFieldName("value")
+	if pat != nil && pat.Kind() == "mut_pattern" {
+		pat = pat.NamedChild(0)
+	}
+	for value != nil && (value.Kind() == "try_expression" || value.Kind() == "await_expression") {
+		value = value.NamedChild(0)
+	}
+	if pat == nil || pat.Kind() != "identifier" || value == nil || value.Kind() != "call_expression" {
+		return "", ""
+	}
+	callee := value.ChildByFieldName("function")
+	switch {
+	case callee == nil:
+		return "", ""
+	case callee.Kind() == "field_expression":
+		if f := callee.ChildByFieldName("field"); f != nil {
+			return pat.Utf8Text(src), f.Utf8Text(src)
+		}
+	case callee.Kind() == "identifier" || callee.Kind() == "scoped_identifier":
+		return pat.Utf8Text(src), lastSegment(callee.Utf8Text(src))
+	}
+	return "", ""
+}
+
+// closing returns the closing method a statement calls on name, or "drop"
+// for drop(name), or "".
+func closing(stmt *sitter.Node, name string, src []byte) string {
+	found := ""
+	var walk func(n *sitter.Node)
+	walk = func(n *sitter.Node) {
+		if found != "" {
+			return
+		}
+		if n.Kind() == "call_expression" {
+			callee, args := n.ChildByFieldName("function"), n.ChildByFieldName("arguments")
+			switch {
+			case callee != nil && callee.Kind() == "field_expression":
+				v, f := callee.ChildByFieldName("value"), callee.ChildByFieldName("field")
+				if v != nil && f != nil && v.Utf8Text(src) == name && closers[f.Utf8Text(src)] {
+					found = f.Utf8Text(src)
+					return
+				}
+			case callee != nil && callee.Utf8Text(src) == "drop" && args != nil && args.NamedChildCount() == 1 &&
+				args.NamedChild(0).Utf8Text(src) == name:
+				found = "drop"
+				return
+			}
+		}
+		for i := uint(0); i < n.ChildCount(); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(stmt)
+	return found
 }
 
 // forwards returns the callee when a function's body is one call (possibly

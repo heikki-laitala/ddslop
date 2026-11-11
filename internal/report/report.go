@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/clone"
+	"github.com/heikki-laitala/ddslop/internal/pattern"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/simplify"
 	"github.com/heikki-laitala/ddslop/internal/unit"
@@ -147,6 +148,8 @@ const (
 	inlineWrapper  = "inline-wrapper"
 	singleImpl     = "single-impl-trait"
 	sharedPreamble = "shared-preamble"
+	setupTeardown  = "setup-teardown"
+	extractScope   = "extract-scope"
 	extractPre     = "extract-preamble"
 	removeTrait    = "remove-trait"
 	extractFlow    = "extract-pipeline"
@@ -175,6 +178,7 @@ type Findings struct {
 	Dead       []unit.Unit
 	Wrappers   []simplify.Wrapper
 	Traits     []simplify.SingleImplTrait
+	Scopes     []pattern.ScopeGroup
 }
 
 // Flow is a family of features running the same pipeline through
@@ -196,8 +200,8 @@ type FlowStep struct {
 
 // Build turns findings into a report. Candidates are ranked by duplicated
 // nodes, largest first; on ties, they keep this order: groups, near misses,
-// block clones, flows, structs, constants, dead code, wrappers, traits.
-// The summary's candidate count is filled in.
+// block clones, flows, structs, constants, dead code, wrappers, traits,
+// scopes. The summary's candidate count is filled in.
 func Build(language string, f Findings, summary Summary) Report {
 	candidates := make([]Candidate, 0, len(f.Groups)+len(f.NearMisses)+len(f.Blocks)+len(f.Flows))
 	for _, g := range f.Groups {
@@ -232,6 +236,9 @@ func Build(language string, f Findings, summary Summary) Report {
 	}
 	for _, t := range f.Traits {
 		candidates = append(candidates, traitCandidate(language, t))
+	}
+	for _, g := range f.Scopes {
+		candidates = append(candidates, scopeCandidate(language, g))
 	}
 	candidates = slices.DeleteFunc(candidates, mostlyParameters)
 	slices.SortStableFunc(candidates, func(a, b Candidate) int {
@@ -588,6 +595,28 @@ func traitCandidate(language string, s simplify.SingleImplTrait) Candidate {
 		Suggestion:  Suggestion{Action: removeTrait},
 		Score:       Score{Nodes: t.Nodes, Lines: t.EndLine - t.StartLine + 1, Occurrences: 1, DuplicatedNodes: t.Nodes},
 	}
+}
+
+func scopeCandidate(language string, g pattern.ScopeGroup) Candidate {
+	first := g.Units[0].Scope
+	c := Candidate{
+		Fingerprint: fmt.Sprintf("%s:%s:%016x", language, setupTeardown, hashString(g.Opens+".."+g.Closes)),
+		Language:    language,
+		Kind:        setupTeardown,
+		Similarity:  1,
+		Differences: []Difference{},
+		Suggestion:  Suggestion{Action: extractScope, Pattern: "closure-helper", GoF: "Template Method"},
+		Score: Score{
+			Nodes:           first.Nodes,
+			Lines:           first.EndLine - first.StartLine + 1,
+			Occurrences:     len(g.Units),
+			DuplicatedNodes: first.Nodes * (len(g.Units) - 1),
+		},
+	}
+	for _, u := range g.Units {
+		c.Occurrences = append(c.Occurrences, Occurrence{File: u.File, Name: u.Name, StartLine: u.Scope.StartLine, EndLine: u.Scope.EndLine})
+	}
+	return c
 }
 
 func constOccurrence(k unit.Const) Occurrence {

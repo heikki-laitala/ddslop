@@ -20,6 +20,7 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
+	"github.com/heikki-laitala/ddslop/internal/pattern"
 	"github.com/heikki-laitala/ddslop/internal/report"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/simplify"
@@ -445,6 +446,7 @@ func check(root string, opts options) (report.Report, error) {
 		Dead:     simplify.Dead(units, wordCounts(files), internal),
 		Wrappers: simplify.PassThrough(g),
 		Traits:   simplify.SingleImpl(decls, internal),
+		Scopes:   pattern.Scopes(units),
 	}, summary), nil
 }
 
