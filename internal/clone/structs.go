@@ -26,7 +26,8 @@ func (g StructGroup) DuplicatedNodes() int {
 
 // Structs groups structs declaring the same field names, in any order,
 // ignoring structs with fewer than minFields fields. Small structs must
-// match in field types too (see minFieldsForTypeDifferences). Groups are ordered by
+// match in their scalar and string field types too (see
+// minFieldsForTypeDifferences). Groups are ordered by
 // duplicated size, largest first, then by the location of their first
 // struct.
 func Structs(structs []unit.Struct, minFields int) []StructGroup {
@@ -79,24 +80,44 @@ func withoutConverted(members []unit.Struct) []unit.Struct {
 }
 
 // minFieldsForTypeDifferences is the fewest fields structs need to be
-// grouped despite differing field types. Measured on a 188k-line Rust
-// codebase: three-field structs sharing names but not types were
-// coincidences ({id, name, count} with i64 and usize) or a view over a
-// database model, while those matching in types too were copies.
+// grouped despite differing scalar or string field types. Measured on a
+// 188k-line Rust codebase: three-field structs sharing names but holding
+// a field as another scalar or as text were coincidences ({id, name,
+// count} with i64 and usize) or views (a timestamp held as a String),
+// while on a 735k-line one, three-field structs differing only in a field
+// of the code's own types were one shape around different payloads
+// (Receipt { operation, operation_id, result }), a generic struct.
 const minFieldsForTypeDifferences = 4
 
-// fieldKey is a struct's field names, sorted; with fewer than
-// minFieldsForTypeDifferences fields, each with its type.
+// fieldKey is a struct's field names, sorted. With fewer than
+// minFieldsForTypeDifferences fields, a field typed with scalars or
+// strings carries its type too.
 func fieldKey(s unit.Struct) string {
 	names := make([]string, len(s.Fields))
 	for i, f := range s.Fields {
 		names[i] = f.Name
-		if len(s.Fields) < minFieldsForTypeDifferences {
+		if len(s.Fields) < minFieldsForTypeDifferences && scalarOrString(f.Type) {
 			names[i] += ":" + f.Type
 		}
 	}
 	slices.Sort(names)
 	return strings.Join(names, ",")
+}
+
+// scalars are the type names whose difference changes how a value is
+// represented, rather than which payload a field holds.
+var scalars = map[string]bool{
+	"bool": true, "char": true, "str": true, "String": true, "f32": true, "f64": true,
+	"i8": true, "i16": true, "i32": true, "i64": true, "i128": true, "isize": true,
+	"u8": true, "u16": true, "u32": true, "u64": true, "u128": true, "usize": true,
+}
+
+// scalarOrString reports whether a type, as written, names a scalar or a
+// string anywhere, such as Option<&'a str> or Vec<u64>.
+func scalarOrString(ty string) bool {
+	return slices.ContainsFunc(strings.FieldsFunc(ty, func(r rune) bool {
+		return r != '_' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
+	}), func(word string) bool { return scalars[word] })
 }
 
 // structDifferences lists differing names and field types, fields in the

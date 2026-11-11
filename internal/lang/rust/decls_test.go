@@ -29,6 +29,7 @@ func TestParseListsStructsWithNamedFields(t *testing.T) {
 	src := `pub struct Budget {
     pub id: String,
     limit: Option<Vec< u8 >>,
+    label: &'static   str,
 }
 
 struct Unit;
@@ -53,9 +54,9 @@ mod tests {
 		got = append(got, fmt.Sprintf("%s %s:%d-%d %s test=%v", ty.Name, ty.File, ty.StartLine, ty.EndLine, fieldList(ty.Fields), ty.Test))
 	}
 	want := []string{
-		"Budget lib.rs:1-4 id:String,limit:Option<Vec<u8>> test=false",
-		"Nested lib.rs:10-10 a:u32 test=false",
-		"Fixture lib.rs:19-19 a:u32 test=true",
+		"Budget lib.rs:1-5 id:String,limit:Option<Vec<u8>>,label:&'static str test=false",
+		"Nested lib.rs:11-11 a:u32 test=false",
+		"Fixture lib.rs:20-20 a:u32 test=true",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("types:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

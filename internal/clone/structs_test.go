@@ -98,15 +98,22 @@ func TestStructsSkipStructsConvertingFromOneAnother(t *testing.T) {
 	}
 }
 
-func TestStructsWithThreeFieldsMustAlsoMatchTypes(t *testing.T) {
+func TestStructsWithThreeFieldsMustMatchScalarAndStringTypes(t *testing.T) {
 	structs := []unit.Struct{
 		// {id, name, count} is common: with other types it is a coincidence
 		st("inference.rs", "ModelFacet", 1, "id:String", "name:String", "count:i64"),
 		st("grants.rs", "Choice", 1, "id:String", "name:String", "count:usize"),
+		// a view: a timestamp held as text
+		st("events.rs", "CheckView", 1, "account_id:String", "state:String", "checked_through:String"),
+		st("models.rs", "EventCheck", 1, "account_id:String", "state:String", "checked_through:jiff::Timestamp"),
 		st("fleet.rs", "Space", 1, "total:u64", "reserved:u64", "free:u64"),
 		st("protocol.rs", "Space", 1, "total:u64", "reserved:u64", "free:u64"),
+		// one shape around different payloads: a generic Receipt<T>
+		st("plan.rs", "ReceiptRecord", 1, "operation:String", "operation_id:uuid::Uuid", "result:HostingSession"),
+		st("lot_freeze.rs", "Receipt", 1, "operation:String", "operation_id:uuid::Uuid", "result:LotFreezeResult"),
 	}
-	if got, want := structGroupStrings(Structs(structs, 3)), "fleet.rs:1 Space | protocol.rs:1 Space"; got != want {
+	want := "fleet.rs:1 Space | protocol.rs:1 Space\nlot_freeze.rs:1 Receipt | plan.rs:1 ReceiptRecord"
+	if got := structGroupStrings(Structs(structs, 3)); got != want {
 		t.Errorf("groups:\n%s\nwant:\n%s", got, want)
 	}
 }

@@ -609,9 +609,12 @@ Rust codebase before it was built.
   fields matched mostly by coincidence (host and port); from three fields
   on, 31 candidates remained, mostly one type copied into several
   services, or a wire type mirroring a domain type. A second, 188k-line
-  codebase refined the rule: three-field structs must match in their
-  field types too (`{id, name, count}` with `i64` and `usize` was a
-  coincidence, a view over a database model a different type), and a
+  codebase refined the rule: three-field structs must match in the types
+  of fields holding scalars or strings (`{id, name, count}` with `i64`
+  and `usize` was a coincidence, a timestamp held as a `String` a view),
+  while a field of the code's own types may differ (`Receipt { operation,
+  operation_id, result }` around different results is one generic
+  struct), and a
   struct another one names in `#[serde(try_from = "...")]`, `from` or
   `into` is left out, since validating an authored form into a checked
   type is a deliberate second type.

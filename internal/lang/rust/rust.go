@@ -452,7 +452,7 @@ func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
 		}
 		ty.Fields = append(ty.Fields, unit.Field{
 			Name: fname.Utf8Text(e.src),
-			Type: strings.Join(strings.Fields(ftype.Utf8Text(e.src)), ""),
+			Type: compact(ftype.Utf8Text(e.src)),
 			Line: line(f.StartPosition()),
 		})
 	}
@@ -468,7 +468,7 @@ func (e *extractor) addConst(n *sitter.Node, test bool) {
 	literal := value.Kind() == "string_literal"
 	text := value.Utf8Text(e.src)
 	if !literal {
-		text = strings.Join(strings.Fields(text), "")
+		text = compact(text)
 	}
 	e.decls.Consts = append(e.decls.Consts, unit.Const{
 		File:    e.path,
@@ -499,6 +499,27 @@ func serdeConversions(attrs []string) []string {
 	}
 	return names
 }
+
+// compact removes whitespace from code, keeping one space where it
+// separates two words: "Option<Vec< u8 >>" becomes "Option<Vec<u8>>" and
+// "&'static   str" becomes "&'static str".
+func compact(code string) string {
+	var b strings.Builder
+	for i, part := range strings.Fields(code) {
+		if i > 0 && isWordEnd(b.String()) && isWordStart(part) {
+			b.WriteByte(' ')
+		}
+		b.WriteString(part)
+	}
+	return b.String()
+}
+
+func isWordByte(c byte) bool {
+	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+func isWordEnd(s string) bool   { return s != "" && isWordByte(s[len(s)-1]) }
+func isWordStart(s string) bool { return s != "" && isWordByte(s[0]) }
 
 // countNodes counts the syntax nodes of a subtree, comments left out.
 func countNodes(n *sitter.Node) int {
