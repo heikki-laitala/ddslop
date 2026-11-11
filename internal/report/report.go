@@ -467,7 +467,7 @@ func flowCandidate(language string, f Flow) Candidate {
 		Kind:        parallelFlow,
 		Similarity:  math.Round(f.Cover*1000) / 1000,
 		Differences: []Difference{},
-		Suggestion:  Suggestion{Action: extractFlow},
+		Suggestion:  Suggestion{Action: extractFlow, Pattern: "generic-pipeline", GoF: "Template Method"},
 		Score: Score{
 			Lines:           anchor.EndLine - anchor.StartLine + 1,
 			Occurrences:     len(f.Entries),

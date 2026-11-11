@@ -102,7 +102,9 @@ type flowCandidate struct {
 		} `json:"occurrences"`
 	} `json:"steps"`
 	Suggestion struct {
-		Action string `json:"action"`
+		Action  string `json:"action"`
+		Pattern string `json:"pattern"`
+		GoF     string `json:"gof"`
 	} `json:"suggestion"`
 }
 
@@ -142,8 +144,8 @@ func TestCheckReportsParallelFlows(t *testing.T) {
 	if len(f.Occurrences) != 2 || f.Occurrences[0].Name != "Service::create" || f.Occurrences[1].Name != "Service::update" {
 		t.Errorf("occurrences = %+v, want the two entry points", f.Occurrences)
 	}
-	if f.Suggestion.Action != "extract-pipeline" {
-		t.Errorf("suggestion = %q, want extract-pipeline", f.Suggestion.Action)
+	if s := f.Suggestion; s.Action != "extract-pipeline" || s.Pattern != "generic-pipeline" || s.GoF != "Template Method" {
+		t.Errorf("suggestion = %+v, want extract-pipeline with the generic-pipeline pattern (Template Method)", s)
 	}
 	var steps []string
 	for _, s := range f.Steps {

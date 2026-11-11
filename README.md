@@ -108,7 +108,7 @@ Duplication:
 | `near-miss` | similar functions with statements added, removed or changed, as a family around an anchor | `extract-common`; `unmatched_lines` show code only some copies have |
 | `block-clone` | a run of statements repeated inside larger functions | `extract-common` into a helper |
 | `shared-preamble` | the same opening check that returns early (sign-in, permission, readiness) in 5 or more functions | `extract-preamble`: an extractor or middleware (`suggestion.pattern`; GoF: Chain of Responsibility) |
-| `parallel-flow` | features whose call graphs run the same pipeline through different functions, step by step | `extract-pipeline`: one generic handler or service with the varying steps as parameters |
+| `parallel-flow` | features whose call graphs run the same pipeline through different functions, step by step | `extract-pipeline`: one generic handler or service with the varying steps as parameters (`suggestion.pattern`; GoF: Template Method) |
 | `duplicate-type` | structs declaring the same field names (three or more) | `reuse-existing`: keep one type; `extract-common` when field types differ, listed as differences |
 | `duplicate-constant` | a constant declared again with the same name and value | `reuse-existing`: keep one declaration and import it |
 | `inlined-constant` | a string literal repeating the value of a constant in the same crate | `reuse-existing`: use the constant (the `target`) |

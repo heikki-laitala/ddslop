@@ -74,7 +74,7 @@ What to do per `kind`:
 - `block-clone` (`extract-common`): the occurrence lines are a run of
   statements inside larger functions. Extract the run into a helper; names
   declared outside the run become its parameters.
-- `parallel-flow` (`extract-pipeline`): the occurrences are feature entry
+- `parallel-flow` (`extract-pipeline`, pattern `generic-pipeline`): the occurrences are feature entry
   points (API handlers), and `steps` lines up the functions that play the
   same role in each feature, with their similarity to the first one's.
   Extract one pipeline (a generic handler or service) and pass the varying
