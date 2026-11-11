@@ -1063,6 +1063,7 @@ ddslop version               print the version
 ddslop baseline [path]       record current duplication in .ddslop-baseline.json
 ddslop similar FILE:LINE     list existing functions like the one at that line
 ddslop explain ID            show one candidate in full, with its code
+ddslop upgrade               replace ddslop with the latest release
 ```
 
 `ddslop similar FILE:LINE` answers the question an agent should ask
