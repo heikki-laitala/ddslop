@@ -350,3 +350,38 @@ fn closed_in_the_middle(db: &Db) {
 		t.Errorf("scopes:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+func TestUnitsRecordMatchesOnStringLiterals(t *testing.T) {
+	src := `fn interpret(status: &str) -> Outcome {
+    match status {
+        "committed" => Outcome::Done,
+        "replayed" | "refused" => Outcome::Seen,
+        other if other.starts_with("x") => Outcome::Odd,
+        _ => Outcome::Unknown,
+    }
+}
+fn small(kind: &str) -> u8 {
+    match kind {
+        "a" => 1,
+        "b" => 2,
+        _ => 0,
+    }
+}
+fn numbers(n: u8) -> &'static str {
+    match n {
+        1 => "one",
+        2 => "two",
+        _ => "many",
+    }
+}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		for _, m := range u.StringMatches {
+			got = append(got, fmt.Sprintf("%s %v %d-%d", u.Name, m.Values, m.StartLine, m.EndLine))
+		}
+	}
+	if want := `interpret ["committed" "refused" "replayed"] 2-7`; strings.Join(got, "\n") != want {
+		t.Errorf("string matches:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}

@@ -54,6 +54,20 @@ type Unit struct {
 	// Scope is set when the unit opens a value at its start and closes it
 	// at its end, such as a transaction it begins and commits.
 	Scope *Scope
+	// StringMatches are the unit's matches with at least MinStringArms
+	// string literals among their arm patterns.
+	StringMatches []StringMatch
+}
+
+// MinStringArms is the fewest string literals a match needs among its arm
+// patterns to treat them as a set of kinds.
+const MinStringArms = 3
+
+// StringMatch is a match whose arms compare against string literals.
+type StringMatch struct {
+	// Values are the literals, as written with their quotes, sorted.
+	Values             []string
+	StartLine, EndLine int
 }
 
 // Scope is a value a function opens in one of its first statements and

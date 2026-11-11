@@ -710,6 +710,18 @@ whether it fits.
   committed in 57 functions of the 188k-line codebase, and on the 735k-line
   one a pool lease acquired and released in 15 and a transaction in 6.
 
+- **Strings used as kinds** (`string-kinds`, `introduce-enum`, pattern
+  `enum`; no GoF counterpart, Fowler's "replace type code"): matches with
+  at least 3 string literals among their arm patterns (guards are not
+  patterns), grouped by their set of literals, kept when 3 or more
+  functions match the same set. Sets matched in two functions were mostly
+  a parser and its inverse or external values (HTTP statuses, MIME types,
+  API paths); from three on they were outcomes and states passed around as
+  strings: an answer's "committed", "refused", "replayed" interpreted in
+  seven functions, refund outcomes in four. One set already had an enum
+  that two functions parsed the strings into separately; the skill tells
+  agents to reuse an existing enum.
+
 Not built, from the same measurement: repeated error conversions as
 `impl From`. The repeated `.map_err` calls mostly go through helpers
 the code already names (`db`, `unavailable`, `store`), each choosing which

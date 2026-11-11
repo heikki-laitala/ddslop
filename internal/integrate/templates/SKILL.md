@@ -94,6 +94,13 @@ What to do per `kind`:
   it, or an RAII guard that closes on drop, so no copy can forget the
   teardown. Mind early returns and commits in the middle: the helper must
   keep their behaviour.
+- `string-kinds` (`introduce-enum`, pattern `enum`): the occurrences are
+  matches on the same set of string literals in several functions:
+  kinds, outcomes or states passed around as strings. Introduce an enum
+  (or reuse one that already exists), parse the string into it once at the
+  boundary (`FromStr` or `TryFrom`), give it an `as_str` for the way back,
+  and match on the enum. Strings that belong to an external protocol stay
+  strings at the boundary only.
 - `duplicate-type`: structs with the same field names. Keep one type and
   use it everywhere. Differences list field types that differ; when one
   struct is a wire format (serde) and the other a domain type, converting

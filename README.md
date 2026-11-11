@@ -108,6 +108,7 @@ Duplication:
 | `near-miss` | similar functions with statements added, removed or changed, as a family around an anchor | `extract-common`; `unmatched_lines` show code only some copies have |
 | `block-clone` | a run of statements repeated inside larger functions | `extract-common` into a helper |
 | `setup-teardown` | 5 or more functions opening the same kind of value at their start and closing it at their end (begin and commit a transaction) | `extract-scope`: a closure-taking helper or an RAII guard (`suggestion.pattern`; GoF: Template Method) |
+| `string-kinds` | the same set of 3 or more string literals matched in 3 or more functions: kinds or states passed around as strings | `introduce-enum`: an enum parsed once at the boundary (`suggestion.pattern`) |
 | `shared-preamble` | the same opening check that returns early (sign-in, permission, readiness) in 5 or more functions | `extract-preamble`: an extractor or middleware (`suggestion.pattern`; GoF: Chain of Responsibility) |
 | `parallel-flow` | features whose call graphs run the same pipeline through different functions, step by step | `extract-pipeline`: one generic handler or service with the varying steps as parameters (`suggestion.pattern`; GoF: Template Method) |
 | `duplicate-type` | structs declaring the same field names (three or more) | `reuse-existing`: keep one type; `extract-common` when field types differ, listed as differences |

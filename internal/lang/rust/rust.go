@@ -293,6 +293,8 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 		External:  (owner == "" && name == "main") || slices.ContainsFunc(attrs, isExternalAttr),
 		Forwards:  forwards(n, e.src),
 		Scope:     scopeOf(n, e.src),
+
+		StringMatches: s.matches,
 	})
 }
 
@@ -649,6 +651,8 @@ type shaper struct {
 	lines  []int
 	blocks [][]unit.Statement
 	calls  []unit.Call
+	// matches are the matches on string literals.
+	matches []unit.StringMatch
 	// exits counts the early returns seen so far, and closures how deep in
 	// closures the walk is: a return in a closure leaves the closure.
 	exits, closures int
@@ -689,6 +693,42 @@ func (s *shaper) recordCall(n *sitter.Node) {
 	s.calls = append(s.calls, c)
 }
 
+// recordMatch notes a match whose arm patterns hold at least
+// unit.MinStringArms string literals, alone or in or-patterns. Guards are
+// not patterns.
+func (s *shaper) recordMatch(n *sitter.Node) {
+	body := n.ChildByFieldName("body")
+	if body == nil {
+		return
+	}
+	var values []string
+	var collect func(p *sitter.Node)
+	collect = func(p *sitter.Node) {
+		switch p.Kind() {
+		case "string_literal", "raw_string_literal":
+			values = append(values, p.Utf8Text(s.src))
+		case "or_pattern":
+			for i := uint(0); i < p.NamedChildCount(); i++ {
+				collect(p.NamedChild(i))
+			}
+		}
+	}
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		arm := body.NamedChild(i)
+		if arm.Kind() != "match_arm" {
+			continue
+		}
+		if pat := arm.ChildByFieldName("pattern"); pat != nil && pat.NamedChildCount() > 0 {
+			collect(pat.NamedChild(0)) // the pattern, before any guard
+		}
+	}
+	slices.Sort(values)
+	values = slices.Compact(values)
+	if len(values) >= unit.MinStringArms {
+		s.matches = append(s.matches, unit.StringMatch{Values: values, StartLine: line(n.StartPosition()), EndLine: line(n.EndPosition())})
+	}
+}
+
 func (s *shaper) emit(sym uint32, line int) {
 	s.seq = append(s.seq, sym)
 	s.lines = append(s.lines, line)
@@ -722,6 +762,8 @@ func (s *shaper) visit(n *sitter.Node, declares bool) {
 	switch n.Kind() {
 	case "call_expression":
 		s.recordCall(n)
+	case "match_expression":
+		s.recordMatch(n)
 	case "return_expression":
 		if s.closures == 0 {
 			s.exits++

@@ -150,6 +150,8 @@ const (
 	sharedPreamble = "shared-preamble"
 	setupTeardown  = "setup-teardown"
 	extractScope   = "extract-scope"
+	stringKinds    = "string-kinds"
+	introduceEnum  = "introduce-enum"
 	extractPre     = "extract-preamble"
 	removeTrait    = "remove-trait"
 	extractFlow    = "extract-pipeline"
@@ -179,6 +181,7 @@ type Findings struct {
 	Wrappers   []simplify.Wrapper
 	Traits     []simplify.SingleImplTrait
 	Scopes     []pattern.ScopeGroup
+	Kinds      []pattern.StringKind
 }
 
 // Flow is a family of features running the same pipeline through
@@ -201,7 +204,7 @@ type FlowStep struct {
 // Build turns findings into a report. Candidates are ranked by duplicated
 // nodes, largest first; on ties, they keep this order: groups, near misses,
 // block clones, flows, structs, constants, dead code, wrappers, traits,
-// scopes. The summary's candidate count is filled in.
+// scopes, string kinds. The summary's candidate count is filled in.
 func Build(language string, f Findings, summary Summary) Report {
 	candidates := make([]Candidate, 0, len(f.Groups)+len(f.NearMisses)+len(f.Blocks)+len(f.Flows))
 	for _, g := range f.Groups {
@@ -239,6 +242,9 @@ func Build(language string, f Findings, summary Summary) Report {
 	}
 	for _, g := range f.Scopes {
 		candidates = append(candidates, scopeCandidate(language, g))
+	}
+	for _, k := range f.Kinds {
+		candidates = append(candidates, kindCandidate(language, k))
 	}
 	candidates = slices.DeleteFunc(candidates, mostlyParameters)
 	slices.SortStableFunc(candidates, func(a, b Candidate) int {
@@ -619,6 +625,30 @@ func scopeCandidate(language string, g pattern.ScopeGroup) Candidate {
 	return c
 }
 
+// kindCandidate proposes an enum for strings matched in many functions.
+// Its score counts one node per string arm in each extra match.
+func kindCandidate(language string, k pattern.StringKind) Candidate {
+	first := k.Matches[0]
+	c := Candidate{
+		Fingerprint: fmt.Sprintf("%s:%s:%016x", language, stringKinds, hashString(strings.Join(k.Values, "\x00"))),
+		Language:    language,
+		Kind:        stringKinds,
+		Similarity:  1,
+		Differences: []Difference{},
+		Suggestion:  Suggestion{Action: introduceEnum, Pattern: "enum"},
+		Score: Score{
+			Nodes:           len(k.Values),
+			Lines:           first.EndLine - first.StartLine + 1,
+			Occurrences:     len(k.Matches),
+			DuplicatedNodes: len(k.Values) * (len(k.Matches) - 1),
+		},
+	}
+	for _, m := range k.Matches {
+		c.Occurrences = append(c.Occurrences, Occurrence{File: m.Unit.File, Name: m.Unit.Name, StartLine: m.StartLine, EndLine: m.EndLine})
+	}
+	return c
+}
+
 func constOccurrence(k unit.Const) Occurrence {
 	return Occurrence{File: k.File, Name: k.Name, StartLine: k.Line, EndLine: k.Line}
 }
@@ -675,8 +705,11 @@ func WriteText(w io.Writer, r Report) error {
 			fmt.Fprintf(&b, " (%.0f%% similar)", 100*c.Similarity)
 		}
 		fmt.Fprintf(&b, ": %s (%d nodes), %s", size(c), c.Score.Nodes, c.Suggestion.Action)
-		if c.Suggestion.Pattern != "" {
+		switch {
+		case c.Suggestion.GoF != "":
 			fmt.Fprintf(&b, " (%s; GoF: %s)", c.Suggestion.Pattern, c.Suggestion.GoF)
+		case c.Suggestion.Pattern != "":
+			fmt.Fprintf(&b, " (%s)", c.Suggestion.Pattern)
 		}
 		if c.Suggestion.Parameters > 0 {
 			fmt.Fprintf(&b, " with %d parameter(s)", c.Suggestion.Parameters)

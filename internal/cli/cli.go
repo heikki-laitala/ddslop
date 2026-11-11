@@ -447,6 +447,7 @@ func check(root string, opts options) (report.Report, error) {
 		Wrappers: simplify.PassThrough(g),
 		Traits:   simplify.SingleImpl(decls, internal),
 		Scopes:   pattern.Scopes(units),
+		Kinds:    pattern.StringKinds(units),
 	}, summary), nil
 }
 
