@@ -39,6 +39,26 @@ type Summary struct {
 	// Baselined counts candidates suppressed because the baseline file
 	// already knows them.
 	Baselined int `json:"baselined,omitempty"`
+	// Version is the ddslop version: detection rules change between
+	// versions, so health is comparable only between runs of one version.
+	Version string `json:"version,omitempty"`
+	Health  Health `json:"health"`
+}
+
+// Health measures what ddslop finds across the whole analysed code, before
+// diff mode or a baseline narrow the candidates down.
+type Health struct {
+	// AnalysedLines are the lines of the functions, structs and constants
+	// compared.
+	AnalysedLines int `json:"analysed_lines"`
+	// DuplicatedLines are the lines of every copy but one per duplication
+	// candidate, each line once, without lines only a near-miss member has.
+	DuplicatedLines    int     `json:"duplicated_lines"`
+	DuplicationPercent float64 `json:"duplication_percent"`
+	UnusedFunctions    int     `json:"unused_functions"`
+	Wrappers           int     `json:"wrappers"`
+	SingleImplTraits   int     `json:"single_impl_traits"`
+	ParallelFlows      int     `json:"parallel_flows"`
 }
 
 // Candidate is one refactoring candidate: a group of copies, what differs
@@ -215,7 +235,92 @@ func Build(language string, f Findings, summary Summary) Report {
 		candidates[i].ID = fmt.Sprintf("c%d", i+1)
 	}
 	summary.Candidates = len(candidates)
+	summary.Health = health(candidates, summary.Health.AnalysedLines)
 	return Report{Candidates: candidates, Summary: summary}
+}
+
+// duplicationKinds are the candidate kinds whose occurrences are copies of
+// one another. Parallel flows run different functions, and an inlined
+// constant's occurrences are single literals.
+var duplicationKinds = map[string]bool{
+	exactClone: true, renamedClone: true, nearMiss: true, blockClone: true,
+	duplicateType: true, duplicateConst: true,
+}
+
+// health measures the candidates against the analysed lines. The first
+// occurrence of each duplication candidate counts as the original.
+func health(candidates []Candidate, analysed int) Health {
+	h := Health{AnalysedLines: analysed}
+	duplicated := map[string]map[int]bool{} // file -> line
+	for _, c := range candidates {
+		switch c.Kind {
+		case deadCode:
+			h.UnusedFunctions++
+		case passThrough:
+			h.Wrappers++
+		case singleImpl:
+			h.SingleImplTraits++
+		case parallelFlow:
+			h.ParallelFlows++
+		}
+		if !duplicationKinds[c.Kind] {
+			continue
+		}
+		for _, o := range c.Occurrences[1:] {
+			if duplicated[o.File] == nil {
+				duplicated[o.File] = map[int]bool{}
+			}
+			for line := o.StartLine; line <= o.EndLine; line++ {
+				if !inRanges(line, o.UnmatchedLines) {
+					duplicated[o.File][line] = true
+				}
+			}
+		}
+	}
+	for _, lines := range duplicated {
+		h.DuplicatedLines += len(lines)
+	}
+	if analysed > 0 {
+		h.DuplicationPercent = math.Round(1000*float64(h.DuplicatedLines)/float64(analysed)) / 10
+	}
+	return h
+}
+
+func inRanges(line int, ranges [][2]int) bool {
+	for _, r := range ranges {
+		if r[0] <= line && line <= r[1] {
+			return true
+		}
+	}
+	return false
+}
+
+// AnalysedLines counts the lines of the units, structs and constants
+// compared, each line once.
+func AnalysedLines(units []unit.Unit, structs []unit.Struct, consts []unit.Const) int {
+	lines := map[string]map[int]bool{}
+	add := func(file string, start, end int) {
+		if lines[file] == nil {
+			lines[file] = map[int]bool{}
+		}
+		for l := start; l <= end; l++ {
+			lines[file][l] = true
+		}
+	}
+	for _, u := range units {
+		add(u.File, u.StartLine, u.EndLine)
+	}
+	for _, s := range structs {
+		add(s.File, s.StartLine, s.EndLine)
+	}
+	for _, c := range consts {
+		add(c.File, c.Line, c.Line)
+	}
+	n := 0
+	for _, l := range lines {
+		n += len(l)
+	}
+	return n
 }
 
 // Keep returns the report with only the candidates keep accepts,
@@ -577,7 +682,9 @@ func WriteText(w io.Writer, r Report) error {
 	if r.Summary.Baselined > 0 {
 		fmt.Fprintf(&b, "; %d known candidate(s) in the baseline", r.Summary.Baselined)
 	}
-	b.WriteString("\n")
+	h := r.Summary.Health
+	fmt.Fprintf(&b, "\nDuplication %.1f%% (%d of %d lines); %d unused functions, %d wrappers, %d single-implementation traits, %d parallel flows\n",
+		h.DuplicationPercent, h.DuplicatedLines, h.AnalysedLines, h.UnusedFunctions, h.Wrappers, h.SingleImplTraits, h.ParallelFlows)
 	_, err := io.WriteString(w, b.String())
 	return err
 }

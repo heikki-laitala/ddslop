@@ -75,7 +75,15 @@ Then ask your agent to clean up: the skill tells it how to read each kind
 of candidate and when to leave copies alone.
 
 `ddslop check` prints text in a terminal and JSON when piped. Exit codes:
-0 nothing found, 1 candidates found, 2 error.
+0 nothing found, 1 candidates found, 2 error. It ends with the
+repository's health, to track a cleanup over time:
+
+```text
+Duplication 7.6% (13502 of 177742 lines); 6 unused functions, 15 wrappers, 3 single-implementation traits, 8 parallel flows
+```
+
+The JSON `summary.health` has the same numbers. They always describe the
+whole repository, also with `--diff` and `--baseline`.
 
 To check only what a change introduced, compare against a Git ref:
 

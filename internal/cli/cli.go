@@ -405,6 +405,8 @@ func check(root string, opts options) (report.Report, error) {
 		decls.TypeNames = append(decls.TypeNames, f.Decls.TypeNames...)
 	}
 	summary.Units = len(units)
+	summary.Version = versionString()
+	summary.Health.AnalysedLines = report.AnalysedLines(units, structs, consts)
 	groups := clone.Groups(units, opts.minNodes)
 	nearMisses := clone.NearMisses(units, max(opts.minNearNodes, opts.minNodes), opts.minSim, threads)
 	// Functions reported together. A near-miss member represents its whole

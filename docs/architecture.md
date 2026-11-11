@@ -939,7 +939,18 @@ Every JSON candidate is self-contained:
   `extract-common` otherwise; always `extract-common` for near misses, whose
   unmatched code has to become optional.
 - The report also has a `summary` with `files`, `generated_files`, `units`,
-  `test_units` and `candidates`.
+  `test_units`, `candidates`, the ddslop `version` and `health`: the
+  analysed lines (of the functions, structs and constants compared), the
+  duplicated lines (every copy but one per duplication candidate, each
+  line once, without lines only a near-miss member has) and their
+  percentage, and counts of unused functions, wrappers, single-
+  implementation traits and parallel flows. Health always describes the
+  whole analysed code, also in diff mode and with a baseline, so it can be
+  tracked over time; it is comparable between runs of one ddslop version,
+  since detection rules change. It is deliberately not a weighted grade:
+  a blend hides what changed, and an agent told to raise a score might
+  merge copies meant to diverge. On a 735k-line codebase it was 7.6%, on
+  a 188k-line one 3.9% (SonarQube's default gate fails new code above 3%).
 
 Planned addition: typed parameter lists.
 
