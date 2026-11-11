@@ -1,4 +1,4 @@
-package rust
+package syntax
 
 import "testing"
 

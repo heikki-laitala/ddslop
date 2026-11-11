@@ -21,7 +21,9 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/clone"
 	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/index"
+	"github.com/heikki-laitala/ddslop/internal/lang/golang"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
+	"github.com/heikki-laitala/ddslop/internal/lang/syntax"
 	"github.com/heikki-laitala/ddslop/internal/pattern"
 	"github.com/heikki-laitala/ddslop/internal/report"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
@@ -62,7 +64,7 @@ Run "ddslop <command> -h" for a command's flags.
 
 const checkUsage = `usage: ddslop check [flags] [path]
 
-Finds duplicated Rust code under path (default ".") and proposes
+Finds duplicated Rust and Go code under path (default ".") and proposes
 refactoring candidates: exact copies, renamed copies, near-miss copies
 with added, removed or changed statements, copied blocks of statements
 inside larger functions, features running the same pipeline, structs with
@@ -393,7 +395,7 @@ type options struct {
 // syncIndex opens the index under root and brings it up to date with the
 // Rust files there. The caller closes the database.
 func syncIndex(root string) (*index.DB, index.Stats, error) {
-	paths, err := source.Files(root, ".rs")
+	paths, err := source.Files(root, ".rs", ".go")
 	if err != nil {
 		return nil, index.Stats{}, err
 	}
@@ -405,7 +407,7 @@ func syncIndex(root string) (*index.DB, index.Stats, error) {
 	if err != nil {
 		return nil, index.Stats{}, err
 	}
-	stats, err := db.Sync(index.Options{Root: root, Paths: paths, Version: version, Parse: parseRust, Threads: threadCount()})
+	stats, err := db.Sync(index.Options{Root: root, Paths: paths, Version: version, Parse: parseFile, Threads: threadCount()})
 	if err != nil {
 		_ = db.Close()
 		return nil, index.Stats{}, err
@@ -501,7 +503,7 @@ func check(root string, opts options) (report.Report, error) {
 	g, traits := callGraph(root, files)
 	internal := internalCrates(root, files)
 	flows := parallelFlows(g, traits, opts.minNodes)
-	r := report.Build("rust", report.Findings{
+	r := report.Build(languageOf, report.Findings{
 		Groups: groups, NearMisses: nearMisses, Blocks: blocks, Flows: flows,
 		Structs:  clone.Structs(structs, minStructFields),
 		Enums:    clone.Enums(enums),
@@ -703,8 +705,36 @@ func moduleDir(path string) string {
 // indexPath is where the index lives, relative to the analysed root.
 const indexPath = ".ddslop/index.db"
 
+// parseFile parses a source file with the adapter for its language.
+func parseFile(path string, src []byte) (index.Parsed, error) {
+	if languageOf(path) == "go" {
+		return parseGo(path, src)
+	}
+	return parseRust(path, src)
+}
+
+// languageOf names the language of a source file by its extension.
+func languageOf(path string) string {
+	if strings.HasSuffix(path, ".go") {
+		return "go"
+	}
+	return "rust"
+}
+
+// parseGo extracts a Go file's units; generated files are only counted.
+func parseGo(path string, src []byte) (index.Parsed, error) {
+	if syntax.IsGenerated(src) {
+		return index.Parsed{Generated: true, Words: source.Words(src)}, nil
+	}
+	units, err := golang.Units(path, src)
+	for i := range units {
+		units[i].Signature = similarity.Signature(units[i].Seq)
+	}
+	return index.Parsed{Units: units, Words: source.Words(src)}, err
+}
+
 func parseRust(path string, src []byte) (index.Parsed, error) {
-	if rust.IsGenerated(src) {
+	if syntax.IsGenerated(src) {
 		// Generated code is not analysed, but the traits it declares (such
 		// as OpenAPI server traits) mark the entry points of features.
 		return index.Parsed{Generated: true, Traits: rust.Traits(src), Words: source.Words(src)}, nil

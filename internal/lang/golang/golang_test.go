@@ -1,0 +1,144 @@
+package golang
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/lang/syntax"
+	"github.com/heikki-laitala/ddslop/internal/unit"
+)
+
+func mustUnits(t *testing.T, path, src string) []unit.Unit {
+	t.Helper()
+	units, err := Units(path, []byte(src))
+	if err != nil {
+		t.Fatalf("Units: %v", err)
+	}
+	return units
+}
+
+func byName(t *testing.T, units []unit.Unit, name string) unit.Unit {
+	t.Helper()
+	for _, u := range units {
+		if u.Name == name {
+			return u
+		}
+	}
+	t.Fatalf("no unit %q", name)
+	return unit.Unit{}
+}
+
+const store = `package store
+
+// Load reads a row.
+func (s *Store[T]) Load(ctx context.Context, id int) (*Row, error) {
+	row, err := s.db.Query(ctx, "SELECT * FROM rows WHERE id = $1", id)
+	if err != nil {
+		return nil, err
+	}
+	for i, v := range row.Values {
+		use(i, v)
+	}
+	done := func() error { return nil }
+	return row, done()
+}
+
+func open(path string) *Store[int] {
+	return &Store[int]{path: path}
+}
+
+func broken( {
+}
+`
+
+func TestUnitsExtractsFunctionsAndMethods(t *testing.T) {
+	var got []string
+	for _, u := range mustUnits(t, "store/store.go", store) {
+		got = append(got, fmt.Sprintf("%s %d-%d test=%v", u.Name, u.StartLine, u.EndLine, u.Test))
+	}
+	// Methods are named after their receiver type, without pointer or type
+	// arguments; function literals are part of their function; a function
+	// with a syntax error is skipped.
+	want := "Store.Load 4-14 test=false\nopen 16-18 test=false"
+	if strings.Join(got, "\n") != want {
+		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+func TestTestFilesAndTestdataAreTestCode(t *testing.T) {
+	for path, want := range map[string]bool{
+		"store/store.go":            false,
+		"store/store_test.go":       true,
+		"store/testdata/sample.go":  true,
+		"testdata/golden/sample.go": true,
+	} {
+		units := mustUnits(t, path, "package p\n\nfunc f() {}\n")
+		if len(units) != 1 || units[0].Test != want {
+			t.Errorf("%s: test = %v, want %v", path, units[0].Test, want)
+		}
+	}
+}
+
+func TestRenamedCopiesHaveTheSameShape(t *testing.T) {
+	a := byName(t, mustUnits(t, "a.go", store), "Store.Load")
+	renamed := strings.NewReplacer("Load", "Fetch", "row", "rec", `"SELECT * FROM rows WHERE id = $1"`, `"SELECT 1"`, "Store", "Repo").Replace(store)
+	b := byName(t, mustUnits(t, "b.go", renamed), "Repo.Fetch")
+	if a.Shape != b.Shape || len(a.Leaves) != len(b.Leaves) {
+		t.Errorf("shapes differ (%x, %x) or leaves do not line up (%d, %d)", a.Shape, b.Shape, len(a.Leaves), len(b.Leaves))
+	}
+	if a.Nodes == 0 || len(a.Seq) == 0 || a.Signature != nil {
+		t.Errorf("nodes %d, seq %d; want both set (the signature is computed when indexing)", a.Nodes, len(a.Seq))
+	}
+}
+
+func TestDeclaringNamesAreMarked(t *testing.T) {
+	u := byName(t, mustUnits(t, "a.go", store), "Store.Load")
+	declared := map[string]bool{}
+	for _, l := range u.Leaves {
+		if l.Declares {
+			declared[l.Text] = true
+		}
+	}
+	for _, name := range []string{"Load", "s", "ctx", "id", "row", "err", "i", "v", "done"} {
+		if !declared[name] {
+			t.Errorf("%s is not marked as declared (declared: %v)", name, declared)
+		}
+	}
+	for _, name := range []string{"Query", "use", "Values", "Store"} {
+		if declared[name] {
+			t.Errorf("%s is marked as declared, but is only used", name)
+		}
+	}
+}
+
+func TestBlocksListStatementsAndEarlyReturns(t *testing.T) {
+	u := byName(t, mustUnits(t, "a.go", store), "Store.Load")
+	body := u.Blocks[0]
+	var got []string
+	for _, st := range body {
+		got = append(got, fmt.Sprintf("%d-%d exits=%v", st.StartLine, st.EndLine, st.Exits))
+	}
+	// The if returns early; the closure's return leaves the closure only;
+	// the final return is a return too.
+	want := "5-5 exits=false 6-8 exits=true 9-11 exits=false 12-12 exits=false 13-13 exits=true"
+	if strings.Join(got, " ") != want {
+		t.Errorf("body statements = %s\nwant %s", strings.Join(got, " "), want)
+	}
+}
+
+// Go and Rust name some node kinds alike (identifier, block,
+// call_expression); their structure symbols must still differ, so a Go
+// function is never a near miss of a Rust one.
+func TestGoSymbolsAreApartFromOtherLanguages(t *testing.T) {
+	u := byName(t, mustUnits(t, "a.go", store), "Store.Load")
+	shared := map[uint32]string{}
+	for _, kind := range []string{"block", "identifier", "call_expression", "if_statement", "return_statement"} {
+		shared[syntax.KindSymbol(kind)] = kind
+	}
+	for _, sym := range u.Seq {
+		if kind, ok := shared[sym]; ok {
+			t.Fatalf("a Go %s has the same symbol as an unprefixed %s", kind, kind)
+		}
+	}
+}

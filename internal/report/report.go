@@ -222,52 +222,53 @@ type FlowStep struct {
 // nodes, largest first; on ties, they keep this order: groups, near misses,
 // block clones, flows, structs, constants, dead code, wrappers, traits,
 // scopes, string kinds, parameter groups. The summary's candidate count is filled in.
-func Build(language string, f Findings, summary Summary) Report {
+// Each candidate's language is languageOf its first file.
+func Build(languageOf func(file string) string, f Findings, summary Summary) Report {
 	candidates := make([]Candidate, 0, len(f.Groups)+len(f.NearMisses)+len(f.Blocks)+len(f.Flows))
 	for _, g := range f.Groups {
-		candidates = append(candidates, groupCandidate(language, g))
+		candidates = append(candidates, groupCandidate(languageOf(g.Units[0].File), g))
 	}
 	for _, nm := range f.NearMisses {
-		candidates = append(candidates, nearMissCandidate(language, nm))
+		candidates = append(candidates, nearMissCandidate(languageOf(nm.Units[0].File), nm))
 	}
 	for _, b := range f.Blocks {
-		candidates = append(candidates, blockCandidate(language, b))
+		candidates = append(candidates, blockCandidate(languageOf(b.Occurrences[0].Unit.File), b))
 	}
 	for _, fl := range f.Flows {
-		candidates = append(candidates, flowCandidate(language, fl))
+		candidates = append(candidates, flowCandidate(languageOf(fl.Entries[0].File), fl))
 	}
 	for _, s := range f.Structs {
-		candidates = append(candidates, structCandidate(language, s))
+		candidates = append(candidates, structCandidate(languageOf(s.Structs[0].File), s))
 	}
 	for _, e := range f.Enums {
-		candidates = append(candidates, enumCandidate(language, e))
+		candidates = append(candidates, enumCandidate(languageOf(e.Enums[0].File), e))
 	}
 	for _, g := range f.Consts {
-		candidates = append(candidates, constCandidate(language, g))
+		candidates = append(candidates, constCandidate(languageOf(g.Consts[0].File), g))
 	}
 	for _, in := range f.Inlined {
-		candidates = append(candidates, inlinedCandidate(language, in))
+		candidates = append(candidates, inlinedCandidate(languageOf(in.Const.File), in))
 	}
 	for _, u := range f.Dead {
-		candidates = append(candidates, single(language, deadCode, deleteDead, u))
+		candidates = append(candidates, single(languageOf(u.File), deadCode, deleteDead, u))
 	}
 	for _, w := range f.Wrappers {
-		c := single(language, passThrough, inlineWrapper, w.Unit)
+		c := single(languageOf(w.Unit.File), passThrough, inlineWrapper, w.Unit)
 		t := occurrence(w.Target)
 		c.Target = &t
 		candidates = append(candidates, c)
 	}
 	for _, t := range f.Traits {
-		candidates = append(candidates, traitCandidate(language, t))
+		candidates = append(candidates, traitCandidate(languageOf(t.Trait.File), t))
 	}
 	for _, g := range f.Scopes {
-		candidates = append(candidates, scopeCandidate(language, g))
+		candidates = append(candidates, scopeCandidate(languageOf(g.Units[0].File), g))
 	}
 	for _, k := range f.Kinds {
-		candidates = append(candidates, kindCandidate(language, k))
+		candidates = append(candidates, kindCandidate(languageOf(k.Matches[0].Unit.File), k))
 	}
 	for _, g := range f.Params {
-		candidates = append(candidates, paramCandidate(language, g))
+		candidates = append(candidates, paramCandidate(languageOf(g.Units[0].File), g))
 	}
 	candidates = slices.DeleteFunc(candidates, mostlyParameters)
 	slices.SortStableFunc(candidates, func(a, b Candidate) int {
