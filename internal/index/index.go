@@ -271,23 +271,20 @@ func (d *DB) write(reset bool, version string, changes []change, deleted []strin
 }
 
 func (d *DB) stamps() (map[string]stamp, error) {
-	rows, err := d.db.Query(`SELECT path, mtime, size FROM files`)
-	if err != nil {
-		return nil, err
+	type row struct {
+		path string
+		stamp
 	}
-	defer func() { _ = rows.Close() }()
-	out := map[string]stamp{}
-	for rows.Next() {
-		var p string
-		var s stamp
-		if err := rows.Scan(&p, &s.mtime, &s.size); err != nil {
-			return nil, err
-		}
-		out[p] = s
+	rows, err := query(d, `SELECT path, mtime, size FROM files`, func(r *sql.Rows) (row, error) {
+		var x row
+		return x, r.Scan(&x.path, &x.mtime, &x.size)
+	})
+	out := make(map[string]stamp, len(rows))
+	for _, x := range rows {
+		out[x.path] = x.stamp
 	}
-	return out, rows.Err()
+	return out, err
 }
-
 func (d *DB) metadata(key string) (string, error) {
 	var value string
 	err := d.db.QueryRow(`SELECT value FROM metadata WHERE key = ?`, key).Scan(&value)
@@ -299,26 +296,19 @@ func (d *DB) metadata(key string) (string, error) {
 
 // Files returns every indexed file, sorted by path.
 func (d *DB) Files() ([]File, error) {
-	rows, err := d.db.Query(`SELECT path, generated, units FROM files ORDER BY path`)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var out []File
-	for rows.Next() {
+	return query(d, `SELECT path, generated, units FROM files ORDER BY path`, func(r *sql.Rows) (File, error) {
 		var f File
 		var blob []byte
-		if err := rows.Scan(&f.Path, &f.Generated, &blob); err != nil {
-			return nil, err
+		if err := r.Scan(&f.Path, &f.Generated, &blob); err != nil {
+			return f, err
 		}
 		var st stored
 		if err := gob.NewDecoder(bytes.NewReader(blob)).Decode(&st); err != nil {
-			return nil, fmt.Errorf("index: %s: %w", f.Path, err)
+			return f, fmt.Errorf("index: %s: %w", f.Path, err)
 		}
 		f.Units, f.Traits, f.Imports, f.TestModules, f.Decls, f.Words = st.Units, st.Traits, st.Imports, st.TestModules, st.Decls, st.Words
-		out = append(out, f)
-	}
-	return out, rows.Err()
+		return f, nil
+	})
 }
 
 // HealthEntry is one recorded measurement of a repository's health: when,
@@ -350,22 +340,31 @@ func (d *DB) RecordHealth(e HealthEntry) error {
 
 // HealthHistory returns the latest limit entries, oldest first.
 func (d *DB) HealthHistory(limit int) ([]HealthEntry, error) {
-	rows, err := d.db.Query(`SELECT recorded_at, version, revision, data FROM
-		(SELECT rowid, * FROM health ORDER BY rowid DESC LIMIT ?) ORDER BY rowid`, limit)
+	return query(d, `SELECT recorded_at, version, revision, data FROM
+		(SELECT rowid, * FROM health ORDER BY rowid DESC LIMIT ?) ORDER BY rowid`, func(r *sql.Rows) (HealthEntry, error) {
+		var e HealthEntry
+		var at int64
+		var data string
+		err := r.Scan(&at, &e.Version, &e.Revision, &data)
+		e.At, e.Data = time.Unix(at, 0).UTC(), []byte(data)
+		return e, err
+	}, limit)
+}
+
+// query runs a query and turns each row into a T with scan.
+func query[T any](d *DB, q string, scan func(*sql.Rows) (T, error), args ...any) ([]T, error) {
+	rows, err := d.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	var out []HealthEntry
+	var out []T
 	for rows.Next() {
-		var e HealthEntry
-		var at int64
-		var data string
-		if err := rows.Scan(&at, &e.Version, &e.Revision, &data); err != nil {
+		x, err := scan(rows)
+		if err != nil {
 			return nil, err
 		}
-		e.At, e.Data = time.Unix(at, 0).UTC(), []byte(data)
-		out = append(out, e)
+		out = append(out, x)
 	}
 	return out, rows.Err()
 }
