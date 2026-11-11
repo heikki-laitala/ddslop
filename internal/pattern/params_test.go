@@ -101,3 +101,17 @@ func TestParameterGroupsAreDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// Methods that may implement an interface (Go) have their signature
+// dictated, like trait methods.
+func TestParameterGroupsLeaveOutMethodsCalledViaInterfaces(t *testing.T) {
+	var units []unit.Unit
+	for i := range 4 {
+		u := withParams(fmt.Sprintf("Server.handle%d", i), "w:http.ResponseWriter", "r:*http.Request", "id:string")
+		u.Dispatched = true
+		units = append(units, u)
+	}
+	if got := ParameterGroups(units); len(got) != 0 {
+		t.Errorf("got %d groups of interface methods, want none", len(got))
+	}
+}

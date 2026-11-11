@@ -29,16 +29,16 @@ const (
 // ParameterGroups finds the largest sets of parameters that functions take
 // together. For every set of functions sharing minGroupParams parameters,
 // the group is everything those functions share, so a group is never
-// reported again inside a larger one taken by the same functions. Trait
-// methods are left out, since the trait dictates their parameters, and so
-// is test code. Groups are ordered by size, the parameters a struct would
+// reported again inside a larger one taken by the same functions. Methods
+// called via a trait or interface are left out, since it dictates their
+// parameters, and so is test code. Groups are ordered by size, the parameters a struct would
 // save: parameters times extra functions.
 func ParameterGroups(units []unit.Unit) []ParamGroup {
 	var eligible []unit.Unit
 	var keys [][]string
 	bySubset := map[string][]int{}
 	for _, u := range units {
-		if u.Test || u.Trait != "" || len(u.Params) < minGroupParams || len(u.Params) > maxGroupedParams {
+		if u.Test || u.ViaInterface() || len(u.Params) < minGroupParams || len(u.Params) > maxGroupedParams {
 			continue
 		}
 		k := paramKeys(u)

@@ -306,7 +306,14 @@ are left out, since they may satisfy an interface. The rule "the
 arguments are the parameters, in order, as is or borrowed" lives once in
 `syntax.PassesOn`; the per-grammar rest of wrapper detection and of the
 grammar hooks stays per adapter until a third language (extract on the
-third occurrence), recorded in ddslop's own baseline.
+third occurrence), recorded in ddslop's own baseline. Go functions also
+record their parameters (a `context.Context` left out: Go passes it
+explicitly and never stores it in a struct, so it is never part of a
+parameter object) and their switches on strings (`case "a", "b":`), so
+parameter groups and string kinds work for Go; methods are left out of
+parameter groups, as they may implement an interface whose signature they
+must keep. On a 100-file Go service, every raw group hinged on a Context
+or an HTTP handler's dictated signature, so none remain.
 On a 100-file Go service: 43 candidates and 12.2% duplication, led by an
 authentication check in 14 handlers; with declarations, a client package
 re-declaring the server's response types (`MemoryItem`, `SearchResponse`,

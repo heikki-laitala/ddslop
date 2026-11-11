@@ -7,6 +7,7 @@ package syntax
 import (
 	"errors"
 	"hash/fnv"
+	"slices"
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -67,6 +68,17 @@ func Flatten(n *sitter.Node, src []byte, g Grammar) *Shaper {
 func (s *Shaper) emit(sym uint32, line int) {
 	s.Seq = append(s.Seq, sym)
 	s.Lines = append(s.Lines, line)
+}
+
+// RecordStringMatch notes that the match or switch at n compares against
+// the string literals in values, once it has at least unit.MinStringArms
+// distinct ones.
+func (s *Shaper) RecordStringMatch(n *sitter.Node, values []string) {
+	slices.Sort(values)
+	values = slices.Compact(values)
+	if len(values) >= unit.MinStringArms {
+		s.Matches = append(s.Matches, unit.StringMatch{Values: values, StartLine: Line(n.StartPosition()), EndLine: Line(n.EndPosition())})
+	}
 }
 
 // KindSymbol maps a node kind to a Seq symbol. The top bit keeps it apart

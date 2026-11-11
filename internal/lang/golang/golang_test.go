@@ -276,3 +276,50 @@ func logged(x int) int {
 		}
 	}
 }
+
+func TestUnitsRecordParametersAndSwitchesOnStrings(t *testing.T) {
+	src := `package store
+
+func (s *Store) interpret(ctx context.Context, a, b int, status string) int {
+	switch status {
+	case "committed":
+		return 1
+	case "replayed", "refused":
+		return 2
+	default:
+		return 0
+	}
+}
+
+func small(kind string) int {
+	switch kind {
+	case "a", "b":
+		return 1
+	}
+	return 0
+}
+`
+	units, _, err := Parse("store/store.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := byName(t, units, "Store.interpret")
+	var params []string
+	for _, p := range u.Params {
+		params = append(params, p.Name+": "+p.Type)
+	}
+	// The receiver is no parameter; a, b int declares two; a Context is
+	// never grouped (Go passes it explicitly, never in a struct).
+	if want := "[a: int b: int status: string]"; fmt.Sprint(params) != want {
+		t.Errorf("params = %v, want %s", params, want)
+	}
+	var matches []string
+	for _, x := range units {
+		for _, m := range x.StringMatches {
+			matches = append(matches, fmt.Sprintf("%s %v %d-%d", x.Name, m.Values, m.StartLine, m.EndLine))
+		}
+	}
+	if want := `Store.interpret ["committed" "refused" "replayed"] 4-11`; strings.Join(matches, "\n") != want {
+		t.Errorf("string switches:\n%s\nwant:\n%s", strings.Join(matches, "\n"), want)
+	}
+}
