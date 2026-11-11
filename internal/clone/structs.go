@@ -39,6 +39,7 @@ func Structs(structs []unit.Struct, minFields int) []StructGroup {
 	}
 	var groups []StructGroup
 	for _, members := range byFields {
+		members = withoutConverted(members)
 		if len(members) < 2 {
 			continue
 		}
@@ -60,6 +61,20 @@ func Structs(structs []unit.Struct, minFields int) []StructGroup {
 		return cmp.Compare(a.Structs[0].StartLine, b.Structs[0].StartLine)
 	})
 	return groups
+}
+
+// withoutConverted drops the members another member converts from or
+// into (#[serde(try_from = "AuthoredPort")] on Port drops AuthoredPort):
+// such a type is the validated input or the wire form of the other, kept
+// apart on purpose.
+func withoutConverted(members []unit.Struct) []unit.Struct {
+	converted := map[string]bool{}
+	for _, s := range members {
+		for _, name := range s.Converts {
+			converted[name] = true
+		}
+	}
+	return slices.DeleteFunc(members, func(s unit.Struct) bool { return converted[s.Name] })
 }
 
 // fieldKey is a struct's field names, sorted.

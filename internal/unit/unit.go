@@ -185,6 +185,10 @@ type Struct struct {
 	Nodes  int
 	Fields []Field
 	Test   bool
+	// Converts are the types the struct is deserialised from or serialised
+	// into, as simple names (#[serde(try_from = "X", from = "Y", into = "Z")]):
+	// a struct validating another is a deliberate second type, not a copy.
+	Converts []string
 }
 
 // Field is one named field of a struct, with its type as written, without

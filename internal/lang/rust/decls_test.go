@@ -8,9 +8,9 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
-func mustDecls(t *testing.T, path, src string) unit.Decls {
+func mustDecls(t *testing.T, src string) unit.Decls {
 	t.Helper()
-	_, decls, err := Parse(path, []byte(src))
+	_, decls, err := Parse("lib.rs", []byte(src))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -47,7 +47,7 @@ mod tests {
     struct Fixture { a: u32 }
 }
 `
-	decls := mustDecls(t, "lib.rs", src)
+	decls := mustDecls(t, src)
 	var got []string
 	for _, ty := range decls.Structs {
 		got = append(got, fmt.Sprintf("%s %s:%d-%d %s test=%v", ty.Name, ty.File, ty.StartLine, ty.EndLine, fieldList(ty.Fields), ty.Test))
@@ -94,7 +94,7 @@ mod inner {
     const NESTED: u32 = 3;
 }
 `
-	decls := mustDecls(t, "lib.rs", src)
+	decls := mustDecls(t, src)
 	var got []string
 	for _, c := range decls.Consts {
 		got = append(got, fmt.Sprintf("%s=%s %s:%d literal=%v macro=%v", c.Name, c.Value, c.File, c.Line, c.Literal, c.Macro))
@@ -233,7 +233,7 @@ mod tests {
     impl super::DirectoryStore for Fake {}
 }
 `
-	decls := mustDecls(t, "lib.rs", src)
+	decls := mustDecls(t, src)
 	var traits, impls []string
 	for _, tr := range decls.Traits {
 		traits = append(traits, fmt.Sprintf("%s %d-%d public=%v", tr.Name, tr.StartLine, tr.EndLine, tr.Public))
@@ -254,5 +254,31 @@ mod tests {
 	}
 	if got := fmt.Sprint(decls.TypeNames); got != "[DirectorySession Mode Unit Alias]" {
 		t.Errorf("type names = %s, want [DirectorySession Mode Unit Alias]", got)
+	}
+}
+
+func TestParseRecordsTheTypesAStructConvertsWith(t *testing.T) {
+	src := `#[derive(Deserialize)]
+#[serde(try_from = "AuthoredPort", into = "wire::Port<'static>")]
+pub struct Port {
+    host: u32,
+}
+
+#[serde(from = "Raw")]
+struct Plain {
+    a: u32,
+}
+
+#[serde(rename_all = "camelCase")]
+struct Other {
+    a: u32,
+}
+`
+	var got []string
+	for _, s := range mustDecls(t, src).Structs {
+		got = append(got, fmt.Sprintf("%s %v", s.Name, s.Converts))
+	}
+	if want := "Port [AuthoredPort Port]\nPlain [Raw]\nOther []"; strings.Join(got, "\n") != want {
+		t.Errorf("conversions:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }

@@ -82,3 +82,18 @@ func TestStructsOrderedByDuplicatedSize(t *testing.T) {
 		t.Errorf("groups:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestStructsSkipStructsConvertingFromOneAnother(t *testing.T) {
+	port := st("spec.rs", "Port", 1, "host:i64", "container:i64", "name:String", "access:Access")
+	port.Converts = []string{"AuthoredPort"}
+	authored := st("spec.rs", "AuthoredPort", 20, "host:i64", "container:i64", "name:String", "access:String")
+	copied := st("other.rs", "Port", 1, "host:i64", "container:i64", "name:String", "access:Access")
+
+	if got := Structs([]unit.Struct{port, authored}, 3); len(got) != 0 {
+		t.Errorf("a struct and the type it validates were reported: %s", structGroupStrings(got))
+	}
+	// A true copy of the validated struct is still reported.
+	if got, want := structGroupStrings(Structs([]unit.Struct{port, authored, copied}, 3)), "other.rs:1 Port | spec.rs:1 Port"; got != want {
+		t.Errorf("groups:\n%s\nwant:\n%s", got, want)
+	}
+}

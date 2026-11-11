@@ -5,6 +5,7 @@ import (
 	"errors"
 	"hash/fnv"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -184,7 +185,7 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 		return
 	case "struct_item":
 		e.addTypeName(n)
-		e.addStruct(n, test)
+		e.addStruct(n, test, own)
 		return
 	case "enum_item", "union_item", "type_item":
 		e.addTypeName(n)
@@ -429,7 +430,7 @@ func (e *extractor) addImpl(n *sitter.Node, sc scope, test bool) {
 
 // addStruct records a struct with named fields; unit and tuple structs are
 // left out.
-func (e *extractor) addStruct(n *sitter.Node, test bool) {
+func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
 	name, body := n.ChildByFieldName("name"), n.ChildByFieldName("body")
 	if name == nil || body == nil || body.Kind() != "field_declaration_list" || n.HasError() {
 		return
@@ -441,6 +442,7 @@ func (e *extractor) addStruct(n *sitter.Node, test bool) {
 		EndLine:   line(n.EndPosition()),
 		Nodes:     countNodes(n),
 		Test:      test,
+		Converts:  serdeConversions(attrs),
 	}
 	for i := uint(0); i < body.NamedChildCount(); i++ {
 		f := body.NamedChild(i)
@@ -478,6 +480,24 @@ func (e *extractor) addConst(n *sitter.Node, test bool) {
 		Macro:   value.Kind() == "macro_invocation",
 		Test:    test,
 	})
+}
+
+// serdeConversion matches a serde conversion setting inside an attribute.
+var serdeConversion = regexp.MustCompile(`\b(?:try_from|from|into)\s*=\s*"([^"]+)"`)
+
+// serdeConversions returns the types serde attributes convert a type from
+// or into, as simple names.
+func serdeConversions(attrs []string) []string {
+	var names []string
+	for _, a := range attrs {
+		if attrName(a) != "serde" {
+			continue
+		}
+		for _, m := range serdeConversion.FindAllStringSubmatch(a, -1) {
+			names = append(names, unit.SimpleName(m[1]))
+		}
+	}
+	return names
 }
 
 // countNodes counts the syntax nodes of a subtree, comments left out.
