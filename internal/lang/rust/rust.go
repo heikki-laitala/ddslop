@@ -2,6 +2,7 @@
 package rust
 
 import (
+	"errors"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -92,12 +93,14 @@ func Units(path string, src []byte) ([]unit.Unit, error) {
 func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var units []unit.Unit
 	var decls unit.Decls
+	var marked error
 	err := syntax.Parse(language, src, func(root *sitter.Node) {
 		e := extractor{path: path, src: src}
 		e.walk(root, scope{}, IsTestPath(path), nil)
 		units, decls = e.units, e.decls
+		marked = syntax.MarkIgnored(root, src, units, &decls)
 	})
-	return units, decls, err
+	return units, decls, errors.Join(err, marked)
 }
 
 // Traits returns the names of the traits a file declares, in source order.

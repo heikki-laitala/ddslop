@@ -40,6 +40,9 @@ type Summary struct {
 	// Baselined counts candidates suppressed because the baseline file
 	// already knows them.
 	Baselined int `json:"baselined,omitempty"`
+	// Ignored counts the functions, structs, enums and constants a
+	// ddslop:ignore comment leaves out of the analysis.
+	Ignored int `json:"ignored,omitempty"`
 	// Version is the ddslop version: detection rules change between
 	// versions, so health is comparable only between runs of one version.
 	Version string `json:"version,omitempty"`
@@ -806,6 +809,9 @@ func WriteText(w io.Writer, r Report) error {
 		r.Summary.Candidates, r.Summary.Files, r.Summary.Units, r.Summary.GeneratedFiles, r.Summary.TestUnits)
 	if r.Summary.Baselined > 0 {
 		fmt.Fprintf(&b, "; %d known candidate(s) in the baseline", r.Summary.Baselined)
+	}
+	if r.Summary.Ignored > 0 {
+		fmt.Fprintf(&b, "; %d declaration(s) marked ddslop:ignore", r.Summary.Ignored)
 	}
 	h := r.Summary.Health
 	fmt.Fprintf(&b, "\nDuplication %.1f%% (%d of %d lines); %d unused functions, %d wrappers, %d single-implementation traits, %d parallel flows\n",

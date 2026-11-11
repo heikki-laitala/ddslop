@@ -46,7 +46,8 @@ type LiteralUse struct {
 // a string constant declared in the same crate (crateOf maps a file to its
 // crate), so the code could name the constant instead. Only distinctive
 // values count: a short plain word such as "status" is as likely a JSON
-// key as the constant's meaning. When several constants of a crate hold
+// key as the constant's meaning. A literal on a line a ddslop:ignore
+// comment marks is left out. When several constants of a crate hold
 // the value, the first by location is the one to use.
 func InlinedConstants(consts []unit.Const, units []unit.Unit, crateOf func(file string) string) []InlinedConst {
 	sorted := slices.Clone(consts)
@@ -65,7 +66,7 @@ func InlinedConstants(consts []unit.Const, units []unit.Unit, crateOf func(file 
 	}
 	for _, u := range units {
 		for _, l := range u.Leaves {
-			if l.Kind != unit.Literal {
+			if l.Kind != unit.Literal || l.Ignored {
 				continue
 			}
 			if i, ok := byValue[[2]string{crateOf(u.File), l.Text}]; ok {

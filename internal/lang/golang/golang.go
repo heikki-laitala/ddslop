@@ -2,6 +2,7 @@
 package golang
 
 import (
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -145,6 +146,7 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var units []unit.Unit
 	var decls unit.Decls
+	var marked error
 	test := IsTestPath(path)
 	err := syntax.Parse(language, src, func(root *sitter.Node) {
 		packages := imports(root, src)
@@ -168,8 +170,9 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 				decls.Structs = append(decls.Structs, structs(n, path, src, test)...)
 			}
 		}
+		marked = syntax.MarkIgnored(root, src, units, &decls)
 	})
-	return units, decls, err
+	return units, decls, errors.Join(err, marked)
 }
 
 // function makes a unit of a function or method declaration.
