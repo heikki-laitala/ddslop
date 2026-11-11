@@ -181,6 +181,19 @@ func outputFormat(format string, stdout io.Writer, allowed ...string) (string, e
 	return format, nil
 }
 
+// parseRoot parses a command's flags and its optional path argument (see
+// rootArg), reporting the exit code to return when the command ends here.
+func parseRoot(fs *flag.FlagSet, args []string, stderr io.Writer) (string, int, bool) {
+	if code, ok := parseFlags(fs, args); !ok {
+		return "", code, false
+	}
+	root, err := rootArg(fs)
+	if err != nil {
+		return "", fail(stderr, err), false
+	}
+	return root, 0, true
+}
+
 // rootArg returns the single optional path argument, "." by default.
 func rootArg(fs *flag.FlagSet) (string, error) {
 	switch fs.NArg() {
@@ -223,12 +236,9 @@ Flags:
 
 func runIndex(args []string, stdout, stderr io.Writer) int {
 	fs := newFlags("index", indexUsage, stderr)
-	if code, ok := parseFlags(fs, args); !ok {
+	root, code, ok := parseRoot(fs, args, stderr)
+	if !ok {
 		return code
-	}
-	root, err := rootArg(fs)
-	if err != nil {
-		return fail(stderr, err)
 	}
 	db, stats, err := syncIndex(root)
 	if err != nil {

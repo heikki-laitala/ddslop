@@ -29,12 +29,9 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	claude := fs.Bool("claude", false, "install for Claude Code (.claude/skills, CLAUDE.md)")
 	codex := fs.Bool("codex", false, "install for Codex (.codex/skills, AGENTS.md)")
 	copilot := fs.Bool("copilot", false, "install for Copilot (.copilot/skills, .github/copilot-instructions.md)")
-	if code, ok := parseFlags(fs, args); !ok {
+	root, code, ok := parseRoot(fs, args, stderr)
+	if !ok {
 		return code
-	}
-	root, err := rootArg(fs)
-	if err != nil {
-		return fail(stderr, err)
 	}
 	var agents []integrate.Agent
 	for agent, chosen := range map[integrate.Agent]bool{integrate.Claude: *claude, integrate.Codex: *codex, integrate.Copilot: *copilot} {
@@ -66,12 +63,9 @@ Flags:
 
 func runStatus(args []string, stdout, stderr io.Writer) int {
 	fs := newFlags("status", statusUsage, stderr)
-	if code, ok := parseFlags(fs, args); !ok {
+	root, code, ok := parseRoot(fs, args, stderr)
+	if !ok {
 		return code
-	}
-	root, err := rootArg(fs)
-	if err != nil {
-		return fail(stderr, err)
 	}
 	s, err := integrate.Check(root)
 	if err != nil {
@@ -114,12 +108,9 @@ Flags:
 func runUninstall(args []string, stdout, stderr io.Writer) int {
 	fs := newFlags("uninstall", uninstallUsage, stderr)
 	purge := fs.Bool("purge", false, "also remove the index in .ddslop/")
-	if code, ok := parseFlags(fs, args); !ok {
+	root, code, ok := parseRoot(fs, args, stderr)
+	if !ok {
 		return code
-	}
-	root, err := rootArg(fs)
-	if err != nil {
-		return fail(stderr, err)
 	}
 	changes, err := integrate.Uninstall(root, *purge)
 	for _, c := range changes {
@@ -144,12 +135,9 @@ Flags:
 
 func runStats(args []string, stdout, stderr io.Writer) int {
 	fs := newFlags("stats", statsUsage, stderr)
-	if code, ok := parseFlags(fs, args); !ok {
+	root, code, ok := parseRoot(fs, args, stderr)
+	if !ok {
 		return code
-	}
-	root, err := rootArg(fs)
-	if err != nil {
-		return fail(stderr, err)
 	}
 	path := filepath.Join(root, indexPath)
 	info, err := os.Stat(path)
