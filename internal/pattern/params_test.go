@@ -68,3 +68,36 @@ func TestParameterGroupsKeepUnrelatedGroupsApart(t *testing.T) {
 		t.Errorf("got %d groups, want 2", got)
 	}
 }
+
+// Groups that tie in size are ordered completely, so which one represents
+// a family never depends on map iteration order.
+func TestParameterGroupsAreDeterministic(t *testing.T) {
+	// Two overlapping groups (sharing db and fleet), each in four functions,
+	// both led by a function named "handle": equal in size, parameter count
+	// and first name.
+	var units []unit.Unit
+	for i := range 4 {
+		units = append(units, withParams("handle", "db:&Db", "fleet:Uuid", "sub:&str", fmt.Sprintf("a%d:u8", i)))
+	}
+	for i := range 3 {
+		units = append(units, withParams(fmt.Sprintf("other%d", i), "db:&Db", "fleet:Uuid", "token:&str"))
+	}
+	units = append(units, withParams("handle", "db:&Db", "fleet:Uuid", "token:&str"))
+	describe := func() string {
+		var out []string
+		for _, g := range ParameterGroups(units) {
+			var ps []string
+			for _, p := range g.Params {
+				ps = append(ps, p.Name)
+			}
+			out = append(out, strings.Join(ps, ","))
+		}
+		return strings.Join(out, " | ")
+	}
+	first := describe()
+	for range 50 {
+		if got := describe(); got != first {
+			t.Fatalf("ParameterGroups gave %q, then %q", first, got)
+		}
+	}
+}
