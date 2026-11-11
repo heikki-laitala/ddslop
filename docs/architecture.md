@@ -1044,8 +1044,10 @@ skill and a `## ddslop` section in the agent's instructions file:
 
 It also adds `.ddslop/` to `.gitignore` and builds the index. Re-running
 it changes nothing; the section is replaced in place between its heading
-and the next one; an instructions file shared through a symlink
-(`CLAUDE.md` -> `AGENTS.md`) gets one section. The skill tells agents when
+and the next one; an instructions file shared through a symlink,
+in either direction (`CLAUDE.md` -> `AGENTS.md`, or the reverse), gets one
+section, written through the link into the real file, and the change
+report names that real file. The skill tells agents when
 to run ddslop, how to act on each candidate kind, and to skip copies that
 are meant to diverge. Pruner's global installs are left out.
 

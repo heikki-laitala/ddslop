@@ -123,6 +123,52 @@ func TestInstallWritesTheSectionOnceWhenClaudeMDLinksToAgentsMD(t *testing.T) {
 	}
 }
 
+// lens-hub style: AGENTS.md links to CLAUDE.md, the other way round.
+func TestInstallWritesTheSectionIntoTheRealFileWhenAgentsMDLinksToClaudeMD(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "CLAUDE.md", "# Rules\n")
+	if err := os.Symlink("CLAUDE.md", filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	install(t, root, Claude, Codex)
+
+	if got := strings.Count(read(t, root, "CLAUDE.md"), "## ddslop"); got != 1 {
+		t.Errorf("CLAUDE.md has %d ddslop sections, want 1", got)
+	}
+	info, err := os.Lstat(filepath.Join(root, "AGENTS.md"))
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Error("AGENTS.md is no longer a symlink")
+	}
+
+	if _, err := Uninstall(root, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, root, "CLAUDE.md"); got != "# Rules\n" {
+		t.Errorf("CLAUDE.md after uninstall = %q, want it as before", got)
+	}
+	if info, err := os.Lstat(filepath.Join(root, "AGENTS.md")); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Error("uninstall replaced the AGENTS.md symlink")
+	}
+}
+
+// The change report names the file actually edited, so nobody is told
+// AGENTS.md changed when the section went into CLAUDE.md.
+func TestInstallReportsTheRealFileBehindASymlink(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "CLAUDE.md", "# Rules\n")
+	if err := os.Symlink("CLAUDE.md", filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	changes := strings.Join(install(t, root, Codex), "\n")
+
+	want := "updated " + filepath.Join(root, "CLAUDE.md") + " (through the AGENTS.md symlink)"
+	if !strings.Contains(changes, want) {
+		t.Errorf("changes:\n%s\nwant a line %q", changes, want)
+	}
+}
+
 func TestCheckReportsInstalledParts(t *testing.T) {
 	root := t.TempDir()
 	install(t, root, Claude)
