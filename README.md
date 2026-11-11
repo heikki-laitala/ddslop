@@ -6,9 +6,9 @@ agent a fix it can apply.**
 > [!NOTE]
 > **ddslop supports Rust fully, and most of Go.** In Go it finds exact,
 > renamed and near-miss copies, copied blocks, shared preambles, structs
-> and constants declared again, and constants' values written inline, and
-> reports duplication; Go's call-graph detectors (wrappers, parallel
-> flows, unused code) are in progress. TypeScript is planned. Files in
+> and constants declared again, constants' values written inline, and
+> unused exported functions, and reports duplication; Go's call-graph
+> detectors (wrappers, parallel flows) are in progress. TypeScript is planned. Files in
 > other languages are not analysed.
 
 Coding agents regenerate rather than reuse. Each session that cannot see
@@ -155,7 +155,7 @@ Code to simplify:
 
 | Kind | Meaning | Suggestion |
 | --- | --- | --- |
-| `dead-code` | a public function of an unpublished crate whose name appears nowhere else | `delete-dead` |
+| `dead-code` | a public function of an unpublished crate (Rust) or an exported function under `internal/` or in `package main` (Go) whose name appears nowhere else | `delete-dead` |
 | `pass-through` | a function whose body only passes its parameters on to another workspace function | `inline-wrapper`: call the `target` directly |
 | `single-impl-trait` | a trait implemented once, for one of the code's own types, with no test double | `remove-trait`: make its methods the type's own |
 

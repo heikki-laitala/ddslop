@@ -21,7 +21,7 @@ import (
 func Dead(units []unit.Unit, words map[string]int, internal func(file string) bool) []unit.Unit {
 	var dead []unit.Unit
 	for _, u := range units {
-		if !u.Public || u.External || u.Trait != "" || u.Test || !internal(u.File) {
+		if !u.Public || u.External || u.ViaInterface() || u.Test || !internal(u.File) {
 			continue
 		}
 		name := u.Name[strings.LastIndex(u.Name, ":")+1:]

@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -110,5 +111,46 @@ type Budget struct {
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("candidates:\n%s\nwant:\n%s\nstderr: %s", strings.Join(got, "\n"), strings.Join(want, "\n"), stderr)
+	}
+}
+
+func TestCheckReportsUnusedExportedGoFunctionsOfInternalPackages(t *testing.T) {
+	root := repo(t, map[string]string{
+		"go.mod": "module example.com/app\n",
+		"internal/text/text.go": `package text
+
+func CompactBlocks(s string) string { return s }
+
+func IsTruthy(s string) bool { return s == "true" }
+
+type Store struct{}
+
+func (s *Store) ServeHTTP(w Writer, r *Request) {}
+`,
+		"cmd/app/main.go": `package main
+
+import "example.com/app/internal/text"
+
+func main() { println(text.IsTruthy("true")) }
+
+func Helper() int { return 1 }
+`,
+		"pkg/api/api.go": "package api\n\nfunc PublicAPI() int { return 1 }\n",
+	})
+
+	_, stdout, stderr := run("check", "--format", "json", root)
+
+	var got []string
+	for _, c := range decode(t, stdout).Candidates {
+		if c.Kind == "dead-code" {
+			got = append(got, filepath.ToSlash(c.Occurrences[0].File)+" "+c.Occurrences[0].Name)
+		}
+	}
+	slices.Sort(got) // ranked by size; compare as a set
+	// Under internal/ and in package main, an exported name nobody mentions
+	// is unused. A method may satisfy an interface (ServeHTTP), main is
+	// called by the runtime, and pkg/ is importable from outside.
+	if want := "cmd/app/main.go Helper\ninternal/text/text.go CompactBlocks"; strings.Join(got, "\n") != want {
+		t.Errorf("dead code:\n%s\nwant:\n%s\nstderr: %s", strings.Join(got, "\n"), want, stderr)
 	}
 }

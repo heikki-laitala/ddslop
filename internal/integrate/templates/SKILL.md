@@ -140,7 +140,8 @@ What to do per `kind`:
   visibility (`pub(crate)`) if needed. Skip a literal that only happens to
   be spelled the same with another meaning.
 - `dead-code` (`delete-dead`): a public function of an unpublished crate
-  whose name appears nowhere else in the repository. Delete it, and
+  (Rust), or an exported function under `internal/` or in `package main`
+  (Go), whose name appears nowhere else in the repository. Delete it, and
   anything only it used. Keep it if it is meant for code outside the
   repository.
 - `pass-through` (`inline-wrapper`): the function only passes its
