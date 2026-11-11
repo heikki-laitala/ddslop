@@ -49,3 +49,19 @@ func TestEnumsGroupsEnumsWithTheSameVariants(t *testing.T) {
 		t.Errorf("groups:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+// Groups of equal size whose first enums share a file are ordered by line,
+// never by map iteration.
+func TestEnumsOrderIsDeterministic(t *testing.T) {
+	a1 := en("project.rs", "Bucket", "Hour", "Day", "Week")
+	a1.StartLine, a1.EndLine = 47, 51
+	b1 := en("project.rs", "Scope", "Token", "Account", "Org")
+	b1.StartLine, b1.EndLine = 64, 68
+	enums := []unit.Enum{a1, b1, en("reporting.rs", "Bucket", "Hour", "Day", "Week"), en("reporting.rs", "Scope", "Token", "Account", "Org")}
+	for range 50 {
+		got := Enums(enums)
+		if len(got) != 2 || got[0].Enums[0].StartLine != 47 || got[1].Enums[0].StartLine != 64 {
+			t.Fatalf("groups start at %d and %d, want 47 then 64", got[0].Enums[0].StartLine, got[1].Enums[0].StartLine)
+		}
+	}
+}

@@ -58,7 +58,7 @@ func Enums(enums []unit.Enum) []EnumGroup {
 		if c := cmp.Compare(b.DuplicatedNodes(), a.DuplicatedNodes()); c != 0 {
 			return c
 		}
-		return cmp.Compare(a.Enums[0].File, b.Enums[0].File)
+		return cmp.Or(cmp.Compare(a.Enums[0].File, b.Enums[0].File), cmp.Compare(a.Enums[0].StartLine, b.Enums[0].StartLine))
 	})
 	return groups
 }
