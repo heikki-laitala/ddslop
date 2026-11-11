@@ -766,6 +766,27 @@ func WriteJSON(w io.Writer, r Report) error {
 	return enc.Encode(r)
 }
 
+// Headline is a candidate's one-line summary: its ID and kind, its extent
+// and the suggested action.
+func Headline(c Candidate) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s", c.ID, c.Kind)
+	if c.Kind == nearMiss {
+		fmt.Fprintf(&b, " (%.0f%% similar)", 100*c.Similarity)
+	}
+	fmt.Fprintf(&b, ": %s (%d nodes), %s", size(c), c.Score.Nodes, c.Suggestion.Action)
+	switch {
+	case c.Suggestion.GoF != "":
+		fmt.Fprintf(&b, " (%s; GoF: %s)", c.Suggestion.Pattern, c.Suggestion.GoF)
+	case c.Suggestion.Pattern != "":
+		fmt.Fprintf(&b, " (%s)", c.Suggestion.Pattern)
+	}
+	if c.Suggestion.Parameters > 0 {
+		fmt.Fprintf(&b, " with %d parameter(s)", c.Suggestion.Parameters)
+	}
+	return b.String()
+}
+
 // size describes a candidate's extent: its lines, and the number of copies
 // when there are several.
 func size(c Candidate) string {
@@ -779,21 +800,7 @@ func size(c Candidate) string {
 func WriteText(w io.Writer, r Report) error {
 	var b strings.Builder
 	for _, c := range r.Candidates {
-		fmt.Fprintf(&b, "%s %s", c.ID, c.Kind)
-		if c.Kind == nearMiss {
-			fmt.Fprintf(&b, " (%.0f%% similar)", 100*c.Similarity)
-		}
-		fmt.Fprintf(&b, ": %s (%d nodes), %s", size(c), c.Score.Nodes, c.Suggestion.Action)
-		switch {
-		case c.Suggestion.GoF != "":
-			fmt.Fprintf(&b, " (%s; GoF: %s)", c.Suggestion.Pattern, c.Suggestion.GoF)
-		case c.Suggestion.Pattern != "":
-			fmt.Fprintf(&b, " (%s)", c.Suggestion.Pattern)
-		}
-		if c.Suggestion.Parameters > 0 {
-			fmt.Fprintf(&b, " with %d parameter(s)", c.Suggestion.Parameters)
-		}
-		b.WriteString("\n")
+		b.WriteString(Headline(c) + "\n")
 		for _, o := range c.Occurrences {
 			fmt.Fprintf(&b, "  %s:%d-%d %s", o.File, o.StartLine, o.EndLine, o.Name)
 			if len(o.UnmatchedLines) > 0 {
