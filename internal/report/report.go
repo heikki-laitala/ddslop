@@ -475,12 +475,7 @@ func blockCandidate(language string, b clone.BlockClone) Candidate {
 		Kind:        blockClone,
 		Similarity:  1,
 		Occurrences: make([]Occurrence, len(b.Occurrences)),
-		Score: Score{
-			Nodes:           b.Nodes,
-			Lines:           first.EndLine - first.StartLine + 1,
-			Occurrences:     len(b.Occurrences),
-			DuplicatedNodes: b.Nodes * (len(b.Occurrences) - 1),
-		},
+		Score:       copiesScore(b.Nodes, first.EndLine-first.StartLine+1, len(b.Occurrences)),
 	}
 	for i, o := range b.Occurrences {
 		c.Occurrences[i] = Occurrence{File: o.Unit.File, Name: o.Unit.Name, StartLine: o.StartLine, EndLine: o.EndLine}
@@ -590,143 +585,110 @@ func enumCandidate(language string, g clone.EnumGroup) Candidate {
 
 func constCandidate(language string, g clone.ConstGroup) Candidate {
 	first := g.Consts[0]
-	c := Candidate{
-		Fingerprint: fmt.Sprintf("%s:const:%016x", language, hashString(first.Name+"="+first.Value)),
-		Language:    language,
-		Kind:        duplicateConst,
-		Similarity:  1,
-		Differences: []Difference{},
-		Suggestion:  Suggestion{Action: reuseExisting},
-		Score: Score{
-			Nodes:           first.Nodes,
-			Lines:           1,
-			Occurrences:     len(g.Consts),
-			DuplicatedNodes: first.Nodes * (len(g.Consts) - 1),
-		},
-	}
+	var occs []Occurrence
 	for _, k := range g.Consts {
-		c.Occurrences = append(c.Occurrences, constOccurrence(k))
+		occs = append(occs, constOccurrence(k))
 	}
-	return c
+	return newCandidate(language, duplicateConst, "const", first.Name+"="+first.Value, Suggestion{Action: reuseExisting},
+		copiesScore(first.Nodes, 1, len(g.Consts)), occs)
 }
-
 func inlinedCandidate(language string, in clone.InlinedConst) Candidate {
 	target := constOccurrence(in.Const)
-	c := Candidate{
-		Fingerprint: fmt.Sprintf("%s:inline:%016x", language, hashString(in.Const.Name+"="+in.Const.Value)),
-		Language:    language,
-		Kind:        inlinedConst,
-		Similarity:  1,
-		Occurrences: []Occurrence{target},
-		Differences: []Difference{},
-		Suggestion:  Suggestion{Action: reuseExisting},
-		Score:       Score{Nodes: 1, Lines: 1, Occurrences: len(in.Uses) + 1, DuplicatedNodes: len(in.Uses)},
-		Target:      &target,
-	}
+	occs := []Occurrence{target}
 	for _, u := range in.Uses {
-		c.Occurrences = append(c.Occurrences, Occurrence{File: u.File, Name: u.Name, StartLine: u.Line, EndLine: u.Line})
+		occs = append(occs, Occurrence{File: u.File, Name: u.Name, StartLine: u.Line, EndLine: u.Line})
 	}
+	c := newCandidate(language, inlinedConst, "inline", in.Const.Name+"="+in.Const.Value, Suggestion{Action: reuseExisting},
+		Score{Nodes: 1, Lines: 1, Occurrences: len(in.Uses) + 1, DuplicatedNodes: len(in.Uses)}, occs)
+	c.Target = &target
 	return c
 }
 
 // single builds a candidate for one function to remove or flatten. Its
 // score counts the function's nodes as the code the change removes.
 func single(language, kind, action string, u unit.Unit) Candidate {
-	return Candidate{
-		Fingerprint: fmt.Sprintf("%s:%s:%016x", language, kind, hashString(u.File+"#"+u.Name)),
-		Language:    language,
-		Kind:        kind,
-		Similarity:  1,
-		Occurrences: []Occurrence{occurrence(u)},
-		Differences: []Difference{},
-		Suggestion:  Suggestion{Action: action},
-		Score:       Score{Nodes: u.Nodes, Lines: u.EndLine - u.StartLine + 1, Occurrences: 1, DuplicatedNodes: u.Nodes},
-	}
+	return newCandidate(language, kind, kind, u.File+"#"+u.Name, Suggestion{Action: action},
+		Score{Nodes: u.Nodes, Lines: u.EndLine - u.StartLine + 1, Occurrences: 1, DuplicatedNodes: u.Nodes},
+		[]Occurrence{occurrence(u)})
 }
-
 func traitCandidate(language string, s simplify.SingleImplTrait) Candidate {
 	t, im := s.Trait, s.Impl
-	return Candidate{
-		Fingerprint: fmt.Sprintf("%s:%s:%016x", language, singleImpl, hashString(t.File+"#"+t.Name)),
-		Language:    language,
-		Kind:        singleImpl,
-		Similarity:  1,
-		Occurrences: []Occurrence{
+	return newCandidate(language, singleImpl, singleImpl, t.File+"#"+t.Name, Suggestion{Action: removeTrait},
+		Score{Nodes: t.Nodes, Lines: t.EndLine - t.StartLine + 1, Occurrences: 1, DuplicatedNodes: t.Nodes},
+		[]Occurrence{
 			{File: t.File, Name: t.Name, StartLine: t.StartLine, EndLine: t.EndLine},
 			{File: im.File, Name: im.Trait + " for " + im.Type, StartLine: im.StartLine, EndLine: im.EndLine},
-		},
-		Differences: []Difference{},
-		Suggestion:  Suggestion{Action: removeTrait},
-		Score:       Score{Nodes: t.Nodes, Lines: t.EndLine - t.StartLine + 1, Occurrences: 1, DuplicatedNodes: t.Nodes},
-	}
+		})
 }
-
 func scopeCandidate(language string, g pattern.ScopeGroup) Candidate {
 	first := g.Units[0].Scope
-	c := Candidate{
-		Fingerprint: fmt.Sprintf("%s:%s:%016x", language, setupTeardown, hashString(g.Opens+".."+g.Closes)),
-		Language:    language,
-		Kind:        setupTeardown,
-		Similarity:  1,
-		Differences: []Difference{},
-		Suggestion:  Suggestion{Action: extractScope, Pattern: "closure-helper", GoF: "Template Method"},
-		Score: Score{
-			Nodes:           first.Nodes,
-			Lines:           first.EndLine - first.StartLine + 1,
-			Occurrences:     len(g.Units),
-			DuplicatedNodes: first.Nodes * (len(g.Units) - 1),
-		},
-	}
+	var occs []Occurrence
 	for _, u := range g.Units {
-		c.Occurrences = append(c.Occurrences, Occurrence{File: u.File, Name: u.Name, StartLine: u.Scope.StartLine, EndLine: u.Scope.EndLine})
+		occs = append(occs, Occurrence{File: u.File, Name: u.Name, StartLine: u.Scope.StartLine, EndLine: u.Scope.EndLine})
 	}
-	return c
+	return newCandidate(language, setupTeardown, setupTeardown, g.Opens+".."+g.Closes,
+		Suggestion{Action: extractScope, Pattern: "closure-helper", GoF: "Template Method"},
+		copiesScore(first.Nodes, first.EndLine-first.StartLine+1, len(g.Units)),
+		occs)
 }
 
 // kindCandidate proposes an enum for strings matched in many functions.
 // Its score counts one node per string arm in each extra match.
 func kindCandidate(language string, k pattern.StringKind) Candidate {
 	first := k.Matches[0]
-	c := Candidate{
-		Fingerprint: fmt.Sprintf("%s:%s:%016x", language, stringKinds, hashString(strings.Join(k.Values, "\x00"))),
-		Language:    language,
-		Kind:        stringKinds,
-		Similarity:  1,
-		Differences: []Difference{},
-		Suggestion:  Suggestion{Action: introduceEnum, Pattern: "enum"},
-		Values:      k.Values,
-		Score: Score{
-			Nodes:           len(k.Values),
-			Lines:           first.EndLine - first.StartLine + 1,
-			Occurrences:     len(k.Matches),
-			DuplicatedNodes: len(k.Values) * (len(k.Matches) - 1),
-		},
-	}
+	var occs []Occurrence
 	for _, m := range k.Matches {
-		c.Occurrences = append(c.Occurrences, Occurrence{File: m.Unit.File, Name: m.Unit.Name, StartLine: m.StartLine, EndLine: m.EndLine})
+		occs = append(occs, Occurrence{File: m.Unit.File, Name: m.Unit.Name, StartLine: m.StartLine, EndLine: m.EndLine})
 	}
+	c := newCandidate(language, stringKinds, stringKinds, strings.Join(k.Values, "\x00"), Suggestion{Action: introduceEnum, Pattern: "enum"},
+		copiesScore(len(k.Values), first.EndLine-first.StartLine+1, len(k.Matches)),
+		occs)
+	c.Values = k.Values
 	return c
 }
 
 // paramCandidate proposes one struct for parameters passed together. Its
 // score counts one node per parameter in every function but one.
 func paramCandidate(language string, g pattern.ParamGroup) Candidate {
-	c := Candidate{
-		Language:    language,
-		Kind:        paramGroup,
-		Similarity:  1,
-		Differences: []Difference{},
-		Suggestion:  Suggestion{Action: introduceParam, Pattern: "parameter-object"},
-		Score:       Score{Nodes: len(g.Params), Lines: 1, Occurrences: len(g.Units), DuplicatedNodes: g.Size()},
-	}
+	var values []string
 	for _, p := range g.Params {
-		c.Values = append(c.Values, p.Name+": "+p.Type)
+		values = append(values, p.Name+": "+p.Type)
 	}
-	c.Fingerprint = fmt.Sprintf("%s:%s:%016x", language, paramGroup, hashString(strings.Join(c.Values, "\x00")))
-	for _, u := range g.Units {
-		c.Occurrences = append(c.Occurrences, occurrence(u))
-	}
+	c := newCandidate(language, paramGroup, paramGroup, strings.Join(values, "\x00"),
+		Suggestion{Action: introduceParam, Pattern: "parameter-object"},
+		Score{Nodes: len(g.Params), Lines: 1, Occurrences: len(g.Units), DuplicatedNodes: g.Size()}, occurrences(g.Units))
+	c.Values = values
 	return c
+}
+
+// newCandidate builds a candidate without differences. Its fingerprint is
+// language:tag:hash(key), where key identifies what the occurrences share.
+func newCandidate(language, kind, tag, key string, s Suggestion, score Score, occs []Occurrence) Candidate {
+	return Candidate{
+		Fingerprint: fmt.Sprintf("%s:%s:%016x", language, tag, hashString(key)),
+		Language:    language,
+		Kind:        kind,
+		Similarity:  1,
+		Occurrences: occs,
+		Differences: []Difference{},
+		Suggestion:  s,
+		Score:       score,
+	}
+}
+
+// copiesScore scores copies of nodes and lines each: every copy but one is
+// duplication.
+func copiesScore(nodes, lines, copies int) Score {
+	return Score{Nodes: nodes, Lines: lines, Occurrences: copies, DuplicatedNodes: nodes * (copies - 1)}
+}
+
+// occurrences lists units as occurrences.
+func occurrences(units []unit.Unit) []Occurrence {
+	out := make([]Occurrence, len(units))
+	for i, u := range units {
+		out[i] = occurrence(u)
+	}
+	return out
 }
 
 func constOccurrence(k unit.Const) Occurrence {
