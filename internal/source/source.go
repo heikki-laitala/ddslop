@@ -13,10 +13,10 @@ import (
 )
 
 // Files returns the paths, relative to root and sorted, of files under root
-// whose names end in ext. Inside a Git work tree it lists tracked and
+// whose names end in one of exts. Inside a Git work tree it lists tracked and
 // untracked-but-not-ignored files, so .gitignore is respected. Elsewhere it
 // walks the directory, skipping hidden directories and "target".
-func Files(root, ext string) ([]string, error) {
+func Files(root string, exts ...string) ([]string, error) {
 	info, err := os.Stat(root)
 	if err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ func Files(root, ext string) ([]string, error) {
 
 	var out []string
 	for _, f := range files {
-		if strings.HasSuffix(f, ext) {
+		if slices.ContainsFunc(exts, func(ext string) bool { return strings.HasSuffix(f, ext) }) {
 			out = append(out, f)
 		}
 	}

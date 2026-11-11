@@ -4,9 +4,11 @@
 agent a fix it can apply.**
 
 > [!NOTE]
-> **ddslop supports Rust repositories only, for now.** Go and TypeScript
-> support is planned. On a repository in another language it finds no
-> files to analyse and reports nothing.
+> **ddslop supports Rust fully, and Go for copied code.** In Go it finds
+> exact, renamed and near-miss copies, copied blocks and shared preambles,
+> and reports duplication; Go types, constants, call graphs and the other
+> detectors are in progress. TypeScript is planned. Files in other
+> languages are not analysed.
 
 Coding agents regenerate rather than reuse. Each session that cannot see
 the helper written in the last one writes it again, a little differently:
