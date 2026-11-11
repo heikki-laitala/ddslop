@@ -90,6 +90,9 @@ type Candidate struct {
 	// there is one: the constant whose value is written inline, or the
 	// function a wrapper calls.
 	Target *Occurrence `json:"target,omitempty"`
+	// Values are what the occurrences share, when that is not code: the
+	// parameters of a parameter group, the strings of a string kind.
+	Values []string `json:"values,omitempty"`
 }
 
 // Step is one aligned step of a parallel flow: the function playing that
@@ -162,6 +165,8 @@ const (
 	extractScope   = "extract-scope"
 	stringKinds    = "string-kinds"
 	introduceEnum  = "introduce-enum"
+	paramGroup     = "parameter-group"
+	introduceParam = "introduce-parameter-object"
 	extractPre     = "extract-preamble"
 	removeTrait    = "remove-trait"
 	extractFlow    = "extract-pipeline"
@@ -193,6 +198,7 @@ type Findings struct {
 	Traits     []simplify.SingleImplTrait
 	Scopes     []pattern.ScopeGroup
 	Kinds      []pattern.StringKind
+	Params     []pattern.ParamGroup
 }
 
 // Flow is a family of features running the same pipeline through
@@ -215,7 +221,7 @@ type FlowStep struct {
 // Build turns findings into a report. Candidates are ranked by duplicated
 // nodes, largest first; on ties, they keep this order: groups, near misses,
 // block clones, flows, structs, constants, dead code, wrappers, traits,
-// scopes, string kinds. The summary's candidate count is filled in.
+// scopes, string kinds, parameter groups. The summary's candidate count is filled in.
 func Build(language string, f Findings, summary Summary) Report {
 	candidates := make([]Candidate, 0, len(f.Groups)+len(f.NearMisses)+len(f.Blocks)+len(f.Flows))
 	for _, g := range f.Groups {
@@ -259,6 +265,9 @@ func Build(language string, f Findings, summary Summary) Report {
 	}
 	for _, k := range f.Kinds {
 		candidates = append(candidates, kindCandidate(language, k))
+	}
+	for _, g := range f.Params {
+		candidates = append(candidates, paramCandidate(language, g))
 	}
 	candidates = slices.DeleteFunc(candidates, mostlyParameters)
 	slices.SortStableFunc(candidates, func(a, b Candidate) int {
@@ -684,6 +693,7 @@ func kindCandidate(language string, k pattern.StringKind) Candidate {
 		Similarity:  1,
 		Differences: []Difference{},
 		Suggestion:  Suggestion{Action: introduceEnum, Pattern: "enum"},
+		Values:      k.Values,
 		Score: Score{
 			Nodes:           len(k.Values),
 			Lines:           first.EndLine - first.StartLine + 1,
@@ -693,6 +703,27 @@ func kindCandidate(language string, k pattern.StringKind) Candidate {
 	}
 	for _, m := range k.Matches {
 		c.Occurrences = append(c.Occurrences, Occurrence{File: m.Unit.File, Name: m.Unit.Name, StartLine: m.StartLine, EndLine: m.EndLine})
+	}
+	return c
+}
+
+// paramCandidate proposes one struct for parameters passed together. Its
+// score counts one node per parameter in every function but one.
+func paramCandidate(language string, g pattern.ParamGroup) Candidate {
+	c := Candidate{
+		Language:    language,
+		Kind:        paramGroup,
+		Similarity:  1,
+		Differences: []Difference{},
+		Suggestion:  Suggestion{Action: introduceParam, Pattern: "parameter-object"},
+		Score:       Score{Nodes: len(g.Params), Lines: 1, Occurrences: len(g.Units), DuplicatedNodes: g.Size()},
+	}
+	for _, p := range g.Params {
+		c.Values = append(c.Values, p.Name+": "+p.Type)
+	}
+	c.Fingerprint = fmt.Sprintf("%s:%s:%016x", language, paramGroup, hashString(strings.Join(c.Values, "\x00")))
+	for _, u := range g.Units {
+		c.Occurrences = append(c.Occurrences, occurrence(u))
 	}
 	return c
 }

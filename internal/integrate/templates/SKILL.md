@@ -114,6 +114,12 @@ What to do per `kind`:
   boundary (`FromStr` or `TryFrom`), give it an `as_str` for the way back,
   and match on the enum. Strings that belong to an external protocol stay
   strings at the boundary only.
+- `parameter-group` (`introduce-parameter-object`, pattern
+  `parameter-object`): the occurrences are functions that all take the
+  parameters in `values`. Group them in one struct and pass that; when one
+  is a connection or context (`db`, `transaction`), a type holding it with
+  the functions as methods is often better. Leave signatures a framework
+  dictates (middleware, handlers) and small recursive helpers alone.
 - `duplicate-type`: structs with the same field names, or enums with the
   same variants (often one error enum per module). Keep one type and
   use it everywhere. Differences list field types that differ; when one

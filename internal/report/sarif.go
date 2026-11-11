@@ -24,6 +24,7 @@ var rules = []sarifRule{
 	{ID: sharedPreamble, Short: "Shared preamble that can exit early", Full: "Several functions open with the same check, which can return early (sign-in, permission, input parsing). Move it into one guard: in request handlers, an extractor or middleware that hands the handler what it needs; elsewhere, a function returning the checked value or the early result."},
 	{ID: setupTeardown, Short: "Same setup and teardown around different work", Full: "Several functions open the same kind of value at their start (a transaction, a lease) and close it at their end. Write one helper that opens the value, runs the work passed in as a closure and closes it, so no copy can forget the teardown; or an RAII guard that closes on drop."},
 	{ID: stringKinds, Short: "Strings used as kinds", Full: "Several functions match on the same set of string literals: kinds, outcomes or states passed around as strings. Introduce an enum, parse the string into it once at the boundary (FromStr or TryFrom) and give it an as_str for the way back, then match on the enum."},
+	{ID: paramGroup, Short: "Parameters passed together through many functions", Full: "Several functions take the same parameters (names and types). Group them in one struct and pass that instead; when one of them is a connection or context, consider a type holding it with the functions as methods."},
 }
 
 // ruleShort maps a candidate kind to its rule's short description.
