@@ -1,0 +1,92 @@
+name: ddslop
+description: Find the duplicated and dead code AI coding agents leave behind, and annotate pull requests with refactoring candidates.
+author: Heikki Laitala
+branding:
+  icon: scissors
+  color: purple
+
+inputs:
+  version:
+    description: ddslop release to install, such as v2026.11.11_1. Defaults to the tag this action is pinned to, else the latest release.
+    default: ""
+  path:
+    description: Repository to analyse.
+    default: "."
+  diff:
+    description: Report only candidates touching lines changed since this Git ref, such as origin/main. Needs actions/checkout with fetch-depth 0.
+    default: ""
+  baseline:
+    description: Baseline file of known duplication to leave out (see ddslop baseline).
+    default: ""
+  fail-over:
+    description: Fail only when the repository's duplication percentage is above this, instead of on any candidate.
+    default: ""
+  args:
+    description: Further arguments for ddslop check, separated by spaces.
+    default: ""
+  upload-sarif:
+    description: Upload the results to GitHub code scanning (needs the security-events write permission).
+    default: "true"
+
+outputs:
+  sarif-file:
+    description: Path of the SARIF report.
+    value: ${{ steps.check.outputs.sarif-file }}
+  exit-code:
+    description: ddslop's exit code (0 nothing to report, 1 candidates or over the limit, 2 error).
+    value: ${{ steps.check.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install ddslop
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
+        INSTALLER: ${{ github.action_path }}/install.sh
+      run: |
+        version="${VERSION:-${ACTION_REF}}"
+        case "$version" in v20*) ;; *) version=latest ;; esac
+        bash "$INSTALLER" --no-interactive --version "$version" --dir "$RUNNER_TEMP/ddslop-bin"
+
+    - name: Check
+      id: check
+      shell: bash
+      env:
+        TARGET: ${{ inputs.path }}
+        DIFF: ${{ inputs.diff }}
+        BASELINE: ${{ inputs.baseline }}
+        FAIL_OVER: ${{ inputs.fail-over }}
+        ARGS: ${{ inputs.args }}
+      run: |
+        sarif="$RUNNER_TEMP/ddslop.sarif"
+        args=(check --format sarif)
+        if [ -n "$DIFF" ]; then args+=(--diff "$DIFF"); fi
+        if [ -n "$BASELINE" ]; then args+=(--baseline "$BASELINE"); fi
+        if [ -n "$FAIL_OVER" ]; then args+=(--fail-over "$FAIL_OVER"); fi
+        read -ra extra <<<"$ARGS"
+        set +e
+        "$RUNNER_TEMP/ddslop-bin/ddslop" "${args[@]}" "${extra[@]}" "$TARGET" >"$sarif"
+        code=$?
+        set -e
+        echo "sarif-file=$sarif" >>"$GITHUB_OUTPUT"
+        echo "exit-code=$code" >>"$GITHUB_OUTPUT"
+
+    - name: Upload to code scanning
+      if: always() && inputs.upload-sarif == 'true' && steps.check.outputs.exit-code != '2'
+      uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      with:
+        sarif_file: ${{ steps.check.outputs.sarif-file }}
+        category: ddslop
+
+    - name: Result
+      shell: bash
+      env:
+        CODE: ${{ steps.check.outputs.exit-code }}
+      run: |
+        case "$CODE" in
+          0) echo "ddslop: nothing to report" ;;
+          1) echo "::error::ddslop found duplication to refactor (see the code scanning annotations or $RUNNER_TEMP/ddslop.sarif)"; exit 1 ;;
+          *) echo "::error::ddslop failed (exit code $CODE)"; exit 2 ;;
+        esac

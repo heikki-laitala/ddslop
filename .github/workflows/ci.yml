@@ -43,3 +43,42 @@ jobs:
         run: make build
       - name: Smoke test
         run: scripts/smoke-test.sh bin/ddslop
+
+  action:
+    name: Action
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Sample project with a renamed copy
+        run: |
+          mkdir -p "$RUNNER_TEMP/sample/src"
+          for name in users orders; do
+            cat > "$RUNNER_TEMP/sample/src/$name.rs" <<RUST
+          pub fn load_${name}(db: &Db, id: u64) -> Result<Row, Error> {
+              let row = db.query("SELECT * FROM ${name} WHERE id = \$1", &[&id])?;
+              let name: String = row.get(0);
+              let email: String = row.get(1);
+              if name.is_empty() {
+                  return Err(Error::NotFound(id));
+              }
+              Ok(Row { name, email })
+          }
+          RUST
+          done
+      - name: Run the action
+        id: ddslop
+        uses: ./
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/sample
+          args: --min-nodes 20
+          upload-sarif: "false"
+      - name: The action found the copy and failed
+        env:
+          OUTCOME: ${{ steps.ddslop.outcome }}
+          CODE: ${{ steps.ddslop.outputs.exit-code }}
+          SARIF: ${{ steps.ddslop.outputs.sarif-file }}
+        run: |
+          test "$OUTCOME" = failure || { echo "outcome $OUTCOME, want failure" >&2; exit 1; }
+          test "$CODE" = 1 || { echo "exit code $CODE, want 1" >&2; exit 1; }
+          grep -q '"ruleId": "renamed-clone"' "$SARIF" || { echo "the SARIF report has no renamed-clone result" >&2; cat "$SARIF"; exit 1; }
