@@ -571,15 +571,20 @@ func wordCounts(files []index.File) map[string]int {
 	return words
 }
 
-// internalCrates reports, for a file, whether its crate is unpublished
-// (see rust.Unpublished), so its public items serve only the analysed
-// code. The workspace manifest is the one at root.
+// internalCrates reports, for a file, whether its crate or package serves
+// only the analysed code (see rust.Unpublished and golang.Internal). The
+// Rust workspace manifest is the one at root.
 func internalCrates(root string, files []index.File) func(file string) bool {
 	workspace := manifest(root, ".")
 	internal := map[string]bool{}
 	for _, f := range files {
 		dir := flow.CrateOf(f.Path)
-		if _, done := internal[dir]; !done {
+		if _, done := internal[dir]; done {
+			continue
+		}
+		if languageOf(f.Path) == "go" {
+			internal[dir] = golang.Internal(f.Path, f.Decls.Package)
+		} else {
 			internal[dir] = rust.Unpublished(manifest(root, dir), workspace)
 		}
 	}

@@ -3,6 +3,7 @@ package golang
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -98,6 +99,10 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 				continue
 			}
 			switch n.Kind() {
+			case "package_clause":
+				if name := n.NamedChild(0); name != nil {
+					decls.Package = name.Utf8Text(src)
+				}
 			case "function_declaration", "method_declaration":
 				if u, ok := function(n, path, src, test); ok {
 					units = append(units, u)
@@ -118,9 +123,11 @@ func function(n *sitter.Node, path string, src []byte, test bool) (unit.Unit, bo
 	if name == nil {
 		return unit.Unit{}, false
 	}
-	full := name.Utf8Text(src)
-	if owner := receiverType(n, src); owner != "" {
-		full = owner + "." + full
+	short := name.Utf8Text(src)
+	owner := receiverType(n, src)
+	full := short
+	if owner != "" {
+		full = owner + "." + short
 	}
 	s := syntax.Flatten(n, src, grammar{})
 	return unit.Unit{
@@ -135,6 +142,11 @@ func function(n *sitter.Node, path string, src []byte, test bool) (unit.Unit, bo
 		Seq:       s.Seq,
 		SeqLines:  s.Lines,
 		Blocks:    s.Blocks,
+		// Exported names are public; methods may satisfy an interface
+		// without being named; main and init are called by the runtime.
+		Public:     short != "" && short[0] >= 'A' && short[0] <= 'Z',
+		Dispatched: owner != "",
+		External:   owner == "" && (short == "main" || short == "init"),
 	}, true
 }
 
@@ -260,4 +272,16 @@ func receiverType(n *sitter.Node, src []byte) string {
 func IsTestPath(path string) bool {
 	slashed := filepath.ToSlash(path)
 	return strings.HasSuffix(slashed, "_test.go") || strings.HasPrefix(slashed, "testdata/") || strings.Contains(slashed, "/testdata/")
+}
+
+// Internal reports whether a Go package can only be used by the analysed
+// code: it sits under an internal directory, which the go tool forbids
+// importing from outside its parent, or it is package main, which nothing
+// imports.
+func Internal(path, pkg string) bool {
+	if pkg == "main" {
+		return true
+	}
+	parts := strings.Split(filepath.ToSlash(filepath.Dir(path)), "/")
+	return slices.Contains(parts, "internal")
 }

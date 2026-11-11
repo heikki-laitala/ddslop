@@ -47,6 +47,10 @@ type Unit struct {
 	// unit: a program's main, or a function whose attributes export it or
 	// register it, such as #[no_mangle], #[tokio::main] or #[get("/")].
 	External bool
+	// Dispatched is true when the unit may be called through an interface
+	// without its name being written at the call: Go methods, which satisfy
+	// interfaces implicitly. Rust trait methods are marked by Trait.
+	Dispatched bool
 	// Forwards is set when the unit only passes its parameters on, in
 	// order and unchanged, to another function: the callee as written,
 	// such as "load", "super::load" or "self.load".
@@ -168,6 +172,9 @@ func SimpleName(path string) string {
 
 // Decls are a file's declarations other than functions.
 type Decls struct {
+	// Package is the file's package name, for languages that declare one
+	// (Go).
+	Package string
 	Structs []Struct
 	Enums   []Enum
 	Consts  []Const
@@ -268,3 +275,8 @@ func (e Enum) At() (file string, line int) { return e.File, e.StartLine }
 
 // At returns where a constant is declared.
 func (c Const) At() (file string, line int) { return c.File, c.Line }
+
+// ViaInterface reports whether a unit may be called through a trait or
+// interface rather than by name, so a missing call or a dictated signature
+// says nothing about it.
+func (u Unit) ViaInterface() bool { return u.Trait != "" || u.Dispatched }

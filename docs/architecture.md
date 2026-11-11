@@ -689,7 +689,14 @@ flattened, the other half of cleaning up generated code:
   are its API. Trait methods and functions with attributes that may call
   them from outside (`#[no_mangle]`, `#[tokio::main]`, route macros; lint,
   inline, doc, cfg and tracing attributes do not count) are left out. 6
-  candidates, each verified with grep.
+  candidates, each verified with grep. In Go, public means exported, and
+  a package serves only the analysed code when it sits under an
+  `internal` directory (which the go tool forbids importing from outside)
+  or is `package main`. Go methods are left out like trait methods, since
+  any method may satisfy an interface without its name being written
+  (`ServeHTTP`, `Error`); the unit model calls both "via interface". `main`
+  and `init` are called by the runtime. On a 100-file Go service, the one
+  exported function nobody mentioned was in a generated file, so none.
 - **Pass-through wrappers** (`pass-through`, `inline-wrapper`): a function
   whose body is one call, possibly awaited, passing its parameters on in
   order, as is or borrowed. Constructors (`Self(x)`), delegation to a field
