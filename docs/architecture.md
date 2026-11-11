@@ -1037,6 +1037,7 @@ ddslop status [path]         show what ddslop has installed in a project
 ddslop uninstall [path]      remove the agent integration (--purge: the index too)
 ddslop version               print the version
 ddslop baseline [path]       record current duplication in .ddslop-baseline.json
+ddslop similar FILE:LINE     list existing functions like the one at that line
 ```
 
 `ddslop similar FILE:LINE` answers the question an agent should ask
