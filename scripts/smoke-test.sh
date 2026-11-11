@@ -44,7 +44,10 @@ set -e
 test "$code" -eq 1 || fail "check exited $code, want 1 (a renamed copy)"
 grep -q '"kind": "renamed-clone"' "$project/report.json" || fail "check did not report the renamed copy"
 
-"$ddslop" status "$project" | grep -q '^claude: skill, instructions$' || fail "status"
+# Capture first: grep -q exits at the first match, and status writing its
+# remaining lines into the closed pipe would fail the pipeline.
+status="$("$ddslop" status "$project")" || fail "status exited non-zero"
+grep -q '^claude: skill, instructions$' <<<"$status" || fail "status"
 
 "$ddslop" uninstall --purge "$project" >/dev/null || fail "uninstall"
 test ! -e "$project/.claude/skills/ddslop" || fail "uninstall left the skill"
