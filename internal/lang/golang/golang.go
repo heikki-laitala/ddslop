@@ -36,8 +36,13 @@ var leafKinds = map[string]unit.LeafKind{
 	"iota":                       unit.Literal,
 }
 
-// grammar describes Go to the shared flattening (see syntax.Grammar).
-type grammar struct{}
+// grammar describes Go to the shared flattening (see syntax.Grammar) for
+// one function: its receiver's name, if it is a method, and the file's
+// imported package names, to tell calls apart.
+type grammar struct {
+	receiver string
+	packages map[string]bool
+}
 
 // Prefix keeps Go's symbols apart from other languages' alike-named kinds.
 func (grammar) Prefix() string { return "go:" }
@@ -70,9 +75,13 @@ func (grammar) Binds(string) bool { return true }
 
 func (grammar) Statements(kind string) bool { return kind == "statement_list" }
 
-// Visit counts early returns outside function literals.
-func (grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
+// Visit records calls and counts early returns outside function literals.
+func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	switch n.Kind() {
+	case "call_expression":
+		if c, ok := g.call(n, s.Src); ok {
+			s.Calls = append(s.Calls, c)
+		}
 	case "return_statement":
 		if s.Closures == 0 {
 			s.Exits++
@@ -84,6 +93,37 @@ func (grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	return nil
 }
 
+// call classifies a call by its callee: f(x) is a free call, a selector
+// on the receiver (s.load) a call on self, one on an imported package name
+// (json.Marshal) a path call, and any other selector a method call.
+func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
+	fn := n.ChildByFieldName("function")
+	c := unit.Call{Line: syntax.Line(n.StartPosition())}
+	switch {
+	case fn == nil:
+		return c, false
+	case fn.Kind() == "identifier":
+		c.Kind, c.Name = unit.FreeCall, fn.Utf8Text(src)
+	case fn.Kind() == "selector_expression":
+		operand, field := fn.ChildByFieldName("operand"), fn.ChildByFieldName("field")
+		if operand == nil || field == nil {
+			return c, false
+		}
+		c.Kind, c.Name = unit.MethodCall, field.Utf8Text(src)
+		if operand.Kind() == "identifier" {
+			switch name := operand.Utf8Text(src); {
+			case name == g.receiver:
+				c.Qualifier = "self"
+			case g.packages[name]:
+				c.Kind, c.Qualifier = unit.PathCall, name
+			}
+		}
+	default:
+		return c, false // function values, conversions
+	}
+	return c, true
+}
+
 // Parse parses Go source and returns one unit per function or method, in
 // source order, and its package-level declarations: structs and constants.
 // Functions containing syntax errors are skipped, and declarations inside
@@ -93,6 +133,7 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var decls unit.Decls
 	test := IsTestPath(path)
 	err := syntax.Parse(language, src, func(root *sitter.Node) {
+		packages := imports(root, src)
 		for i := uint(0); i < root.NamedChildCount(); i++ {
 			n := root.NamedChild(i)
 			if n.HasError() {
@@ -104,7 +145,7 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 					decls.Package = name.Utf8Text(src)
 				}
 			case "function_declaration", "method_declaration":
-				if u, ok := function(n, path, src, test); ok {
+				if u, ok := function(n, path, src, test, packages); ok {
 					units = append(units, u)
 				}
 			case "const_declaration":
@@ -118,7 +159,7 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 }
 
 // function makes a unit of a function or method declaration.
-func function(n *sitter.Node, path string, src []byte, test bool) (unit.Unit, bool) {
+func function(n *sitter.Node, path string, src []byte, test bool, packages map[string]bool) (unit.Unit, bool) {
 	name := n.ChildByFieldName("name")
 	if name == nil {
 		return unit.Unit{}, false
@@ -129,7 +170,7 @@ func function(n *sitter.Node, path string, src []byte, test bool) (unit.Unit, bo
 	if owner != "" {
 		full = owner + "." + short
 	}
-	s := syntax.Flatten(n, src, grammar{})
+	s := syntax.Flatten(n, src, grammar{receiver: receiverName(n, src), packages: packages})
 	return unit.Unit{
 		File:      path,
 		Name:      full,
@@ -142,6 +183,8 @@ func function(n *sitter.Node, path string, src []byte, test bool) (unit.Unit, bo
 		Seq:       s.Seq,
 		SeqLines:  s.Lines,
 		Blocks:    s.Blocks,
+		Calls:     s.Calls,
+		Forwards:  forwards(n, src),
 		// Exported names are public; methods may satisfy an interface
 		// without being named; main and init are called by the runtime.
 		Public:     short != "" && short[0] >= 'A' && short[0] <= 'Z',
@@ -243,6 +286,112 @@ func embeddedName(typ string) string {
 		typ = typ[:i]
 	}
 	return typ
+}
+
+// imports returns the names a file's imports bind: an alias, or the
+// path's last element ("encoding/json" is json; a major version suffix
+// such as /v3 is skipped).
+func imports(root *sitter.Node, src []byte) map[string]bool {
+	names := map[string]bool{}
+	var walk func(n *sitter.Node)
+	walk = func(n *sitter.Node) {
+		if n.Kind() == "import_spec" {
+			path := n.ChildByFieldName("path")
+			if alias := n.ChildByFieldName("name"); alias != nil {
+				names[alias.Utf8Text(src)] = true
+			} else if path != nil {
+				parts := strings.Split(strings.Trim(path.Utf8Text(src), "\"`"), "/")
+				last := parts[len(parts)-1]
+				if len(parts) > 1 && len(last) > 1 && last[0] == 'v' && strings.Trim(last[1:], "0123456789") == "" {
+					last = parts[len(parts)-2]
+				}
+				names[last] = true
+			}
+			return
+		}
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			walk(n.NamedChild(i))
+		}
+	}
+	for i := uint(0); i < root.NamedChildCount(); i++ {
+		if n := root.NamedChild(i); n.Kind() == "import_declaration" {
+			walk(n)
+		}
+	}
+	return names
+}
+
+// receiverName returns a method's receiver variable (s in (s *Store)), or
+// "" for a function or an unnamed receiver.
+func receiverName(n *sitter.Node, src []byte) string {
+	recv := n.ChildByFieldName("receiver")
+	if recv == nil || recv.NamedChildCount() == 0 {
+		return ""
+	}
+	if name := recv.NamedChild(0).ChildByFieldName("name"); name != nil {
+		return name.Utf8Text(src)
+	}
+	return ""
+}
+
+// forwards returns the callee when a function's whole body is one call,
+// returned or not, passing the function's parameters on in order, each as
+// is or by address: func f(a, b) { return g(a, &b) }. Calls on fields
+// (s.inner.Get(x)) do not count, and nor do functions without parameters
+// or with a variadic one.
+func forwards(fn *sitter.Node, src []byte) string {
+	params, body := fn.ChildByFieldName("parameters"), fn.ChildByFieldName("body")
+	if params == nil || body == nil || body.NamedChildCount() != 1 {
+		return ""
+	}
+	var names []string
+	for i := uint(0); i < params.NamedChildCount(); i++ {
+		p := params.NamedChild(i)
+		if p.Kind() != "parameter_declaration" {
+			return "" // variadic
+		}
+		for _, name := range fieldNodes(p, "name") {
+			names = append(names, name.Utf8Text(src))
+		}
+	}
+	stmts := body.NamedChild(0)
+	if len(names) == 0 || stmts.Kind() != "statement_list" || stmts.NamedChildCount() != 1 {
+		return ""
+	}
+	expr := stmts.NamedChild(0)
+	switch expr.Kind() {
+	case "return_statement":
+		list := expr.NamedChild(0)
+		if list == nil || list.NamedChildCount() != 1 {
+			return ""
+		}
+		expr = list.NamedChild(0)
+	case "expression_statement":
+		expr = expr.NamedChild(0)
+	}
+	if expr == nil || expr.Kind() != "call_expression" {
+		return ""
+	}
+	callee, args := expr.ChildByFieldName("function"), expr.ChildByFieldName("arguments")
+	if callee == nil || !syntax.PassesOn(args, names, src, addressOf) {
+		return ""
+	}
+	if callee.Kind() == "selector_expression" {
+		if op := callee.ChildByFieldName("operand"); op == nil || op.Kind() != "identifier" {
+			return "" // delegation to a field
+		}
+	} else if callee.Kind() != "identifier" {
+		return ""
+	}
+	return callee.Utf8Text(src)
+}
+
+// addressOf returns x for an argument &x, else nil.
+func addressOf(n *sitter.Node, src []byte) *sitter.Node {
+	if op := n.ChildByFieldName("operator"); n.Kind() == "unary_expression" && op != nil && op.Utf8Text(src) == "&" {
+		return n.ChildByFieldName("operand")
+	}
+	return nil
 }
 
 // receiverType returns a method's receiver type name, without pointer or

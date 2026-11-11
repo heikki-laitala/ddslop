@@ -2,6 +2,7 @@ package golang
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -204,5 +205,74 @@ func f() {
 	// named after its type.
 	if want := "Budget 18-22 [ID:string Name:string Limit:*int64 Mutex:sync.Mutex]"; strings.Join(structs, "\n") != want {
 		t.Errorf("structs:\n%s\nwant:\n%s", strings.Join(structs, "\n"), want)
+	}
+}
+
+func TestUnitsRecordCallsAndWhatAWrapperForwardsTo(t *testing.T) {
+	src := `package store
+
+import (
+	"encoding/json"
+	auth "example.com/app/internal/auth"
+)
+
+func (s *Store) Visible(principal string, tokenID int) bool {
+	return s.inNamespace(principal, tokenID)
+}
+
+func Decode(data []byte, v any) error {
+	return json.Unmarshal(data, v)
+}
+
+func Check(token string) error {
+	return auth.Verify(token)
+}
+
+func load(path string) *Store {
+	return open(path)
+}
+
+func (s *Store) Delegate(x int) int {
+	return s.inner.Get(x)
+}
+
+func reordered(a, b int) int {
+	return add(b, a)
+}
+
+func logged(x int) int {
+	log(x)
+	return add(x)
+}
+`
+	units, _, err := Parse("store/store.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forwards, calls []string
+	for _, u := range units {
+		if u.Forwards != "" {
+			forwards = append(forwards, u.Name+" -> "+u.Forwards)
+		}
+		for _, c := range u.Calls {
+			calls = append(calls, fmt.Sprintf("%s:%d:%s:%s", u.Name, c.Kind, c.Qualifier, c.Name))
+		}
+	}
+	wantForwards := "Store.Visible -> s.inNamespace\nDecode -> json.Unmarshal\nCheck -> auth.Verify\nload -> open"
+	if strings.Join(forwards, "\n") != wantForwards {
+		t.Errorf("wrappers:\n%s\nwant:\n%s", strings.Join(forwards, "\n"), wantForwards)
+	}
+	// A call on the receiver is a self call; one through a package name is
+	// a path call; any other selector is a method call.
+	for _, want := range []string{
+		fmt.Sprintf("Store.Visible:%d:self:inNamespace", unit.MethodCall),
+		fmt.Sprintf("Decode:%d:json:Unmarshal", unit.PathCall),
+		fmt.Sprintf("Check:%d:auth:Verify", unit.PathCall),
+		fmt.Sprintf("load:%d::open", unit.FreeCall),
+		fmt.Sprintf("Store.Delegate:%d::Get", unit.MethodCall),
+	} {
+		if !slices.Contains(calls, want) {
+			t.Errorf("calls %v lack %s", calls, want)
+		}
 	}
 }

@@ -123,6 +123,9 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 		if dir, ok := ix.crates[root]; ok && dir != CrateOf(caller.File) {
 			return only(units, ix.free[c.Name], func(u unit.Unit) bool { return CrateOf(u.File) == dir })
 		}
+		if strings.HasSuffix(caller.File, ".go") {
+			return -1 // Go qualifies only with package names: an outside package
+		}
 		return pickLocal(units, caller, ix.free[c.Name])
 	case unit.MethodCall:
 		if c.Qualifier == "self" && owner != "" {
@@ -231,13 +234,16 @@ func CrateOf(file string) string {
 	return filepath.Dir(file)
 }
 
-// split separates a unit name into its owner (simplified) and name.
+// split separates a unit name into its owner (simplified) and name: Rust
+// names methods Owner::name, Go Type.Name.
 func split(name string) (owner, short string) {
-	i := strings.LastIndex(name, "::")
-	if i < 0 {
-		return "", name
+	if i := strings.LastIndex(name, "::"); i >= 0 {
+		return unit.SimpleName(name[:i]), name[i+2:]
 	}
-	return unit.SimpleName(name[:i]), name[i+2:]
+	if i := strings.LastIndex(name, "."); i >= 0 {
+		return name[:i], name[i+1:] // Go: Type.Method
+	}
+	return "", name
 }
 
 // Entries returns the non-test units implementing one of the traits.

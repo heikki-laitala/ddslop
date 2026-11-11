@@ -492,7 +492,7 @@ func forwards(fn *sitter.Node, src []byte) string {
 		return ""
 	}
 	callee, args := expr.ChildByFieldName("function"), expr.ChildByFieldName("arguments")
-	if callee == nil || args == nil || args.NamedChildCount() != uint(len(names)) {
+	if callee == nil || !syntax.PassesOn(args, names, src, borrowed) {
 		return ""
 	}
 	switch callee.Kind() {
@@ -507,16 +507,15 @@ func forwards(fn *sitter.Node, src []byte) string {
 	default:
 		return ""
 	}
-	for i := uint(0); i < args.NamedChildCount(); i++ {
-		a := args.NamedChild(i)
-		if a.Kind() == "reference_expression" {
-			a = a.ChildByFieldName("value")
-		}
-		if a == nil || a.Kind() != "identifier" || a.Utf8Text(src) != names[i] {
-			return ""
-		}
-	}
 	return callee.Utf8Text(src)
+}
+
+// borrowed returns x for an argument &x or &mut x, else nil.
+func borrowed(n *sitter.Node, _ []byte) *sitter.Node {
+	if n.Kind() == "reference_expression" {
+		return n.ChildByFieldName("value")
+	}
+	return nil
 }
 
 // isPublic reports whether an item is declared plain pub, visible outside
