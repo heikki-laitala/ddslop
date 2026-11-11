@@ -111,6 +111,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		case "help", "-h", "--help":
 			fmt.Fprint(stdout, usage)
 			return exitClean
+		case "--version", "-version":
+			return runVersion(nil, stdout, stderr)
 		}
 		if cmd, ok := commands[args[0]]; ok {
 			return cmd(args[1:], stdout, stderr)

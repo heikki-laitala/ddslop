@@ -8,9 +8,12 @@ import (
 )
 
 func TestVersionPrintsTheVersion(t *testing.T) {
-	code, stdout, _ := run("version")
-	if code != 0 || !strings.HasPrefix(stdout, "ddslop ") || strings.TrimSpace(stdout) == "ddslop" {
-		t.Errorf("version: exit %d, output %q; want 0 and \"ddslop <version>\"", code, stdout)
+	// The command, and the flag spellings other tools accept.
+	for _, arg := range []string{"version", "--version", "-version"} {
+		code, stdout, stderr := run(arg)
+		if code != 0 || !strings.HasPrefix(stdout, "ddslop ") || strings.TrimSpace(stdout) == "ddslop" {
+			t.Errorf("%s: exit %d, output %q, stderr %q; want 0 and \"ddslop <version>\"", arg, code, stdout, stderr)
+		}
 	}
 }
 
