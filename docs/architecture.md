@@ -1053,6 +1053,7 @@ ddslop uninstall [path]      remove the agent integration (--purge: the index to
 ddslop version               print the version
 ddslop baseline [path]       record current duplication in .ddslop-baseline.json
 ddslop similar FILE:LINE     list existing functions like the one at that line
+ddslop explain ID            show one candidate in full, with its code
 ```
 
 `ddslop similar FILE:LINE` answers the question an agent should ask
@@ -1065,7 +1066,14 @@ search), most similar first. A brute-force scan with the length bound
 takes under a second warm on a 735k-line codebase, so no MinHash index
 is needed for one query.
 
-Planned: `ddslop explain <id>` (one candidate in full detail).
+`ddslop explain ID` shows one candidate in full: its summary, target,
+values and differences, and each occurrence's code with line numbers,
+lines holding a difference that becomes a parameter marked `*` and
+near-miss lines only some copies have marked `+` (the first three
+occurrences, or all with `--all`). ID is a candidate's id or its
+fingerprint; ids number the candidates of one check, so explain takes the
+same `--diff`, `--baseline` and size flags and filters the same way
+(shared with check in one function).
 
 The project commands follow pruner's CLI. `init` installs, per agent, a
 skill and a `## ddslop` section in the agent's instructions file:

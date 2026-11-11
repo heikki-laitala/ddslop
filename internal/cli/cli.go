@@ -45,6 +45,7 @@ Commands:
   baseline  record known duplication, so check --baseline reports only new
   flows     list feature entry points and the functions they reach
   similar   find existing functions like the one at FILE:LINE
+  explain   show one candidate in full, with each occurrence's code
   index     build or refresh the index at <path>/.ddslop/index.db
   init      set ddslop up for coding agents (skill, instructions, .gitignore)
   stats     describe the index without updating it
@@ -90,6 +91,7 @@ var commands = map[string]command{
 	"baseline":  runBaseline,
 	"flows":     runFlows,
 	"similar":   runSimilar,
+	"explain":   runExplain,
 	"index":     runIndex,
 	"init":      runInit,
 	"stats":     runStats,

@@ -61,6 +61,10 @@ your draft does, call it instead and delete the draft; if one nearly does,
 consider extending it. `--min-similarity` (default 0.7) and `--limit`
 (default 10) tune the list.
 
+`ddslop explain --format json <id> .` returns one candidate with the code
+of its occurrences, so you can read the copies without opening each file.
+Pass the same flags as the check that listed it.
+
 ## Reading the output
 
 Candidates are ranked by `score.duplicated_nodes`, largest first. Each has
