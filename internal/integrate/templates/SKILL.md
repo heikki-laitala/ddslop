@@ -35,7 +35,9 @@ files and test code are skipped (`--tests` includes tests).
 
 Useful flags: `--min-nodes` (default 50), `--min-block-nodes` (default
 100) and `--min-near-nodes` (default 150) set the smallest code reported,
-`--min-similarity` (default 0.8) the threshold for near misses.
+`--min-similarity` (default 0.8) the threshold for near misses. A
+repository may set them, and files to exclude, in `.ddslop.yaml`; flags
+override it.
 
 ## Checking your change
 
