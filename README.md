@@ -101,7 +101,9 @@ Duplication 7.6% (13502 of 177742 lines); 6 unused functions, 15 wrappers, 3 sin
 ```
 
 The JSON `summary.health` has the same numbers. They always describe the
-whole repository, also with `--diff` and `--baseline`.
+whole repository, also with `--diff` and `--baseline`. Each check records
+them in the index, and `ddslop stats` shows the trend: one line per
+commit or change, and how far duplication moved.
 
 To check only what a change introduced, compare against a Git ref:
 
@@ -222,7 +224,7 @@ together to install for several agents.
 | `ddslop flows [path]` | list feature entry points (methods implementing generated API traits) and the functions each reaches |
 | `ddslop index [path]` | build or refresh the index at `.ddslop/index.db` |
 | `ddslop init [path]` | set ddslop up for coding agents |
-| `ddslop stats [path]` | describe the index without updating it |
+| `ddslop stats [path]` | describe the index, and the duplication trend over past checks |
 | `ddslop status [path]` | show what ddslop has installed in a project |
 | `ddslop uninstall [path]` | remove the skills, sections and `.gitignore` entry; `--purge` also the index |
 | `ddslop version` | print the version |

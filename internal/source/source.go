@@ -100,3 +100,20 @@ func git(dir string, args ...string) ([]byte, error) {
 	}
 	return out, nil
 }
+
+// Revision names the Git commit checked out under root, short, with
+// "-dirty" when tracked files have uncommitted changes; "" outside Git.
+func Revision(root string) string {
+	if !insideGit(root) {
+		return ""
+	}
+	head, err := git(root, "rev-parse", "--short", "HEAD")
+	if err != nil {
+		return "" // a repository without commits
+	}
+	rev := strings.TrimSpace(string(head))
+	if status, err := git(root, "status", "--porcelain", "--untracked-files=no"); err == nil && len(bytes.TrimSpace(status)) > 0 {
+		rev += "-dirty"
+	}
+	return rev
+}

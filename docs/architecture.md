@@ -1027,6 +1027,15 @@ Every JSON candidate is self-contained:
   a blend hides what changed, and an agent told to raise a score might
   merge copies meant to diverge. On a 735k-line codebase it was 7.6%, on
   a 188k-line one 3.9% (SonarQube's default gate fails new code above 3%).
+  Every analysis records its health in a `health` table of the index,
+  with the time, the ddslop version and the Git revision (short commit,
+  `-dirty` with uncommitted changes); an entry equal to the latest in
+  all three adds nothing, so repeated runs do not flood it. The table is
+  separate from the indexed files, so re-indexing after an upgrade keeps
+  the history. `ddslop stats` shows the latest ten entries and the change
+  in duplication over those made by the current version, noting earlier
+  versions' entries as not comparable. Like the index, the history is
+  local to a checkout.
 
 Planned addition: typed parameter lists.
 

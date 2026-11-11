@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/integrate"
+	"github.com/heikki-laitala/ddslop/internal/report"
 )
 
 const initUsage = `usage: ddslop init [--claude] [--codex] [--copilot] [path]
@@ -178,5 +180,56 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "index: %s (%.1f MB)\n", path, float64(info.Size())/(1<<20))
 	fmt.Fprintf(stdout, "files: %d (%d generated)\n", len(files), generated)
 	fmt.Fprintf(stdout, "functions: %d (%d test)\n", functions, tests)
+	history, err := db.HealthHistory(trendEntries)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if err := writeTrend(stdout, history); err != nil {
+		return fail(stderr, err)
+	}
 	return exitClean
+}
+
+// trendEntries is how many of the latest health entries stats shows.
+const trendEntries = 10
+
+// writeTrend prints the health history, oldest first, and the change in
+// duplication over the latest entries made by one ddslop version: detection
+// rules change between versions, so earlier numbers are not comparable.
+func writeTrend(w io.Writer, history []index.HealthEntry) error {
+	if len(history) == 0 {
+		_, err := fmt.Fprintln(w, "health: no history yet; ddslop check records it")
+		return err
+	}
+	var b strings.Builder
+	b.WriteString("health history:\n")
+	healths := make([]report.Health, len(history))
+	for i, e := range history {
+		if err := json.Unmarshal(e.Data, &healths[i]); err != nil {
+			return fmt.Errorf("health history: %w", err)
+		}
+		h := healths[i]
+		revision := e.Revision
+		if revision == "" {
+			revision = "-"
+		}
+		fmt.Fprintf(&b, "  %s  %-14s %.1f%% duplicated (%d of %d lines); %d unused functions, %d wrappers  %s\n",
+			e.At.Local().Format("2006-01-02 15:04"), revision, h.DuplicationPercent, h.DuplicatedLines, h.AnalysedLines,
+			h.UnusedFunctions, h.Wrappers, e.Version)
+	}
+	last := len(history) - 1
+	first := last
+	for first > 0 && history[first-1].Version == history[last].Version {
+		first--
+	}
+	if first < last {
+		from, to := healths[first].DuplicationPercent, healths[last].DuplicationPercent
+		fmt.Fprintf(&b, "change: %.1f%% -> %.1f%% (%+.1f points) since %s\n", from, to, to-from, history[first].At.Local().Format("2006-01-02 15:04"))
+	}
+	if first > 0 {
+		fmt.Fprintf(&b, "note: entries before %s were made by another ddslop version; their numbers are not comparable\n",
+			history[first].At.Local().Format("2006-01-02 15:04"))
+	}
+	_, err := io.WriteString(w, b.String())
+	return err
 }
