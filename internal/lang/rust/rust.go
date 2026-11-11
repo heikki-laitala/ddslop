@@ -579,19 +579,25 @@ func (e *extractor) addEnum(n *sitter.Node, test bool) {
 		StartLine: syntax.Line(n.StartPosition()), EndLine: syntax.Line(n.EndPosition()),
 		Nodes: syntax.CountNodes(n), Test: test,
 	}
-	for i := uint(0); i < body.NamedChildCount(); i++ {
-		v := body.NamedChild(i)
-		vname := v.ChildByFieldName("name")
-		if v.Kind() != "enum_variant" || vname == nil {
-			continue
-		}
+	eachMember(body, "enum_variant", func(v, vname *sitter.Node) {
 		variant := unit.Variant{Name: vname.Utf8Text(e.src)}
 		if p := v.ChildByFieldName("body"); p != nil {
 			variant.Payload = syntax.Compact(p.Utf8Text(e.src))
 		}
 		en.Variants = append(en.Variants, variant)
-	}
+	})
 	e.decls.Enums = append(e.decls.Enums, en)
+}
+
+// eachMember calls each with the named children of body of a kind (enum
+// variants, struct fields) that have a name, and that name.
+func eachMember(body *sitter.Node, kind string, each func(member, name *sitter.Node)) {
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		m := body.NamedChild(i)
+		if name := m.ChildByFieldName("name"); m.Kind() == kind && name != nil {
+			each(m, name)
+		}
+	}
 }
 
 // addImpl records a trait impl; sc holds the trait implemented.
@@ -635,18 +641,15 @@ func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
 		Test:      test,
 		Converts:  serdeConversions(attrs),
 	}
-	for i := uint(0); i < body.NamedChildCount(); i++ {
-		f := body.NamedChild(i)
-		fname, ftype := f.ChildByFieldName("name"), f.ChildByFieldName("type")
-		if f.Kind() != "field_declaration" || fname == nil || ftype == nil {
-			continue
+	eachMember(body, "field_declaration", func(f, fname *sitter.Node) {
+		if ftype := f.ChildByFieldName("type"); ftype != nil {
+			ty.Fields = append(ty.Fields, unit.Field{
+				Name: fname.Utf8Text(e.src),
+				Type: syntax.Compact(ftype.Utf8Text(e.src)),
+				Line: syntax.Line(f.StartPosition()),
+			})
 		}
-		ty.Fields = append(ty.Fields, unit.Field{
-			Name: fname.Utf8Text(e.src),
-			Type: syntax.Compact(ftype.Utf8Text(e.src)),
-			Line: syntax.Line(f.StartPosition()),
-		})
-	}
+	})
 	e.decls.Structs = append(e.decls.Structs, ty)
 }
 
