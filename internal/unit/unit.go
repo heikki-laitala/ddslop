@@ -256,3 +256,15 @@ type Field struct {
 	Name, Type string
 	Line       int
 }
+
+// At returns where a unit starts.
+func (u Unit) At() (file string, line int) { return u.File, u.StartLine }
+
+// At returns where a struct starts.
+func (s Struct) At() (file string, line int) { return s.File, s.StartLine }
+
+// At returns where an enum starts.
+func (e Enum) At() (file string, line int) { return e.File, e.StartLine }
+
+// At returns where a constant is declared.
+func (c Const) At() (file string, line int) { return c.File, c.Line }

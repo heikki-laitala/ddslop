@@ -1,10 +1,10 @@
 package clone
 
 import (
-	"cmp"
 	"slices"
 	"strings"
 
+	"github.com/heikki-laitala/ddslop/internal/group"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -17,6 +17,9 @@ type StructGroup struct {
 	// differs.
 	Differences []Difference
 }
+
+// first is where the group's first copy is.
+func (g StructGroup) first() group.Located { return g.Structs[0] }
 
 // DuplicatedNodes is how many syntax nodes would disappear if all copies
 // but one were removed.
@@ -31,37 +34,12 @@ func (g StructGroup) DuplicatedNodes() int {
 // duplicated size, largest first, then by the location of their first
 // struct.
 func Structs(structs []unit.Struct, minFields int) []StructGroup {
-	byFields := map[string][]unit.Struct{}
-	for _, s := range structs {
-		if len(s.Fields) < minFields {
-			continue
-		}
-		k := fieldKey(s)
-		byFields[k] = append(byFields[k], s)
-	}
-	var groups []StructGroup
-	for _, members := range byFields {
-		members = withoutConverted(members)
-		if len(members) < 2 {
-			continue
-		}
-		slices.SortFunc(members, func(a, b unit.Struct) int {
-			if c := cmp.Compare(a.File, b.File); c != 0 {
-				return c
-			}
-			return cmp.Compare(a.StartLine, b.StartLine)
+	groups := group.Collect(structs, func(s unit.Struct) (string, bool) { return fieldKey(s), len(s.Fields) >= minFields },
+		func(_ string, members []unit.Struct) (StructGroup, bool) {
+			members = withoutConverted(members)
+			return StructGroup{Structs: members, Differences: structDifferences(members)}, len(members) >= 2
 		})
-		groups = append(groups, StructGroup{Structs: members, Differences: structDifferences(members)})
-	}
-	slices.SortFunc(groups, func(a, b StructGroup) int {
-		if c := cmp.Compare(b.DuplicatedNodes(), a.DuplicatedNodes()); c != 0 {
-			return c
-		}
-		if c := cmp.Compare(a.Structs[0].File, b.Structs[0].File); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.Structs[0].StartLine, b.Structs[0].StartLine)
-	})
+	rankGroups(groups)
 	return groups
 }
 

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/heikki-laitala/ddslop/internal/group"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
@@ -115,7 +116,7 @@ func NearMisses(units []unit.Unit, minNodes int, minSim float64, threads int) []
 		if c := cmp.Compare(y.MatchedNodes, x.MatchedNodes); c != 0 {
 			return c
 		}
-		return compareLocation(x.Units[0], y.Units[0])
+		return group.Compare(x.Units[0], y.Units[0])
 	})
 	return out
 }
@@ -144,7 +145,7 @@ func parallel(n, threads int, fn func(i int)) {
 // at least minNodes nodes, in location order.
 func representatives(units []unit.Unit, minNodes int) []unit.Unit {
 	sorted := slices.Clone(units)
-	slices.SortFunc(sorted, compareLocation)
+	slices.SortFunc(sorted, group.Compare[unit.Unit])
 	seen := map[key]bool{}
 	var reps []unit.Unit
 	for _, u := range sorted {

@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"slices"
 
+	"github.com/heikki-laitala/ddslop/internal/group"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -13,6 +14,9 @@ import (
 type Group struct {
 	Units []unit.Unit
 }
+
+// first is where the group's first copy is.
+func (g Group) first() group.Located { return g.Units[0] }
 
 // DuplicatedNodes is how many syntax nodes would disappear if all copies
 // but one were removed.
@@ -31,37 +35,10 @@ type key struct {
 // than minNodes syntax nodes. Groups are ordered by duplicated size, largest
 // first, then by the location of their first unit.
 func Groups(units []unit.Unit, minNodes int) []Group {
-	byKey := map[key][]unit.Unit{}
-	for _, x := range units {
-		if x.Nodes < minNodes {
-			continue
-		}
-		k := key{x.Shape, x.Nodes}
-		byKey[k] = append(byKey[k], x)
-	}
-
-	var groups []Group
-	for _, members := range byKey {
-		if len(members) < 2 {
-			continue
-		}
-		slices.SortFunc(members, compareLocation)
-		groups = append(groups, Group{Units: members})
-	}
-	slices.SortFunc(groups, func(a, b Group) int {
-		if c := cmp.Compare(b.DuplicatedNodes(), a.DuplicatedNodes()); c != 0 {
-			return c
-		}
-		return compareLocation(a.Units[0], b.Units[0])
-	})
+	groups := group.Collect(units, func(x unit.Unit) (key, bool) { return key{x.Shape, x.Nodes}, x.Nodes >= minNodes },
+		func(_ key, members []unit.Unit) (Group, bool) { return Group{Units: members}, len(members) >= 2 })
+	rankGroups(groups)
 	return groups
-}
-
-func compareLocation(a, b unit.Unit) int {
-	if c := cmp.Compare(a.File, b.File); c != 0 {
-		return c
-	}
-	return cmp.Compare(a.StartLine, b.StartLine)
 }
 
 // minNodesPerParameter is the least code a candidate needs per parameter.
@@ -89,4 +66,20 @@ func parameters(diffs []Difference) int {
 		}
 	}
 	return n
+}
+
+// ranked is a group of copies: its size and where it starts.
+type ranked interface {
+	DuplicatedNodes() int
+	first() group.Located
+}
+
+// rankGroups orders groups of copies by duplicated size, largest first,
+// then by the location of their first copy.
+func rankGroups[G ranked](groups []G) {
+	slices.SortFunc(groups, func(a, b G) int {
+		fa, la := a.first().At()
+		fb, lb := b.first().At()
+		return cmp.Or(cmp.Compare(b.DuplicatedNodes(), a.DuplicatedNodes()), cmp.Compare(fa, fb), cmp.Compare(la, lb))
+	})
 }

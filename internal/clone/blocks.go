@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"slices"
 
+	"github.com/heikki-laitala/ddslop/internal/group"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
@@ -105,7 +106,7 @@ type stmtRef struct{ unit, block, stmt int }
 // family), or lying mostly inside block clones kept before it.
 func BlockClones(units []unit.Unit, size BlockSize, reported [][]unit.Unit) []BlockClone {
 	sorted := slices.Clone(units)
-	slices.SortFunc(sorted, compareLocation)
+	slices.SortFunc(sorted, group.Compare[unit.Unit])
 
 	ids := map[uint64]int{}
 	var seq []int
@@ -163,7 +164,7 @@ func BlockClones(units []unit.Unit, size BlockSize, reported [][]unit.Unit) []Bl
 		if c := cmp.Compare(b.Nodes*(len(b.Occurrences)-1), a.Nodes*(len(a.Occurrences)-1)); c != 0 {
 			return c
 		}
-		return compareLocation(a.Occurrences[0].Unit, b.Occurrences[0].Unit)
+		return group.Compare(a.Occurrences[0].Unit, b.Occurrences[0].Unit)
 	})
 
 	// A clone adds nothing when its occurrences are in different functions
