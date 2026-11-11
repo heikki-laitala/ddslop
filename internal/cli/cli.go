@@ -491,6 +491,7 @@ func check(root string, opts options) (report.Report, error) {
 		Traits:   simplify.SingleImpl(decls, internal),
 		Scopes:   pattern.Scopes(units),
 		Kinds:    pattern.StringKinds(units),
+		Params:   pattern.ParameterGroups(units),
 	}, summary), nil
 }
 

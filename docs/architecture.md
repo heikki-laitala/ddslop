@@ -730,6 +730,21 @@ whether it fits.
   that two functions parsed the strings into separately; the skill tells
   agents to reuse an existing enum.
 
+- **Parameter groups** (`parameter-group`, `introduce-parameter-object`,
+  pattern `parameter-object`; Fowler's "introduce parameter object"): the
+  same parameters, names and types, taken by at least 4 functions, at
+  least 3 of them. Trait methods are left out, since the trait dictates
+  their parameters. For each set of functions sharing 3 parameters, the
+  group is everything they share, so no group repeats inside a larger one
+  taken by the same functions; then groups sharing 2 parameters are one
+  concept, represented by the largest (an ingest context taken as four
+  overlapping groups of three or four of its fields). The candidate lists
+  the parameters in `values`. Measured: 32 and 60 raw groups became 15
+  and 26, led by an ingest context in 12 functions, a worker context in 9
+  and a namespace handle with its database in 15; signatures a framework
+  dictates and recursion helpers threading state remain for the agent to
+  judge.
+
 Not built, from the same measurement: repeated error conversions as
 `impl From`. The repeated `.map_err` calls mostly go through helpers
 the code already names (`db`, `unavailable`, `store`), each choosing which

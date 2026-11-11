@@ -412,3 +412,19 @@ mod tests {
 		t.Errorf("enums:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+func TestUnitsRecordTheirParameters(t *testing.T) {
+	src := `impl Store {
+    fn write(&mut self, db: &Db, mut deadline:   Duration, (a, b): (u8, u8)) {}
+}
+`
+	var got []string
+	for _, p := range byName(t, mustUnits(t, src), "Store::write").Params {
+		got = append(got, p.Name+": "+p.Type)
+	}
+	// self is no parameter of the group kind, and a tuple pattern has no
+	// single name.
+	if want := "[db: &Db deadline: Duration]"; fmt.Sprint(got) != want {
+		t.Errorf("params = %v, want %s", got, want)
+	}
+}

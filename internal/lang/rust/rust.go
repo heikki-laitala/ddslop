@@ -299,7 +299,32 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 		Scope:     scopeOf(n, e.src),
 
 		StringMatches: s.matches,
+		Params:        params(n, e.src),
 	})
+}
+
+// params returns a function's named parameters, self and destructuring
+// patterns left out.
+func params(fn *sitter.Node, src []byte) []unit.Param {
+	list := fn.ChildByFieldName("parameters")
+	if list == nil {
+		return nil
+	}
+	var out []unit.Param
+	for i := uint(0); i < list.NamedChildCount(); i++ {
+		p := list.NamedChild(i)
+		pat, ty := p.ChildByFieldName("pattern"), p.ChildByFieldName("type")
+		if p.Kind() != "parameter" || pat == nil || ty == nil {
+			continue
+		}
+		if pat.Kind() == "mut_pattern" {
+			pat = pat.NamedChild(0)
+		}
+		if pat != nil && pat.Kind() == "identifier" {
+			out = append(out, unit.Param{Name: pat.Utf8Text(src), Type: compact(ty.Utf8Text(src))})
+		}
+	}
+	return out
 }
 
 // closers are the methods that end a value's use: committing or rolling

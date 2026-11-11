@@ -57,6 +57,15 @@ type Unit struct {
 	// StringMatches are the unit's matches with at least MinStringArms
 	// string literals among their arm patterns.
 	StringMatches []StringMatch
+	// Params are the unit's named parameters in order, without self and
+	// without patterns that bind several names.
+	Params []Param
+}
+
+// Param is one parameter: its name and its type as written, without
+// whitespace between symbols.
+type Param struct {
+	Name, Type string
 }
 
 // MinStringArms is the fewest string literals a match needs among its arm
