@@ -1188,7 +1188,6 @@ Main flags of `check`:
 | `--fail-on` | `0` | exit 1 if any candidate scores above this; `never` to only report |
 | `--baseline` | off | ignore findings already recorded in this file (`ddslop baseline` writes `.ddslop-baseline.json`) |
 | `--scip` | none | SCIP index for precise flows |
-| `--config` | `.ddslop.yaml` | configuration file |
 | `--lang` | all | restrict to `go`, `ts`, `rust` |
 | `DDSLOP_INDEX_THREADS` (environment) | half the cores | files parsed in parallel |
 
@@ -1202,22 +1201,31 @@ Main flags of `check`:
 
 ### Configuration
 
-`.ddslop.yaml` at the repository root holds everything the flags hold, plus
-include/exclude globs, generated-code markers, test-file rules and extra
-entry points:
+`.ddslop.yaml` at the analysed root holds the analysis flags' settings
+and exclude globs:
 
 ```yaml
 min-similarity: 0.75
 min-nodes: 60
+min-block-nodes: 120
+min-near-nodes: 200
+tests: false
 exclude:
   - "**/*_gen.go"
-  - "**/node_modules/**"
-tests:
-  mode: separate        # analyse | separate | skip
-  min-similarity: 0.9
-entry-points:
-  - "internal/api.Register"
+  - "crates/fake-*/**"
 ```
+
+A flag given on the command line overrides the file. Unknown keys are
+errors, so a misspelt setting is not silently ignored. Excludes are
+matched against paths relative to the root with `/` separators (`*`
+within a segment, `**` across segments, matched by a small matcher of
+ddslop's own rather than another dependency), when files are listed for
+the index, so an excluded file also leaves the index. The file is read
+with `gopkg.in/yaml.v3` (MIT and Apache-2.0).
+
+Planned when a codebase needs them: generated-code markers, test-file
+rules (analysing tests separately with their own thresholds), extra entry
+points for feature flows, and a `--config` flag for a file elsewhere.
 
 ### Adopting on an existing codebase
 

@@ -257,6 +257,23 @@ together to install for several agents.
 | `--baseline` | off | do not report duplication recorded in this baseline file |
 | `--fail-over` | off | exit 1 only when the repository's duplication percentage is above this, still reporting every candidate |
 
+Settings for a repository go in `.ddslop.yaml` at its root:
+
+```yaml
+min-nodes: 60
+min-similarity: 0.75
+tests: false
+exclude:
+  - "**/*_gen.go"
+  - "crates/fake-*/**"
+```
+
+It sets the five analysis flags above (a flag given on the command line
+still wins) and `exclude`, glob patterns of files to leave out, matched
+against paths from the root: `*` within one directory, `**` across any
+number. An unknown key is an error, so a misspelt setting does not go
+unnoticed.
+
 The index keeps parsed code between runs, so only changed files are
 parsed again. Files are parsed on half the CPU cores; set
 `DDSLOP_INDEX_THREADS` to change that.
