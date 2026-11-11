@@ -290,3 +290,41 @@ func TestBuildResolvesGoCalls(t *testing.T) {
 		}
 	}
 }
+
+// Go methods implement generated interfaces implicitly: a method named
+// like one of the interface's methods is an entry point.
+func TestEntriesIncludeGoMethodsNamedInGeneratedInterfaces(t *testing.T) {
+	handler := fn("api/server.go", "oapiServer.GetDocument")
+	handler.Dispatched = true
+	helper := fn("api/server.go", "oapiServer.helper")
+	helper.Dispatched = true
+	rustImpl := fn("src/api.rs", "Service::create")
+	rustImpl.Trait = "OrdersApi"
+	g := Build(Inputs{}, []unit.Unit{handler, helper, rustImpl, fn("api/free.go", "GetDocument")})
+
+	var got []string
+	for _, e := range g.Entries(map[string]bool{"OrdersApi": true, "GetDocument": true}) {
+		got = append(got, g.Units[e].Name)
+	}
+	if want := "[oapiServer.GetDocument Service::create]"; fmt.Sprint(got) != want {
+		t.Errorf("entries = %v, want %s", got, want)
+	}
+}
+
+// w.Header() on an http.ResponseWriter is the standard library's, even
+// when the code defines a single Header method; other names still resolve.
+func TestGoStandardLibraryMethodsAreNotGuessed(t *testing.T) {
+	units := []unit.Unit{
+		fn("api/auth.go", "writeError", method("", "Header")),
+		fn("api/writer.go", "bufferingWriter.Header"),
+		fn("api/cache.go", "lookup", method("", "fetchCached")),
+		fn("api/store.go", "cache.fetchCached"),
+	}
+	g := Build(Inputs{}, units)
+	if got := callees(g, "api/auth.go writeError"); got != "[]" {
+		t.Errorf("Go w.Header() resolved to %s, want nothing", got)
+	}
+	if got := callees(g, "api/cache.go lookup"); got != "[api/store.go cache.fetchCached]" {
+		t.Errorf("c.fetchCached() resolved to %s, want the one fetchCached method", got)
+	}
+}

@@ -741,11 +741,29 @@ func moduleDir(path string) string {
 const indexPath = ".ddslop/index.db"
 
 // parseFile parses a source file with the adapter for its language.
+// Generated code is not analysed, but the traits or interfaces it declares
+// (such as an OpenAPI server's) mark the entry points of features.
 func parseFile(path string, src []byte) (index.Parsed, error) {
-	if languageOf(path) == "go" {
-		return parseGo(path, src)
+	golangFile := languageOf(path) == "go"
+	if syntax.IsGenerated(src) {
+		entries := rust.Traits(src)
+		if golangFile {
+			entries = golang.InterfaceMethods(src)
+		}
+		return index.Parsed{Generated: true, Traits: entries, Words: source.Words(src)}, nil
 	}
-	return parseRust(path, src)
+	var parsed index.Parsed
+	var err error
+	if golangFile {
+		parsed.Units, parsed.Decls, err = golang.Parse(path, src)
+	} else {
+		parsed, err = parseRust(path, src)
+	}
+	for i := range parsed.Units {
+		parsed.Units[i].Signature = similarity.Signature(parsed.Units[i].Seq)
+	}
+	parsed.Words = source.Words(src)
+	return parsed, err
 }
 
 // languageOf names the language of a source file by its extension.
@@ -756,30 +774,11 @@ func languageOf(path string) string {
 	return "rust"
 }
 
-// parseGo extracts a Go file's units and declarations; generated files
-// are only counted.
-func parseGo(path string, src []byte) (index.Parsed, error) {
-	if syntax.IsGenerated(src) {
-		return index.Parsed{Generated: true, Words: source.Words(src)}, nil
-	}
-	units, decls, err := golang.Parse(path, src)
-	for i := range units {
-		units[i].Signature = similarity.Signature(units[i].Seq)
-	}
-	return index.Parsed{Units: units, Decls: decls, Words: source.Words(src)}, err
-}
-
+// parseRust adds what only Rust files have: out-of-line test modules, the
+// traits a file declares, and its imports.
 func parseRust(path string, src []byte) (index.Parsed, error) {
-	if syntax.IsGenerated(src) {
-		// Generated code is not analysed, but the traits it declares (such
-		// as OpenAPI server traits) mark the entry points of features.
-		return index.Parsed{Generated: true, Traits: rust.Traits(src), Words: source.Words(src)}, nil
-	}
 	units, decls, err := rust.Parse(path, src)
-	for i := range units {
-		units[i].Signature = similarity.Signature(units[i].Seq)
-	}
-	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(src), Words: source.Words(src)}
+	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(src)}
 	for _, t := range decls.Traits {
 		parsed.Traits = append(parsed.Traits, t.Name)
 	}
