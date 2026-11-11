@@ -393,6 +393,7 @@ func check(root string, opts options) (report.Report, error) {
 	summary := report.Summary{ParsedFiles: stats.Parsed, UnchangedFiles: stats.Unchanged}
 	var units []unit.Unit
 	var structs []unit.Struct
+	var enums []unit.Enum
 	var consts []unit.Const
 	var decls unit.Decls // every file's, test code included, for traits
 	for _, f := range files {
@@ -416,6 +417,11 @@ func check(root string, opts options) (report.Report, error) {
 		for _, c := range f.Decls.Consts {
 			if !c.Test || opts.tests {
 				consts = append(consts, c)
+			}
+		}
+		for _, e := range f.Decls.Enums {
+			if !e.Test || opts.tests {
+				enums = append(enums, e)
 			}
 		}
 		decls.Traits = append(decls.Traits, f.Decls.Traits...)
@@ -458,6 +464,7 @@ func check(root string, opts options) (report.Report, error) {
 	return report.Build("rust", report.Findings{
 		Groups: groups, NearMisses: nearMisses, Blocks: blocks, Flows: flows,
 		Structs:  clone.Structs(structs, minStructFields),
+		Enums:    clone.Enums(enums),
 		Consts:   clone.Constants(consts),
 		Inlined:  clone.InlinedConstants(consts, units, flow.CrateOf),
 		Dead:     simplify.Dead(units, wordCounts(files), internal),
@@ -618,6 +625,9 @@ func markTest(f *index.File) {
 	}
 	for i := range d.Consts {
 		d.Consts[i].Test = true
+	}
+	for i := range d.Enums {
+		d.Enums[i].Test = true
 	}
 	for i := range d.Traits {
 		d.Traits[i].Test = true

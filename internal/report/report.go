@@ -175,6 +175,7 @@ type Findings struct {
 	Blocks     []clone.BlockClone
 	Flows      []Flow
 	Structs    []clone.StructGroup
+	Enums      []clone.EnumGroup
 	Consts     []clone.ConstGroup
 	Inlined    []clone.InlinedConst
 	Dead       []unit.Unit
@@ -221,6 +222,9 @@ func Build(language string, f Findings, summary Summary) Report {
 	}
 	for _, s := range f.Structs {
 		candidates = append(candidates, structCandidate(language, s))
+	}
+	for _, e := range f.Enums {
+		candidates = append(candidates, enumCandidate(language, e))
 	}
 	for _, g := range f.Consts {
 		candidates = append(candidates, constCandidate(language, g))
@@ -527,6 +531,40 @@ func structCandidate(language string, g clone.StructGroup) Candidate {
 		c.Occurrences = append(c.Occurrences, Occurrence{File: s.File, Name: s.Name, StartLine: s.StartLine, EndLine: s.EndLine})
 	}
 	c.Differences, c.Suggestion = differences(g.Differences)
+	return c
+}
+
+// enumCandidate reports enums with the same variants as one duplicate
+// type; differing enum names are local.
+func enumCandidate(language string, g clone.EnumGroup) Candidate {
+	first := g.Enums[0]
+	var key strings.Builder
+	for _, v := range first.Variants {
+		key.WriteString(v.Name + v.Payload + "\x00")
+	}
+	c := Candidate{
+		Fingerprint: fmt.Sprintf("%s:enum:%016x", language, hashString(key.String())),
+		Language:    language,
+		Kind:        duplicateType,
+		Similarity:  1,
+		Differences: []Difference{},
+		Suggestion:  Suggestion{Action: reuseExisting},
+		Score: Score{
+			Nodes:           first.Nodes,
+			Lines:           first.EndLine - first.StartLine + 1,
+			Occurrences:     len(g.Enums),
+			DuplicatedNodes: g.DuplicatedNodes(),
+		},
+	}
+	names := Difference{Kind: kindIdentifier, Local: true}
+	for _, e := range g.Enums {
+		c.Occurrences = append(c.Occurrences, Occurrence{File: e.File, Name: e.Name, StartLine: e.StartLine, EndLine: e.EndLine})
+		names.Values = append(names.Values, e.Name)
+		names.Lines = append(names.Lines, []int{e.StartLine})
+	}
+	if slices.ContainsFunc(names.Values, func(n string) bool { return n != names.Values[0] }) {
+		c.Differences = append(c.Differences, names)
+	}
 	return c
 }
 

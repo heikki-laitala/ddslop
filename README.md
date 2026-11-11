@@ -129,7 +129,7 @@ Duplication:
 | `string-kinds` | the same set of 3 or more string literals matched in 3 or more functions: kinds or states passed around as strings | `introduce-enum`: an enum parsed once at the boundary (`suggestion.pattern`) |
 | `shared-preamble` | the same opening check that returns early (sign-in, permission, readiness) in 5 or more functions | `extract-preamble`: an extractor or middleware (`suggestion.pattern`; GoF: Chain of Responsibility) |
 | `parallel-flow` | features whose call graphs run the same pipeline through different functions, step by step | `extract-pipeline`: one generic handler or service with the varying steps as parameters (`suggestion.pattern`; GoF: Template Method) |
-| `duplicate-type` | structs declaring the same field names (three or more) | `reuse-existing`: keep one type; `extract-common` when field types differ, listed as differences |
+| `duplicate-type` | structs declaring the same field names (three or more), or enums declaring the same variants | `reuse-existing`: keep one type; `extract-common` when field types differ, listed as differences |
 | `duplicate-constant` | a constant declared again with the same name and value | `reuse-existing`: keep one declaration and import it |
 | `inlined-constant` | a string literal repeating the value of a constant in the same crate | `reuse-existing`: use the constant (the `target`) |
 

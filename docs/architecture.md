@@ -618,6 +618,14 @@ Rust codebase before it was built.
   struct another one names in `#[serde(try_from = "...")]`, `from` or
   `into` is left out, since validating an authored form into a checked
   type is a deliberate second type.
+- **Duplicate enums** (also `duplicate-type`): enums declaring the same
+  variants, names and payloads, in any order. Measured on both codebases:
+  three or more shared variants, or two with payloads, were one type
+  declared again (a sandbox state and a run status with the same seven
+  states; one error enum per module with the same failures, such as
+  `Environment` in four places); two bare variants (`Bind`, `Volume`)
+  were coincidences unless the enums also shared their name. 4 and 29
+  groups.
 - **Duplicate constants** (`duplicate-constant`): constants declared with
   the same name and value. The same value alone is no evidence (64 and
   1000 are everywhere); the same name too means a copy. Macro values

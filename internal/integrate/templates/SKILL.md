@@ -101,7 +101,8 @@ What to do per `kind`:
   boundary (`FromStr` or `TryFrom`), give it an `as_str` for the way back,
   and match on the enum. Strings that belong to an external protocol stay
   strings at the boundary only.
-- `duplicate-type`: structs with the same field names. Keep one type and
+- `duplicate-type`: structs with the same field names, or enums with the
+  same variants (often one error enum per module). Keep one type and
   use it everywhere. Differences list field types that differ; when one
   struct is a wire format (serde) and the other a domain type, converting
   between them at the boundary can be deliberate: skip those.

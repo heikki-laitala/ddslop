@@ -160,6 +160,7 @@ func SimpleName(path string) string {
 // Decls are a file's declarations other than functions.
 type Decls struct {
 	Structs []Struct
+	Enums   []Enum
 	Consts  []Const
 	Traits  []Trait
 	Impls   []Impl
@@ -222,6 +223,22 @@ type Struct struct {
 	// into, as simple names (#[serde(try_from = "X", from = "Y", into = "Z")]):
 	// a struct validating another is a deliberate second type, not a copy.
 	Converts []string
+}
+
+// Enum is an enum declaration with its variants in order.
+type Enum struct {
+	File               string
+	Name               string
+	StartLine, EndLine int
+	Nodes              int
+	Variants           []Variant
+	Test               bool
+}
+
+// Variant is one enum variant: its name and its payload as written,
+// without whitespace between symbols ("(String)", "{at:u64}"), or "".
+type Variant struct {
+	Name, Payload string
 }
 
 // Field is one named field of a struct, with its type as written, without
