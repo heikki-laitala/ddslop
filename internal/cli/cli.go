@@ -73,7 +73,9 @@ candidates touching lines changed since ref are reported, and the changed
 occurrences are marked: use it to check what a change introduced, for
 example "--diff HEAD" for uncommitted work or "--diff origin/main" in a
 pull request. Exits 0 when nothing is found, 1 when candidates are found,
-2 on error.
+2 on error. With --fail-over N, it exits 1 only when the repository's
+duplication percentage is above N, still reporting every candidate: a
+softer gate for an existing codebase.
 
 Flags:
 `
@@ -236,8 +238,14 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	format := fs.String("format", "", `output format, "text", "json" or "sarif" (default: text on a terminal, json otherwise)`)
 	diff := fs.String("diff", "", "only report candidates touching lines changed since this Git ref (committed, staged, unstaged and untracked)")
 	baselinePath := fs.String("baseline", "", "do not report duplication already recorded in this baseline file (see ddslop baseline)")
+	failOver := fs.Float64("fail-over", 0, "exit 1 only when the repository's duplication percentage is above this, instead of on any candidate (candidates are still reported)")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
+	}
+	limited := false
+	fs.Visit(func(f *flag.Flag) { limited = limited || f.Name == "fail-over" })
+	if limited && (*failOver < 0 || *failOver > 100) {
+		return fail(stderr, fmt.Errorf("--fail-over %v is not a percentage from 0 to 100", *failOver))
 	}
 
 	opts, err := analysis()
@@ -280,6 +288,9 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	if *diff != "" {
 		r = report.KeepChanged(r, *diff, changes.Touches)
 	}
+	if limited {
+		r.Summary.Health.Limit(*failOver)
+	}
 
 	switch *format {
 	case "text":
@@ -291,6 +302,12 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	}
 	if err != nil {
 		return fail(stderr, err)
+	}
+	if limited {
+		if r.Summary.Health.OverLimit {
+			return exitFound
+		}
+		return exitClean
 	}
 	if len(r.Candidates) > 0 {
 		return exitFound

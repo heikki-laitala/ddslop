@@ -60,6 +60,16 @@ type Health struct {
 	Wrappers           int     `json:"wrappers"`
 	SingleImplTraits   int     `json:"single_impl_traits"`
 	ParallelFlows      int     `json:"parallel_flows"`
+	// FailOver is the --fail-over limit, when one was given, and OverLimit
+	// whether the duplication percentage is above it.
+	FailOver  *float64 `json:"fail_over,omitempty"`
+	OverLimit bool     `json:"over_limit,omitempty"`
+}
+
+// Limit records a duplication percentage limit and whether it is exceeded.
+func (h *Health) Limit(limit float64) {
+	h.FailOver = &limit
+	h.OverLimit = h.DuplicationPercent > limit
 }
 
 // Candidate is one refactoring candidate: a group of copies, what differs
@@ -799,6 +809,13 @@ func WriteText(w io.Writer, r Report) error {
 	h := r.Summary.Health
 	fmt.Fprintf(&b, "\nDuplication %.1f%% (%d of %d lines); %d unused functions, %d wrappers, %d single-implementation traits, %d parallel flows\n",
 		h.DuplicationPercent, h.DuplicatedLines, h.AnalysedLines, h.UnusedFunctions, h.Wrappers, h.SingleImplTraits, h.ParallelFlows)
+	if h.FailOver != nil {
+		verdict := "within"
+		if h.OverLimit {
+			verdict = "over"
+		}
+		fmt.Fprintf(&b, "Duplication %.1f%% is %s the %.1f%% limit (--fail-over)\n", h.DuplicationPercent, verdict, *h.FailOver)
+	}
 	_, err := io.WriteString(w, b.String())
 	return err
 }

@@ -1074,6 +1074,7 @@ Main flags of `check`:
 | `--min-near-nodes` | `150` | drop near misses of functions smaller than this (never below `--min-nodes`) |
 | `--min-nodes` | `50` | drop fragments with fewer syntax nodes than this (about 6–8 lines; to be tuned) |
 | `--tests` | off | include test code, which is skipped by default |
+| `--fail-over` | off | exit 1 only when the duplication percentage (see health) is above this, instead of on any candidate |
 | `--fail-on` | `0` | exit 1 if any candidate scores above this; `never` to only report |
 | `--baseline` | off | ignore findings already recorded in this file (`ddslop baseline` writes `.ddslop-baseline.json`) |
 | `--scip` | none | SCIP index for precise flows |
