@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/heikki-laitala/ddslop/internal/group"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -20,23 +21,11 @@ type ConstGroup struct {
 // include_str!("x") means a different file in each crate, and so are
 // unnamed constants (const _), which hold compile-time assertions.
 func Constants(consts []unit.Const) []ConstGroup {
-	byKey := map[[2]string][]unit.Const{}
-	for _, c := range consts {
-		if c.Macro || c.Name == "_" {
-			continue
-		}
-		k := [2]string{c.Name, c.Value}
-		byKey[k] = append(byKey[k], c)
-	}
-	var groups []ConstGroup
-	for _, members := range byKey {
-		if len(members) < 2 {
-			continue
-		}
-		slices.SortFunc(members, compareConst)
-		groups = append(groups, ConstGroup{Consts: members})
-	}
-	slices.SortFunc(groups, func(a, b ConstGroup) int { return compareConst(a.Consts[0], b.Consts[0]) })
+	groups := group.Collect(consts, func(c unit.Const) ([2]string, bool) { return [2]string{c.Name, c.Value}, !c.Macro && c.Name != "_" },
+		func(_ [2]string, members []unit.Const) (ConstGroup, bool) {
+			return ConstGroup{Consts: members}, len(members) >= 2
+		})
+	slices.SortFunc(groups, func(a, b ConstGroup) int { return group.Compare(a.Consts[0], b.Consts[0]) })
 	return groups
 }
 
@@ -61,7 +50,7 @@ type LiteralUse struct {
 // the value, the first by location is the one to use.
 func InlinedConstants(consts []unit.Const, units []unit.Unit, crateOf func(file string) string) []InlinedConst {
 	sorted := slices.Clone(consts)
-	slices.SortFunc(sorted, compareConst)
+	slices.SortFunc(sorted, group.Compare[unit.Const])
 	byValue := map[[2]string]int{} // crate, value -> index in found
 	var found []InlinedConst
 	for _, c := range sorted {
@@ -122,11 +111,4 @@ func distinctive(literal string) bool {
 	return strings.ContainsFunc(content, func(r rune) bool {
 		return r != '_' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9')
 	})
-}
-
-func compareConst(a, b unit.Const) int {
-	if c := cmp.Compare(a.File, b.File); c != 0 {
-		return c
-	}
-	return cmp.Compare(a.Line, b.Line)
 }

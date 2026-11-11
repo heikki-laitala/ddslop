@@ -19,7 +19,7 @@ func lit(text string, line int) unit.Leaf {
 	return unit.Leaf{Kind: unit.Literal, Text: text, Line: line}
 }
 
-func group(leaves ...[]unit.Leaf) Group {
+func groupOf(leaves ...[]unit.Leaf) Group {
 	g := Group{}
 	for i, l := range leaves {
 		g.Units = append(g.Units, unit.Unit{File: fmt.Sprintf("f%d.rs", i), Leaves: l})
@@ -29,7 +29,7 @@ func group(leaves ...[]unit.Leaf) Group {
 
 func TestDifferencesOfExactCopiesIsEmpty(t *testing.T) {
 	leaves := []unit.Leaf{decl("f", 1), id("x", 2), lit("1", 2)}
-	if d := Differences(group(leaves, leaves)); len(d) != 0 {
+	if d := Differences(groupOf(leaves, leaves)); len(d) != 0 {
 		t.Errorf("exact copies have differences: %+v", d)
 	}
 }
@@ -38,7 +38,7 @@ func TestDifferencesCollapseRepeatedValues(t *testing.T) {
 	a := []unit.Leaf{decl("load", 1), lit(`"users"`, 2), id("db", 3), lit(`"users"`, 4)}
 	b := []unit.Leaf{decl("load", 10), lit(`"orders"`, 11), id("db", 12), lit(`"orders"`, 13)}
 
-	diffs := Differences(group(a, b))
+	diffs := Differences(groupOf(a, b))
 
 	if len(diffs) != 1 {
 		t.Fatalf("got %d differences, want 1: %+v", len(diffs), diffs)
@@ -59,7 +59,7 @@ func TestDifferencesMarkConsistentLocalRenames(t *testing.T) {
 	a := []unit.Leaf{decl("load_user", 1), decl("user_id", 1), id("user_id", 2)}
 	b := []unit.Leaf{decl("load_order", 5), decl("order_id", 5), id("order_id", 6)}
 
-	diffs := Differences(group(a, b))
+	diffs := Differences(groupOf(a, b))
 
 	if len(diffs) != 2 {
 		t.Fatalf("got %d differences, want 2: %+v", len(diffs), diffs)
@@ -76,7 +76,7 @@ func TestDifferencesInUsedNamesAreNotLocal(t *testing.T) {
 	a := []unit.Leaf{id("db", 1), id("get_user", 1)}
 	b := []unit.Leaf{id("db", 5), id("get_order", 5)}
 
-	diffs := Differences(group(a, b))
+	diffs := Differences(groupOf(a, b))
 
 	if len(diffs) != 1 || diffs[0].Local {
 		t.Errorf("differences = %+v, want one non-local difference", diffs)
@@ -88,7 +88,7 @@ func TestDifferencesDeclaredInOnlySomeUnitsAreNotLocal(t *testing.T) {
 	b := []unit.Leaf{decl("w", 5), id("limit", 6)} // limit comes from outside
 	c := []unit.Leaf{decl("q", 9), id("q", 10)}
 
-	diffs := Differences(group(a, b, c))
+	diffs := Differences(groupOf(a, b, c))
 
 	if len(diffs) != 2 {
 		t.Fatalf("got %d differences, want 2: %+v", len(diffs), diffs)
@@ -105,7 +105,7 @@ func TestDifferencesListEachLineOnce(t *testing.T) {
 	a := []unit.Leaf{lit("1", 3), lit("1", 3), lit("1", 4)}
 	b := []unit.Leaf{lit("2", 8), lit("2", 8), lit("2", 9)}
 
-	diffs := Differences(group(a, b))
+	diffs := Differences(groupOf(a, b))
 
 	if len(diffs) != 1 {
 		t.Fatalf("got %d differences, want 1", len(diffs))

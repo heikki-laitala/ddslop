@@ -1,10 +1,10 @@
 package clone
 
 import (
-	"cmp"
 	"slices"
 	"strings"
 
+	"github.com/heikki-laitala/ddslop/internal/group"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -13,6 +13,9 @@ import (
 type EnumGroup struct {
 	Enums []unit.Enum
 }
+
+// first is where the group's first copy is.
+func (g EnumGroup) first() group.Located { return g.Enums[0] }
 
 // DuplicatedNodes is how many syntax nodes would disappear if all copies
 // but one were removed.
@@ -33,33 +36,11 @@ const minDistinctVariants = 3
 // any order. Groups are ordered by duplicated size, largest first, then by
 // the location of their first enum.
 func Enums(enums []unit.Enum) []EnumGroup {
-	byVariants := map[string][]unit.Enum{}
-	for _, e := range enums {
-		if len(e.Variants) < 2 {
-			continue
-		}
-		k := variantKey(e)
-		byVariants[k] = append(byVariants[k], e)
-	}
-	var groups []EnumGroup
-	for _, members := range byVariants {
-		if len(members) < 2 || !copied(members) {
-			continue
-		}
-		slices.SortFunc(members, func(a, b unit.Enum) int {
-			if c := cmp.Compare(a.File, b.File); c != 0 {
-				return c
-			}
-			return cmp.Compare(a.StartLine, b.StartLine)
+	groups := group.Collect(enums, func(e unit.Enum) (string, bool) { return variantKey(e), len(e.Variants) >= 2 },
+		func(_ string, members []unit.Enum) (EnumGroup, bool) {
+			return EnumGroup{Enums: members}, len(members) >= 2 && copied(members)
 		})
-		groups = append(groups, EnumGroup{Enums: members})
-	}
-	slices.SortFunc(groups, func(a, b EnumGroup) int {
-		if c := cmp.Compare(b.DuplicatedNodes(), a.DuplicatedNodes()); c != 0 {
-			return c
-		}
-		return cmp.Or(cmp.Compare(a.Enums[0].File, b.Enums[0].File), cmp.Compare(a.Enums[0].StartLine, b.Enums[0].StartLine))
-	})
+	rankGroups(groups)
 	return groups
 }
 

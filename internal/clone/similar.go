@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"slices"
 
+	"github.com/heikki-laitala/ddslop/internal/group"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
@@ -32,7 +33,7 @@ func SimilarTo(target unit.Unit, units []unit.Unit, minSim float64) []Similar {
 		if c := cmp.Compare(b.Similarity, a.Similarity); c != 0 {
 			return c
 		}
-		return compareLocation(a.Unit, b.Unit)
+		return group.Compare(a.Unit, b.Unit)
 	})
 	return out
 }

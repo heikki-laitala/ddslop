@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"slices"
 
+	"github.com/heikki-laitala/ddslop/internal/group"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -29,31 +30,16 @@ const minScopeFunctions = 5
 // teardown around different work: one helper taking the work as a closure
 // can own both, so no copy forgets the teardown.
 func Scopes(units []unit.Unit) []ScopeGroup {
-	byKind := map[[2]string][]unit.Unit{}
-	for _, u := range units {
-		if u.Scope != nil && !u.Test {
-			k := [2]string{u.Scope.Opens, u.Scope.Closes}
-			byKind[k] = append(byKind[k], u)
+	groups := group.Collect(units, func(u unit.Unit) ([2]string, bool) {
+		if u.Scope == nil || u.Test {
+			return [2]string{}, false
 		}
-	}
-	var groups []ScopeGroup
-	for k, members := range byKind {
-		if len(members) < minScopeFunctions {
-			continue
-		}
-		slices.SortFunc(members, func(a, b unit.Unit) int {
-			if c := cmp.Compare(a.File, b.File); c != 0 {
-				return c
-			}
-			return cmp.Compare(a.StartLine, b.StartLine)
-		})
-		groups = append(groups, ScopeGroup{Opens: k[0], Closes: k[1], Units: members})
-	}
+		return [2]string{u.Scope.Opens, u.Scope.Closes}, true
+	}, func(k [2]string, members []unit.Unit) (ScopeGroup, bool) {
+		return ScopeGroup{Opens: k[0], Closes: k[1], Units: members}, len(members) >= minScopeFunctions
+	})
 	slices.SortFunc(groups, func(a, b ScopeGroup) int {
-		if c := cmp.Compare(len(b.Units), len(a.Units)); c != 0 {
-			return c
-		}
-		return cmp.Or(cmp.Compare(a.Opens, b.Opens), cmp.Compare(a.Closes, b.Closes))
+		return cmp.Or(cmp.Compare(len(b.Units), len(a.Units)), cmp.Compare(a.Opens, b.Opens), cmp.Compare(a.Closes, b.Closes))
 	})
 	return groups
 }
