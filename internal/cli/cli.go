@@ -19,6 +19,7 @@ import (
 
 	"github.com/heikki-laitala/ddslop/internal/baseline"
 	"github.com/heikki-laitala/ddslop/internal/clone"
+	"github.com/heikki-laitala/ddslop/internal/config"
 	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/lang/golang"
@@ -255,17 +256,42 @@ func runIndex(args []string, stdout, stderr io.Writer) int {
 // analysisFlags registers the flags that decide what counts as duplication,
 // shared by check and baseline so both analyse the same way. The returned
 // function reads them after parsing.
-func analysisFlags(fs *flag.FlagSet) func() (options, error) {
+// analysisFlags defines the flags that tune the analysis. The returned
+// function reads them for the repository at root: a setting in its
+// .ddslop.yaml applies unless the flag was given.
+func analysisFlags(fs *flag.FlagSet) func(root string) (options, error) {
 	minNodes := fs.Int("min-nodes", 50, "ignore functions with fewer syntax nodes than this")
 	minBlockNodes := fs.Int("min-block-nodes", 100, "ignore copied blocks inside functions with fewer syntax nodes than this (never below --min-nodes)")
 	minNearNodes := fs.Int("min-near-nodes", 150, "ignore near-miss copies of functions with fewer syntax nodes than this (never below --min-nodes)")
 	tests := fs.Bool("tests", false, "include test functions, test modules and test files")
 	minSim := fs.Float64("min-similarity", 0.8, "report near-miss copies at least this similar, above 0 and at most 1")
-	return func() (options, error) {
-		if *minSim <= 0 || *minSim > 1 {
-			return options{}, fmt.Errorf("--min-similarity %v is not above 0 and at most 1", *minSim)
+	return func(root string) (options, error) {
+		cfg, err := config.Load(root)
+		if err != nil {
+			return options{}, err
 		}
+		given := map[string]bool{}
+		fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+		from := "--min-similarity %v"
+		if !given["min-similarity"] && cfg.MinSimilarity != nil {
+			*minSim, from = *cfg.MinSimilarity, "min-similarity %v in "+config.File
+		}
+		if *minSim <= 0 || *minSim > 1 {
+			return options{}, fmt.Errorf(from+" is not above 0 and at most 1", *minSim)
+		}
+		configured(given, "min-nodes", cfg.MinNodes, minNodes)
+		configured(given, "min-block-nodes", cfg.MinBlockNodes, minBlockNodes)
+		configured(given, "min-near-nodes", cfg.MinNearNodes, minNearNodes)
+		configured(given, "tests", cfg.Tests, tests)
 		return options{minNodes: *minNodes, minBlockNodes: *minBlockNodes, minNearNodes: *minNearNodes, minSim: *minSim, tests: *tests}, nil
+	}
+}
+
+// configured sets a flag's value from the configuration file, when the
+// file sets it and the flag was not given.
+func configured[T any](given map[string]bool, name string, setting, flagValue *T) {
+	if setting != nil && !given[name] {
+		*flagValue = *setting
 	}
 }
 
@@ -285,15 +311,15 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, fmt.Errorf("--fail-over %v is not a percentage from 0 to 100", *failOver))
 	}
 
-	opts, err := analysis()
+	root, err := rootArg(fs)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	opts, err := analysis(root)
 	if err != nil {
 		return fail(stderr, err)
 	}
 	if *format, err = outputFormat(*format, stdout, "text", "json", "sarif"); err != nil {
-		return fail(stderr, err)
-	}
-	root, err := rootArg(fs)
-	if err != nil {
 		return fail(stderr, err)
 	}
 
@@ -378,11 +404,11 @@ func runBaseline(args []string, stdout, stderr io.Writer) int {
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
-	opts, err := analysis()
+	root, err := rootArg(fs)
 	if err != nil {
 		return fail(stderr, err)
 	}
-	root, err := rootArg(fs)
+	opts, err := analysis(root)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -412,12 +438,18 @@ type options struct {
 }
 
 // syncIndex opens the index under root and brings it up to date with the
-// Rust files there. The caller closes the database.
+// Rust and Go files there that .ddslop.yaml does not exclude. The caller
+// closes the database.
 func syncIndex(root string) (*index.DB, index.Stats, error) {
 	paths, err := source.Files(root, ".rs", ".go")
 	if err != nil {
 		return nil, index.Stats{}, err
 	}
+	cfg, err := config.Load(root)
+	if err != nil {
+		return nil, index.Stats{}, err
+	}
+	paths = slices.DeleteFunc(paths, func(p string) bool { return cfg.Excluded(filepath.ToSlash(p)) })
 	version, err := extractorVersion()
 	if err != nil {
 		return nil, index.Stats{}, err

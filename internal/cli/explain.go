@@ -49,19 +49,19 @@ func runExplain(args []string, stdout, stderr io.Writer) int {
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
-	opts, err := analysis()
-	if err != nil {
-		return fail(stderr, err)
-	}
-	if *format, err = outputFormat(*format, stdout, "text", "json"); err != nil {
-		return fail(stderr, err)
-	}
 	if fs.NArg() == 0 || fs.NArg() > 2 {
 		return fail(stderr, errors.New("expected a candidate id and at most one path"))
 	}
 	id, root := fs.Arg(0), "."
 	if fs.NArg() == 2 {
 		root = fs.Arg(1)
+	}
+	opts, err := analysis(root)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if *format, err = outputFormat(*format, stdout, "text", "json"); err != nil {
+		return fail(stderr, err)
 	}
 
 	r, err := filteredCheck(root, opts, *diff, *baselinePath)
