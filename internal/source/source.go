@@ -55,9 +55,19 @@ func gitFiles(root string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Tracked files deleted from the work tree but not yet committed are
+	// still listed as cached; they are gone.
+	deleted, err := git(root, "ls-files", "-z", "--deleted")
+	if err != nil {
+		return nil, err
+	}
+	gone := map[string]bool{}
+	for f := range strings.SplitSeq(string(deleted), "\x00") {
+		gone[f] = true
+	}
 	var files []string
 	for f := range strings.SplitSeq(string(out), "\x00") {
-		if f != "" {
+		if f != "" && !gone[f] {
 			files = append(files, filepath.FromSlash(f))
 		}
 	}

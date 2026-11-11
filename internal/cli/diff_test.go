@@ -101,3 +101,21 @@ func TestCheckDiffErrors(t *testing.T) {
 		t.Errorf("outside Git: exit %d, stderr %q; want 2 explaining Git is needed", code, stderr)
 	}
 }
+
+// A tracked file deleted but not yet committed is gone: Git still lists
+// it, but check must not try to read it.
+func TestCheckSkipsTrackedFilesDeletedFromTheWorkTree(t *testing.T) {
+	root := committedRepo(t, map[string]string{"a.rs": users, "b.rs": orders, "c.rs": unrelated})
+	if err := os.Remove(filepath.Join(root, "b.rs")); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", root)
+
+	if code != 0 || stderr != "" {
+		t.Fatalf("exit code %d, stderr %q; want 0 (the copy is gone with b.rs)", code, stderr)
+	}
+	if r := decode(t, stdout); r.Summary.Files != 2 {
+		t.Errorf("analysed %d files, want 2", r.Summary.Files)
+	}
+}
