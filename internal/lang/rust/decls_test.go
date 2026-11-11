@@ -385,3 +385,30 @@ fn numbers(n: u8) -> &'static str {
 		t.Errorf("string matches:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+func TestParseListsEnumsWithTheirVariants(t *testing.T) {
+	src := `pub enum NotSwept {
+    HistoryUnavailable(String),
+    Store(StoreFault),
+    Gone { at:   u64 },
+    Empty,
+}
+
+#[cfg(test)]
+mod tests {
+    enum Fixture { A, B }
+}
+`
+	var got []string
+	for _, e := range mustDecls(t, src).Enums {
+		var vs []string
+		for _, v := range e.Variants {
+			vs = append(vs, v.Name+v.Payload)
+		}
+		got = append(got, fmt.Sprintf("%s %d-%d %v test=%v", e.Name, e.StartLine, e.EndLine, vs, e.Test))
+	}
+	want := "NotSwept 1-6 [HistoryUnavailable(String) Store(StoreFault) Gone{at:u64} Empty] test=false\nFixture 10-10 [A B] test=true"
+	if strings.Join(got, "\n") != want {
+		t.Errorf("enums:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}

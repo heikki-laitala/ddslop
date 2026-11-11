@@ -187,7 +187,11 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 		e.addTypeName(n)
 		e.addStruct(n, test, own)
 		return
-	case "enum_item", "union_item", "type_item":
+	case "enum_item":
+		e.addTypeName(n)
+		e.addEnum(n, test)
+		return
+	case "union_item", "type_item":
 		e.addTypeName(n)
 		return
 	case "const_item", "static_item":
@@ -509,6 +513,32 @@ func (e *extractor) addTypeName(n *sitter.Node) {
 	if name := n.ChildByFieldName("name"); name != nil {
 		e.decls.TypeNames = append(e.decls.TypeNames, name.Utf8Text(e.src))
 	}
+}
+
+// addEnum records an enum and its variants.
+func (e *extractor) addEnum(n *sitter.Node, test bool) {
+	name, body := n.ChildByFieldName("name"), n.ChildByFieldName("body")
+	if name == nil || body == nil || n.HasError() {
+		return
+	}
+	en := unit.Enum{
+		File: e.path, Name: name.Utf8Text(e.src),
+		StartLine: line(n.StartPosition()), EndLine: line(n.EndPosition()),
+		Nodes: countNodes(n), Test: test,
+	}
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		v := body.NamedChild(i)
+		vname := v.ChildByFieldName("name")
+		if v.Kind() != "enum_variant" || vname == nil {
+			continue
+		}
+		variant := unit.Variant{Name: vname.Utf8Text(e.src)}
+		if p := v.ChildByFieldName("body"); p != nil {
+			variant.Payload = compact(p.Utf8Text(e.src))
+		}
+		en.Variants = append(en.Variants, variant)
+	}
+	e.decls.Enums = append(e.decls.Enums, en)
 }
 
 // addImpl records a trait impl; sc holds the trait implemented.
