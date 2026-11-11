@@ -2,8 +2,6 @@
 package rust
 
 import (
-	"errors"
-	"hash/fnv"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -12,11 +10,54 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	rustgrammar "github.com/tree-sitter/tree-sitter-rust/bindings/go"
 
+	"github.com/heikki-laitala/ddslop/internal/lang/syntax"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
 var language = sitter.NewLanguage(rustgrammar.Language())
+
+// grammar describes Rust to the shared flattening (see syntax.Grammar).
+type grammar struct{}
+
+var rustGrammar grammar
+
+func (grammar) Leaf(kind string) (unit.LeafKind, bool) {
+	k, ok := leafKinds[kind]
+	return k, ok
+}
+
+func (grammar) Declares(parent string, parentDeclares bool, field, child string) bool {
+	return childDeclares(parent, parentDeclares, field, child)
+}
+
+// Binds: in Rust patterns, capitalised names are variants or constants.
+func (grammar) Binds(name string) bool { return !isUpper(name) }
+
+func (grammar) Statements(kind string) bool { return kind == "block" }
+
+// Visit records calls, matches on strings and early returns (a return or
+// a let-else outside closures).
+func (grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
+	switch n.Kind() {
+	case "call_expression":
+		recordCall(s, n)
+	case "match_expression":
+		recordMatch(s, n)
+	case "return_expression":
+		if s.Closures == 0 {
+			s.Exits++
+		}
+	case "let_declaration":
+		if s.Closures == 0 && n.ChildByFieldName("alternative") != nil {
+			s.Exits++ // let-else
+		}
+	case "closure_expression":
+		s.Closures++
+		return func() { s.Closures-- }
+	}
+	return nil
+}
 
 // leafKinds maps tree-sitter node kinds that are blanked out to their
 // leaf kind. Literal kinds are taken whole, without descending into them.
@@ -47,7 +88,7 @@ func Units(path string, src []byte) ([]unit.Unit, error) {
 func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var units []unit.Unit
 	var decls unit.Decls
-	err := parse(src, func(root *sitter.Node) {
+	err := syntax.Parse(language, src, func(root *sitter.Node) {
 		e := extractor{path: path, src: src}
 		e.walk(root, scope{}, IsTestPath(path), nil)
 		units, decls = e.units, e.decls
@@ -70,7 +111,7 @@ func Traits(src []byte) []string {
 // Wildcard imports and imports inside #[cfg(test)] modules are skipped.
 func Imports(src []byte) map[string]string {
 	out := map[string]string{}
-	_ = parse(src, func(root *sitter.Node) {
+	_ = syntax.Parse(language, src, func(root *sitter.Node) {
 		var walk func(n *sitter.Node)
 		walk = func(n *sitter.Node) {
 			if n.Kind() == "use_declaration" {
@@ -146,22 +187,6 @@ func lastSegment(path string) string {
 	return path
 }
 
-// parse parses Rust source and calls use with the root of its syntax tree.
-func parse(src []byte, use func(root *sitter.Node)) error {
-	parser := sitter.NewParser()
-	defer parser.Close()
-	if err := parser.SetLanguage(language); err != nil {
-		return err
-	}
-	tree := parser.Parse(src, nil)
-	if tree == nil {
-		return errors.New("rust: parser returned no tree")
-	}
-	defer tree.Close()
-	use(tree.RootNode())
-	return nil
-}
-
 type extractor struct {
 	path  string
 	src   []byte
@@ -212,8 +237,8 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 		if t := n.ChildByFieldName("name"); t != nil {
 			sc.owner = t.Utf8Text(e.src)
 			e.decls.Traits = append(e.decls.Traits, unit.Trait{
-				File: e.path, Name: sc.owner, StartLine: line(n.StartPosition()), EndLine: line(n.EndPosition()),
-				Nodes: countNodes(n), Public: isPublic(n, e.src), Test: test,
+				File: e.path, Name: sc.owner, StartLine: syntax.Line(n.StartPosition()), EndLine: syntax.Line(n.EndPosition()),
+				Nodes: syntax.CountNodes(n), Public: isPublic(n, e.src), Test: test,
 			})
 		}
 		sc.trait = ""
@@ -277,28 +302,27 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 	if owner != "" {
 		name = owner + "::" + name
 	}
-	s := shaper{src: e.src}
-	s.visit(n, false)
+	s := syntax.Flatten(n, e.src, rustGrammar)
 	e.units = append(e.units, unit.Unit{
 		File:      e.path,
 		Name:      name,
-		StartLine: line(n.StartPosition()),
-		EndLine:   line(n.EndPosition()),
-		Shape:     similarity.HashSymbols(s.seq),
-		Nodes:     s.nodes,
+		StartLine: syntax.Line(n.StartPosition()),
+		EndLine:   syntax.Line(n.EndPosition()),
+		Shape:     similarity.HashSymbols(s.Seq),
+		Nodes:     s.Nodes,
 		Test:      test,
-		Leaves:    s.leaves,
-		Seq:       s.seq,
-		SeqLines:  s.lines,
-		Blocks:    s.blocks,
+		Leaves:    s.Leaves,
+		Seq:       s.Seq,
+		SeqLines:  s.Lines,
+		Blocks:    s.Blocks,
 		Trait:     sc.trait,
-		Calls:     s.calls,
+		Calls:     s.Calls,
 		Public:    isPublic(n, e.src),
 		External:  (owner == "" && name == "main") || slices.ContainsFunc(attrs, isExternalAttr),
 		Forwards:  forwards(n, e.src),
 		Scope:     scopeOf(n, e.src),
 
-		StringMatches: s.matches,
+		StringMatches: s.Matches,
 		Params:        params(n, e.src),
 	})
 }
@@ -321,7 +345,7 @@ func params(fn *sitter.Node, src []byte) []unit.Param {
 			pat = pat.NamedChild(0)
 		}
 		if pat != nil && pat.Kind() == "identifier" {
-			out = append(out, unit.Param{Name: pat.Utf8Text(src), Type: compact(ty.Utf8Text(src))})
+			out = append(out, unit.Param{Name: pat.Utf8Text(src), Type: syntax.Compact(ty.Utf8Text(src))})
 		}
 	}
 	return out
@@ -361,8 +385,8 @@ func scopeOf(fn *sitter.Node, src []byte) *unit.Scope {
 			if closes := closing(stmts[j], name, src); closes != "" {
 				return &unit.Scope{
 					Opens: opens, Closes: closes,
-					StartLine: line(stmts[i].StartPosition()), EndLine: line(stmts[j].EndPosition()),
-					Nodes: countNodes(stmts[i]) + countNodes(stmts[j]),
+					StartLine: syntax.Line(stmts[i].StartPosition()), EndLine: syntax.Line(stmts[j].EndPosition()),
+					Nodes: syntax.CountNodes(stmts[i]) + syntax.CountNodes(stmts[j]),
 				}
 			}
 		}
@@ -548,8 +572,8 @@ func (e *extractor) addEnum(n *sitter.Node, test bool) {
 	}
 	en := unit.Enum{
 		File: e.path, Name: name.Utf8Text(e.src),
-		StartLine: line(n.StartPosition()), EndLine: line(n.EndPosition()),
-		Nodes: countNodes(n), Test: test,
+		StartLine: syntax.Line(n.StartPosition()), EndLine: syntax.Line(n.EndPosition()),
+		Nodes: syntax.CountNodes(n), Test: test,
 	}
 	for i := uint(0); i < body.NamedChildCount(); i++ {
 		v := body.NamedChild(i)
@@ -559,7 +583,7 @@ func (e *extractor) addEnum(n *sitter.Node, test bool) {
 		}
 		variant := unit.Variant{Name: vname.Utf8Text(e.src)}
 		if p := v.ChildByFieldName("body"); p != nil {
-			variant.Payload = compact(p.Utf8Text(e.src))
+			variant.Payload = syntax.Compact(p.Utf8Text(e.src))
 		}
 		en.Variants = append(en.Variants, variant)
 	}
@@ -586,7 +610,7 @@ func (e *extractor) addImpl(n *sitter.Node, sc scope, test bool) {
 	}
 	e.decls.Impls = append(e.decls.Impls, unit.Impl{
 		File: e.path, Trait: sc.trait, Type: ty,
-		StartLine: line(n.StartPosition()), EndLine: line(n.EndPosition()),
+		StartLine: syntax.Line(n.StartPosition()), EndLine: syntax.Line(n.EndPosition()),
 		Blanket: blanket, Test: test,
 	})
 }
@@ -601,9 +625,9 @@ func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
 	ty := unit.Struct{
 		File:      e.path,
 		Name:      name.Utf8Text(e.src),
-		StartLine: line(n.StartPosition()),
-		EndLine:   line(n.EndPosition()),
-		Nodes:     countNodes(n),
+		StartLine: syntax.Line(n.StartPosition()),
+		EndLine:   syntax.Line(n.EndPosition()),
+		Nodes:     syntax.CountNodes(n),
 		Test:      test,
 		Converts:  serdeConversions(attrs),
 	}
@@ -615,8 +639,8 @@ func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
 		}
 		ty.Fields = append(ty.Fields, unit.Field{
 			Name: fname.Utf8Text(e.src),
-			Type: compact(ftype.Utf8Text(e.src)),
-			Line: line(f.StartPosition()),
+			Type: syntax.Compact(ftype.Utf8Text(e.src)),
+			Line: syntax.Line(f.StartPosition()),
 		})
 	}
 	e.decls.Structs = append(e.decls.Structs, ty)
@@ -631,14 +655,14 @@ func (e *extractor) addConst(n *sitter.Node, test bool) {
 	literal := value.Kind() == "string_literal"
 	text := value.Utf8Text(e.src)
 	if !literal {
-		text = compact(text)
+		text = syntax.Compact(text)
 	}
 	e.decls.Consts = append(e.decls.Consts, unit.Const{
 		File:    e.path,
 		Name:    name.Utf8Text(e.src),
 		Value:   text,
-		Line:    line(n.StartPosition()),
-		Nodes:   countNodes(value),
+		Line:    syntax.Line(n.StartPosition()),
+		Nodes:   syntax.CountNodes(value),
 		Literal: literal,
 		Macro:   value.Kind() == "macro_invocation",
 		Test:    test,
@@ -663,58 +687,8 @@ func serdeConversions(attrs []string) []string {
 	return names
 }
 
-// compact removes whitespace from code, keeping one space where it
-// separates two words: "Option<Vec< u8 >>" becomes "Option<Vec<u8>>" and
-// "&'static   str" becomes "&'static str".
-func compact(code string) string {
-	var b strings.Builder
-	for i, part := range strings.Fields(code) {
-		if i > 0 && isWordEnd(b.String()) && isWordStart(part) {
-			b.WriteByte(' ')
-		}
-		b.WriteString(part)
-	}
-	return b.String()
-}
-
-func isWordByte(c byte) bool {
-	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
-}
-
-func isWordEnd(s string) bool   { return s != "" && isWordByte(s[len(s)-1]) }
-func isWordStart(s string) bool { return s != "" && isWordByte(s[0]) }
-
-// countNodes counts the syntax nodes of a subtree, comments left out.
-func countNodes(n *sitter.Node) int {
-	if n.IsExtra() {
-		return 0
-	}
-	count := 1
-	for i := uint(0); i < n.ChildCount(); i++ {
-		count += countNodes(n.Child(i))
-	}
-	return count
-}
-
-// shaper flattens a subtree into a symbol sequence and collects its
-// blanked-out leaves.
-type shaper struct {
-	src    []byte
-	nodes  int
-	leaves []unit.Leaf
-	seq    []uint32
-	lines  []int
-	blocks [][]unit.Statement
-	calls  []unit.Call
-	// matches are the matches on string literals.
-	matches []unit.StringMatch
-	// exits counts the early returns seen so far, and closures how deep in
-	// closures the walk is: a return in a closure leaves the closure.
-	exits, closures int
-}
-
 // recordCall notes a call expression by the shape of its function.
-func (s *shaper) recordCall(n *sitter.Node) {
+func recordCall(s *syntax.Shaper, n *sitter.Node) {
 	fn := n.ChildByFieldName("function")
 	for fn != nil && fn.Kind() == "generic_function" {
 		fn = fn.ChildByFieldName("function") // turbofish: f::<T>(...)
@@ -722,22 +696,22 @@ func (s *shaper) recordCall(n *sitter.Node) {
 	if fn == nil {
 		return
 	}
-	c := unit.Call{Line: line(n.StartPosition())}
+	c := unit.Call{Line: syntax.Line(n.StartPosition())}
 	switch fn.Kind() {
 	case "identifier":
-		c.Kind, c.Name = unit.FreeCall, fn.Utf8Text(s.src)
+		c.Kind, c.Name = unit.FreeCall, fn.Utf8Text(s.Src)
 	case "scoped_identifier":
 		c.Kind = unit.PathCall
 		if name := fn.ChildByFieldName("name"); name != nil {
-			c.Name = name.Utf8Text(s.src)
+			c.Name = name.Utf8Text(s.Src)
 		}
 		if path := fn.ChildByFieldName("path"); path != nil {
-			c.Qualifier = path.Utf8Text(s.src)
+			c.Qualifier = path.Utf8Text(s.Src)
 		}
 	case "field_expression":
 		c.Kind = unit.MethodCall
 		if field := fn.ChildByFieldName("field"); field != nil {
-			c.Name = field.Utf8Text(s.src)
+			c.Name = field.Utf8Text(s.Src)
 		}
 		if value := fn.ChildByFieldName("value"); value != nil && value.Kind() == "self" {
 			c.Qualifier = "self"
@@ -745,13 +719,13 @@ func (s *shaper) recordCall(n *sitter.Node) {
 	default:
 		return // closures and other callees are not resolved by name
 	}
-	s.calls = append(s.calls, c)
+	s.Calls = append(s.Calls, c)
 }
 
 // recordMatch notes a match whose arm patterns hold at least
 // unit.MinStringArms string literals, alone or in or-patterns. Guards are
 // not patterns.
-func (s *shaper) recordMatch(n *sitter.Node) {
+func recordMatch(s *syntax.Shaper, n *sitter.Node) {
 	body := n.ChildByFieldName("body")
 	if body == nil {
 		return
@@ -761,7 +735,7 @@ func (s *shaper) recordMatch(n *sitter.Node) {
 	collect = func(p *sitter.Node) {
 		switch p.Kind() {
 		case "string_literal", "raw_string_literal":
-			values = append(values, p.Utf8Text(s.src))
+			values = append(values, p.Utf8Text(s.Src))
 		case "or_pattern":
 			for i := uint(0); i < p.NamedChildCount(); i++ {
 				collect(p.NamedChild(i))
@@ -780,77 +754,8 @@ func (s *shaper) recordMatch(n *sitter.Node) {
 	slices.Sort(values)
 	values = slices.Compact(values)
 	if len(values) >= unit.MinStringArms {
-		s.matches = append(s.matches, unit.StringMatch{Values: values, StartLine: line(n.StartPosition()), EndLine: line(n.EndPosition())})
+		s.Matches = append(s.Matches, unit.StringMatch{Values: values, StartLine: syntax.Line(n.StartPosition()), EndLine: syntax.Line(n.EndPosition())})
 	}
-}
-
-func (s *shaper) emit(sym uint32, line int) {
-	s.seq = append(s.seq, sym)
-	s.lines = append(s.lines, line)
-}
-
-// kindSymbol maps a node kind to a Seq symbol. The top bit keeps it apart
-// from unit.Close and the leaf symbols.
-func kindSymbol(kind string) uint32 {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(kind))
-	return h.Sum32() | 1<<31
-}
-
-func (s *shaper) visit(n *sitter.Node, declares bool) {
-	if n.IsExtra() {
-		return // comments
-	}
-	s.nodes++
-	if kind, ok := leafKinds[n.Kind()]; ok {
-		s.emit(unit.LeafSymbol(kind), line(n.StartPosition()))
-		text := n.Utf8Text(s.src)
-		s.leaves = append(s.leaves, unit.Leaf{
-			Kind:     kind,
-			Text:     text,
-			Line:     line(n.StartPosition()),
-			Declares: declares && kind == unit.Identifier && !isUpper(text),
-		})
-		return
-	}
-	s.emit(kindSymbol(n.Kind()), line(n.StartPosition()))
-	switch n.Kind() {
-	case "call_expression":
-		s.recordCall(n)
-	case "match_expression":
-		s.recordMatch(n)
-	case "return_expression":
-		if s.closures == 0 {
-			s.exits++
-		}
-	case "let_declaration":
-		if s.closures == 0 && n.ChildByFieldName("alternative") != nil {
-			s.exits++ // let-else
-		}
-	case "closure_expression":
-		s.closures++
-		defer func() { s.closures-- }()
-	}
-	block := -1
-	if n.Kind() == "block" {
-		block = len(s.blocks)
-		s.blocks = append(s.blocks, nil) // reserve the slot: blocks stay in pre-order
-	}
-	for i := uint(0); i < n.ChildCount(); i++ {
-		child := n.Child(i)
-		field := n.FieldNameForChild(uint32(i))
-		statement := block >= 0 && !child.IsExtra() && child.Kind() != "{" && child.Kind() != "}"
-		st := unit.Statement{SeqStart: len(s.seq), LeafStart: len(s.leaves), Nodes: s.nodes}
-		exits := s.exits
-		s.visit(child, childDeclares(n.Kind(), declares, field, child.Kind()))
-		if statement {
-			st.SeqEnd, st.LeafEnd, st.Nodes = len(s.seq), len(s.leaves), s.nodes-st.Nodes
-			st.StartLine, st.EndLine = line(child.StartPosition()), line(child.EndPosition())
-			st.Exits = s.exits > exits
-			s.blocks[block] = append(s.blocks[block], st)
-		}
-	}
-	s.emit(unit.Close, line(n.EndPosition()))
 }
 
 // childDeclares reports whether a child sits in a position that introduces
@@ -880,11 +785,6 @@ func childDeclares(parent string, parentDeclares bool, field, child string) bool
 // Rust patterns such names are enum variants or constants, not bindings.
 func isUpper(name string) bool {
 	return name != "" && name[0] >= 'A' && name[0] <= 'Z'
-}
-
-// line converts a tree-sitter position to a 1-based line number.
-func line(p sitter.Point) int {
-	return int(p.Row) + 1 //nolint:gosec // a row count always fits in int
 }
 
 // IsGenerated reports whether a file is marked as generated in its leading
@@ -954,7 +854,7 @@ func CrateName(cargoToml []byte) string {
 // Only declarations at the top level of the file are considered.
 func TestModules(src []byte) []string {
 	var names []string
-	_ = parse(src, func(root *sitter.Node) {
+	_ = syntax.Parse(language, src, func(root *sitter.Node) {
 		var attrs []string
 		for i := uint(0); i < root.ChildCount(); i++ {
 			child := root.Child(i)
