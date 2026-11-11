@@ -757,11 +757,7 @@ func recordMatch(s *syntax.Shaper, n *sitter.Node) {
 			collect(pat.NamedChild(0)) // the pattern, before any guard
 		}
 	}
-	slices.Sort(values)
-	values = slices.Compact(values)
-	if len(values) >= unit.MinStringArms {
-		s.Matches = append(s.Matches, unit.StringMatch{Values: values, StartLine: syntax.Line(n.StartPosition()), EndLine: syntax.Line(n.EndPosition())})
-	}
+	s.RecordStringMatch(n, values)
 }
 
 // childDeclares reports whether a child sits in a position that introduces

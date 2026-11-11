@@ -82,6 +82,20 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		if c, ok := g.call(n, s.Src); ok {
 			s.Calls = append(s.Calls, c)
 		}
+	case "expression_switch_statement":
+		var values []string
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			if c := n.NamedChild(i); c.Kind() == "expression_case" {
+				for _, v := range fieldNodes(c, "value") {
+					for j := uint(0); j < v.NamedChildCount(); j++ {
+						if lit := v.NamedChild(j); lit.Kind() == "interpreted_string_literal" || lit.Kind() == "raw_string_literal" {
+							values = append(values, lit.Utf8Text(s.Src))
+						}
+					}
+				}
+			}
+		}
+		s.RecordStringMatch(n, values)
 	case "return_statement":
 		if s.Closures == 0 {
 			s.Exits++
@@ -185,6 +199,9 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 		Blocks:    s.Blocks,
 		Calls:     s.Calls,
 		Forwards:  forwards(n, src),
+		Params:    params(n, src),
+
+		StringMatches: s.Matches,
 		// Exported names are public; methods may satisfy an interface
 		// without being named; main and init are called by the runtime.
 		Public:     short != "" && short[0] >= 'A' && short[0] <= 'Z',
@@ -392,6 +409,25 @@ func addressOf(n *sitter.Node, src []byte) *sitter.Node {
 		return n.ChildByFieldName("operand")
 	}
 	return nil
+}
+
+// params returns a function's parameters that could be grouped, the
+// receiver aside: a, b int gives two. A context.Context is left out, since
+// Go passes it explicitly and never stores it in a struct.
+func params(fn *sitter.Node, src []byte) []unit.Param {
+	list := fn.ChildByFieldName("parameters")
+	var out []unit.Param
+	for i := uint(0); list != nil && i < list.NamedChildCount(); i++ {
+		p := list.NamedChild(i)
+		typ := p.ChildByFieldName("type")
+		if typ == nil || typ.Utf8Text(src) == "context.Context" {
+			continue
+		}
+		for _, name := range fieldNodes(p, "name") {
+			out = append(out, unit.Param{Name: name.Utf8Text(src), Type: syntax.Compact(typ.Utf8Text(src))})
+		}
+	}
+	return out
 }
 
 // receiverType returns a method's receiver type name, without pointer or
