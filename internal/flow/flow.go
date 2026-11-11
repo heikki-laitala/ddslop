@@ -131,7 +131,7 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 		if c.Qualifier == "self" && owner != "" {
 			return ix.pick(units, caller, ix.owned[owner+"::"+c.Name])
 		}
-		if stdMethods[c.Name] {
+		if stdMethods[c.Name] || (strings.HasSuffix(caller.File, ".go") && goStdMethods[c.Name]) {
 			return -1 // most likely a standard-library method
 		}
 		return ix.pick(units, caller, ix.methods[c.Name])
@@ -246,11 +246,14 @@ func split(name string) (owner, short string) {
 	return "", name
 }
 
-// Entries returns the non-test units implementing one of the traits.
+// Entries returns the non-test units implementing one of the traits (Rust),
+// or methods named like one of them (Go implements interfaces implicitly,
+// so traits holds a generated interface's method names).
 func (g *Graph) Entries(traits map[string]bool) []int {
 	var out []int
 	for i, u := range g.Units {
-		if !u.Test && traits[u.Trait] {
+		_, short := split(u.Name)
+		if !u.Test && (traits[u.Trait] || (u.Dispatched && traits[short])) {
 			out = append(out, i)
 		}
 	}

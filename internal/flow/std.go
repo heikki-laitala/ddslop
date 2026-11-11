@@ -47,3 +47,25 @@ func setOf(names ...string) map[string]bool {
 	}
 	return out
 }
+
+// goStdMethods are method names of common Go standard-library types and
+// interfaces (http.ResponseWriter, io, fmt.Stringer, error, context, sync,
+// database/sql, time, strings.Builder, bytes.Buffer, encoding/json). Like
+// stdMethods, calls by these names from Go code are not resolved by
+// uniqueness: w.Header() is an http.ResponseWriter's.
+var goStdMethods = setOf(
+	// net/http
+	"Header", "Write", "WriteHeader", "ServeHTTP", "Do", "Get", "Post", "Set", "Add", "Del",
+	// io, fmt, errors
+	"Read", "Close", "Seek", "ReadAll", "WriteString", "WriteByte", "WriteRune",
+	"String", "Error", "Unwrap", "Is", "As",
+	// context and sync
+	"Done", "Err", "Value", "Deadline", "Lock", "Unlock", "RLock", "RUnlock",
+	"Wait", "Load", "Store", "Range", "Swap", "CompareAndSwap",
+	// database/sql
+	"Query", "QueryRow", "QueryContext", "QueryRowContext", "Exec", "ExecContext",
+	"Scan", "Next", "Commit", "Rollback", "Begin", "BeginTx", "Prepare",
+	// time, strings, bytes, encoding
+	"Unix", "Format", "Sub", "Before", "After", "Equal", "IsZero", "UTC",
+	"Len", "Reset", "Grow", "Bytes", "Encode", "Decode", "MarshalJSON", "UnmarshalJSON",
+)

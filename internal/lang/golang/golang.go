@@ -470,3 +470,27 @@ func Internal(path, pkg string) bool {
 	parts := strings.Split(filepath.ToSlash(filepath.Dir(path)), "/")
 	return slices.Contains(parts, "internal")
 }
+
+// InterfaceMethods returns the names of the methods the file's interfaces
+// declare, in source order: in generated code (a server interface from an
+// OpenAPI spec), the entry points of features. Embedded interfaces add
+// none.
+func InterfaceMethods(src []byte) []string {
+	var names []string
+	_ = syntax.Parse(language, src, func(root *sitter.Node) {
+		var walk func(n *sitter.Node)
+		walk = func(n *sitter.Node) {
+			if n.Kind() == "method_elem" || n.Kind() == "method_spec" {
+				if name := n.ChildByFieldName("name"); name != nil {
+					names = append(names, name.Utf8Text(src))
+				}
+				return
+			}
+			for i := uint(0); i < n.NamedChildCount(); i++ {
+				walk(n.NamedChild(i))
+			}
+		}
+		walk(root)
+	})
+	return names
+}

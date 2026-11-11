@@ -314,6 +314,22 @@ parameter groups and string kinds work for Go; methods are left out of
 parameter groups, as they may implement an interface whose signature they
 must keep. On a 100-file Go service, every raw group hinged on a Context
 or an HTTP handler's dictated signature, so none remain.
+
+Feature flows work for Go too. A generated file's interfaces give the
+entry points: Go implements interfaces implicitly, so a method named like
+one of a generated interface's methods (an OpenAPI server's
+`GetDocument`) is an entry point, where a Rust impl names its trait. Like
+Rust's list of standard-library method names, `goStdMethods` keeps Go
+calls such as `w.Header()` on an `http.ResponseWriter` from being pinned
+on the code's one `Header` method; on the Go service that dropped 72 of
+795 name-resolved calls that had pointed at the wrong function. That
+service has 37 entry points and no parallel flows: its handlers are thin
+and delegate to different services.
+
+Setup-teardown is not built for Go: `defer x.Close()` is Go's own idiom
+for it (18 times in that service, 2 in ddslop), and transactions, the
+case a closure helper would serve, appear two or three times per
+codebase, below the five functions the detector asks for.
 On a 100-file Go service: 43 candidates and 12.2% duplication, led by an
 authentication check in 14 handlers; with declarations, a client package
 re-declaring the server's response types (`MemoryItem`, `SearchResponse`,
