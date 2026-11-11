@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest a detector, a language or another improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What do you want ddslop to find or do, and why? An example of the code helps.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: How you think it could work, if you have a view.

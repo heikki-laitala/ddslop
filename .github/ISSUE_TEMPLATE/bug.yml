@@ -1,0 +1,29 @@
+name: Bug report
+description: ddslop crashed, failed, or did something other than documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command you ran, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Error messages or output, with anything private removed.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `ddslop version`.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: For example, macOS 26 on Apple silicon, or Ubuntu 26.04 x86_64.

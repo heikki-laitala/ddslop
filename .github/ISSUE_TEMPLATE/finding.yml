@@ -1,0 +1,40 @@
+name: Wrong or missed finding
+description: ddslop reported something that is not worth changing, or missed something it should report.
+labels: [finding]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What went wrong
+      options:
+        - A finding that should not be reported
+        - Code that should have been reported but was not
+        - The suggestion or pattern does not fit
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Code
+      description: The smallest Rust code that shows it. Remove anything private.
+      render: rust
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: ddslop output
+      description: The candidate from `ddslop check --format json`, or the command you ran and its output.
+      render: json
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it is wrong
+      description: For example, the copies are meant to diverge, or the abstraction is needed.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `ddslop version`.
+    validations:
+      required: true
