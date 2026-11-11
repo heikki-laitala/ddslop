@@ -1039,6 +1039,16 @@ ddslop version               print the version
 ddslop baseline [path]       record current duplication in .ddslop-baseline.json
 ```
 
+`ddslop similar FILE:LINE` answers the question an agent should ask
+before keeping a new helper: what already exists like it? It compares the
+function at that line with every other function using the near-miss
+measure (bounded Myers over structure sequences, names and values blanked
+out), so a renamed copy scores 1, and lists those at or above
+`--min-similarity` (0.7, looser than check's 0.8 since this is a
+search), most similar first. A brute-force scan with the length bound
+takes under a second warm on a 735k-line codebase, so no MinHash index
+is needed for one query.
+
 Planned: `ddslop explain <id>` (one candidate in full detail).
 
 The project commands follow pruner's CLI. `init` installs, per agent, a

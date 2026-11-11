@@ -19,7 +19,8 @@ forward their arguments, and traits with a single implementation.
 - Before finishing a change: check that you did not add another copy of
   existing code (see "Checking your change" below).
 - When asked to clean up, deduplicate or "deslop" code.
-- Before writing a new helper: an existing function may already do it.
+- Before keeping a new helper: an existing function may already do it.
+  Write the draft, then ask (see "Finding existing code" below).
 
 ## How to run it
 
@@ -47,6 +48,18 @@ ddslop check --format json --diff origin/main .  # a whole branch
 reports candidates touching lines changed since `<ref>`. Occurrences with
 `"changed": true` are the copies your change added or edited; usually the
 fix is to replace them with a call to an unchanged occurrence.
+
+## Finding existing code
+
+```sh
+ddslop similar --format json src/orders.rs:42 .
+```
+
+lists existing functions like the one at that line, most similar first,
+each with a `similarity` (1 for a renamed copy). If one already does what
+your draft does, call it instead and delete the draft; if one nearly does,
+consider extending it. `--min-similarity` (default 0.7) and `--limit`
+(default 10) tune the list.
 
 ## Reading the output
 

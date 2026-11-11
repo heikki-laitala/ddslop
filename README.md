@@ -216,6 +216,7 @@ together to install for several agents.
 | --- | --- |
 | `ddslop check [path]` | report duplicated code (the default command) |
 | `ddslop baseline [path]` | record current duplication in `.ddslop-baseline.json`, so `check --baseline` reports only new duplication |
+| `ddslop similar FILE:LINE [path]` | list existing functions like the one at that line, most similar first: ask before keeping a new helper |
 | `ddslop flows [path]` | list feature entry points (methods implementing generated API traits) and the functions each reaches |
 | `ddslop index [path]` | build or refresh the index at `.ddslop/index.db` |
 | `ddslop init [path]` | set ddslop up for coding agents |
