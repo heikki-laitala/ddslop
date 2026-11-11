@@ -53,7 +53,7 @@ func Scopes(units []unit.Unit) []ScopeGroup {
 		if c := cmp.Compare(len(b.Units), len(a.Units)); c != 0 {
 			return c
 		}
-		return cmp.Compare(a.Opens+a.Closes, b.Opens+b.Closes)
+		return cmp.Or(cmp.Compare(a.Opens, b.Opens), cmp.Compare(a.Closes, b.Closes))
 	})
 	return groups
 }
