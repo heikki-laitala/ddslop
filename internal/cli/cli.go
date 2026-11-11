@@ -4,6 +4,7 @@ package cli
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/heikki-laitala/ddslop/internal/baseline"
 	"github.com/heikki-laitala/ddslop/internal/clone"
@@ -495,7 +497,7 @@ func check(root string, opts options) (report.Report, error) {
 	g, traits := callGraph(root, files)
 	internal := internalCrates(root, files)
 	flows := parallelFlows(g, traits, opts.minNodes)
-	return report.Build("rust", report.Findings{
+	r := report.Build("rust", report.Findings{
 		Groups: groups, NearMisses: nearMisses, Blocks: blocks, Flows: flows,
 		Structs:  clone.Structs(structs, minStructFields),
 		Enums:    clone.Enums(enums),
@@ -507,7 +509,18 @@ func check(root string, opts options) (report.Report, error) {
 		Scopes:   pattern.Scopes(units),
 		Kinds:    pattern.StringKinds(units),
 		Params:   pattern.ParameterGroups(units),
-	}, summary), nil
+	}, summary)
+	return r, recordHealth(db, root, r.Summary.Health)
+}
+
+// recordHealth adds a check's health to the index's history (see
+// index.DB.RecordHealth), with the ddslop version and the Git revision.
+func recordHealth(db *index.DB, root string, h report.Health) error {
+	data, err := json.Marshal(h)
+	if err != nil {
+		return err
+	}
+	return db.RecordHealth(index.HealthEntry{At: time.Now(), Version: versionString(), Revision: source.Revision(root), Data: data})
 }
 
 // wordCounts adds up the words of every indexed file, generated and test

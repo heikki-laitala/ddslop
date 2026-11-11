@@ -288,3 +288,45 @@ func TestTraitsAndImportsAreStored(t *testing.T) {
 		t.Errorf("test modules = %v, want [real_ledger]", files[0].TestModules)
 	}
 }
+
+func TestHealthHistoryRecordsOnlyChanges(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	at := time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
+	record := func(minutes int, version, revision, data string) {
+		t.Helper()
+		if err := db.RecordHealth(HealthEntry{At: at.Add(time.Duration(minutes) * time.Minute), Version: version, Revision: revision, Data: []byte(data)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record(0, "v1", "a1", `{"duplication_percent":7.6}`)
+	record(1, "v1", "a1", `{"duplication_percent":7.6}`) // an agent checking again: nothing new
+	record(2, "v1", "b2", `{"duplication_percent":7.6}`) // a new commit
+	record(3, "v1", "b2", `{"duplication_percent":6.9}`) // a cleanup
+	record(4, "v2", "b2", `{"duplication_percent":6.9}`) // an upgrade
+
+	got, err := db.HealthHistory(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, e := range got {
+		lines = append(lines, fmt.Sprintf("%s %s %s %s", e.At.Format("15:04"), e.Version, e.Revision, e.Data))
+	}
+	want := []string{
+		`10:00 v1 a1 {"duplication_percent":7.6}`,
+		`10:02 v1 b2 {"duplication_percent":7.6}`,
+		`10:03 v1 b2 {"duplication_percent":6.9}`,
+		`10:04 v2 b2 {"duplication_percent":6.9}`,
+	}
+	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
+		t.Errorf("history:\n%s\nwant:\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
+	}
+	if last, _ := db.HealthHistory(2); len(last) != 2 || last[1].Version != "v2" {
+		t.Errorf("HealthHistory(2) = %+v, want the two latest, oldest first", last)
+	}
+}

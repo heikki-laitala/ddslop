@@ -2,6 +2,7 @@ package source
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -110,5 +111,37 @@ func TestChangedLinesErrors(t *testing.T) {
 	}
 	if _, err := ChangedLines(t.TempDir(), "HEAD"); err == nil {
 		t.Error("a directory outside Git returned no error")
+	}
+}
+
+func TestRevisionNamesTheCommitAndUncommittedChanges(t *testing.T) {
+	dir := t.TempDir()
+	if got := Revision(dir); got != "" {
+		t.Errorf("Revision outside Git = %q, want empty", got)
+	}
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...) //nolint:gosec // a test running git on its own temporary repository
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "a.rs"), []byte("fn a() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "a.rs")
+	run("commit", "-qm", "a")
+	clean := Revision(dir)
+	if len(clean) < 7 || strings.HasSuffix(clean, "-dirty") {
+		t.Errorf("Revision of a clean checkout = %q, want a short commit hash", clean)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.rs"), []byte("fn b() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := Revision(dir); got != clean+"-dirty" {
+		t.Errorf("Revision with an uncommitted edit = %q, want %q", got, clean+"-dirty")
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite driver
 
@@ -73,6 +74,12 @@ CREATE TABLE IF NOT EXISTS files (
     size      INTEGER NOT NULL,
     generated INTEGER NOT NULL,
     units     BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS health (
+    recorded_at INTEGER NOT NULL,
+    version     TEXT NOT NULL,
+    revision    TEXT NOT NULL,
+    data        TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS metadata (
     key   TEXT PRIMARY KEY,
@@ -310,6 +317,55 @@ func (d *DB) Files() ([]File, error) {
 		}
 		f.Units, f.Traits, f.Imports, f.TestModules, f.Decls, f.Words = st.Units, st.Traits, st.Imports, st.TestModules, st.Decls, st.Words
 		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// HealthEntry is one recorded measurement of a repository's health: when,
+// by which ddslop version, at which Git revision, and the measurement
+// itself as JSON (the index does not interpret it).
+type HealthEntry struct {
+	At                time.Time
+	Version, Revision string
+	Data              []byte
+}
+
+// RecordHealth appends an entry to the health history, unless the latest
+// entry has the same version, revision and data: repeated runs on
+// unchanged code add nothing. Health history is kept apart from the
+// indexed files, so re-indexing after an upgrade keeps it.
+func (d *DB) RecordHealth(e HealthEntry) error {
+	var version, revision, data string
+	err := d.db.QueryRow(`SELECT version, revision, data FROM health ORDER BY rowid DESC LIMIT 1`).Scan(&version, &revision, &data)
+	switch {
+	case err == nil && version == e.Version && revision == e.Revision && data == string(e.Data):
+		return nil
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return err
+	}
+	_, err = d.db.Exec(`INSERT INTO health (recorded_at, version, revision, data) VALUES (?, ?, ?, ?)`,
+		e.At.Unix(), e.Version, e.Revision, string(e.Data))
+	return err
+}
+
+// HealthHistory returns the latest limit entries, oldest first.
+func (d *DB) HealthHistory(limit int) ([]HealthEntry, error) {
+	rows, err := d.db.Query(`SELECT recorded_at, version, revision, data FROM
+		(SELECT rowid, * FROM health ORDER BY rowid DESC LIMIT ?) ORDER BY rowid`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []HealthEntry
+	for rows.Next() {
+		var e HealthEntry
+		var at int64
+		var data string
+		if err := rows.Scan(&at, &e.Version, &e.Revision, &data); err != nil {
+			return nil, err
+		}
+		e.At, e.Data = time.Unix(at, 0).UTC(), []byte(data)
+		out = append(out, e)
 	}
 	return out, rows.Err()
 }
