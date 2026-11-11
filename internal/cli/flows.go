@@ -71,15 +71,11 @@ func runFlows(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 
-	db, _, err := syncIndex(root)
+	db, files, _, err := openFiles(root)
 	if err != nil {
 		return fail(stderr, err)
 	}
 	defer func() { _ = db.Close() }()
-	files, err := loadFiles(db)
-	if err != nil {
-		return fail(stderr, err)
-	}
 	g, traits := callGraph(root, files)
 	r := flowsReport{Flows: []flowJSON{}, Summary: flowsSummary{Functions: len(g.Units), Calls: g.Calls, ResolvedCalls: g.Resolved}}
 	for _, entry := range g.Entries(traits) {
