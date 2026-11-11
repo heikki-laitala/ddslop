@@ -359,11 +359,15 @@ stages:
    below `--min-nodes`): on a 735k-line Rust codebase, block clones from 100
    nodes up were clearly worth fixing, while most smaller ones were 3-5
    line repeats. A smaller block is still reported when it is copied often:
-   at least 25 nodes, and its copies duplicate 400 nodes or more in all (as
-   much as a 100-node block in five places). There these were 17 shared
-   idioms worth a helper, such as a 46-node connection guard in 27
-   methods; below 400 they were mostly two or three copies of ordinary
-   statements.
+   at least 25 nodes and 3 lines, and its copies duplicate 400 nodes or
+   more in all (as much as a 100-node block in five places). There these
+   were shared code worth a helper, such as a 46-node connection guard in
+   27 methods; below 400 they were mostly two or three copies of ordinary
+   statements. The line minimum came from a second, 188k-line codebase,
+   where two-line idioms (clone a handle and open a transaction, 47 times)
+   ranked first: on both, every frequent block of one or two lines was an
+   idiom a helper call would not shorten (14 in all), and every one from
+   three lines on was a guard or lookup worth extracting.
 4. **MinHash + LSH over structure-sequence shingles (type 3).** Each unit's
    syntax tree is flattened in pre-order into a structure sequence: a symbol
    per node kind, a close symbol after each node's children, and a symbol

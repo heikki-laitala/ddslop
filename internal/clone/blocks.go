@@ -32,17 +32,20 @@ type BlockClone struct {
 type BlockSize struct {
 	MinNodes int // least nodes in one occurrence
 	// A smaller run is still reported when it has at least FrequentNodes
-	// nodes and is copied often enough to duplicate FrequentDuplicated
-	// nodes in all: a guard repeated in twenty methods costs more than a
-	// large block copied once.
-	FrequentNodes, FrequentDuplicated int
+	// nodes and FrequentLines lines, and is copied often enough to
+	// duplicate FrequentDuplicated nodes in all: a guard repeated in twenty
+	// methods costs more than a large block copied once. Shorter runs are
+	// idioms (open a transaction, look up the user) that a helper call
+	// would not shorten.
+	FrequentNodes, FrequentLines, FrequentDuplicated int
 }
 
-// keeps reports whether a run of nodes with copies occurrences is large
-// enough.
-func (s BlockSize) keeps(nodes, copies int) bool {
+// keeps reports whether a run of nodes and lines with copies occurrences
+// is large enough.
+func (s BlockSize) keeps(nodes, lines, copies int) bool {
 	return nodes >= s.MinNodes ||
-		(s.FrequentNodes > 0 && nodes >= s.FrequentNodes && nodes*(copies-1) >= s.FrequentDuplicated)
+		(s.FrequentNodes > 0 && nodes >= s.FrequentNodes && lines >= s.FrequentLines &&
+			nodes*(copies-1) >= s.FrequentDuplicated)
 }
 
 // least is the smallest run that can be kept.
@@ -117,7 +120,7 @@ func BlockClones(units []unit.Unit, size BlockSize, reported [][]unit.Unit) []Bl
 				StartLine: block[ref.stmt].StartLine, EndLine: block[ref.stmt+r.Length-1].EndLine,
 			})
 		}
-		if len(occs) >= 2 && size.keeps(nodes, len(occs)) {
+		if len(occs) >= 2 && size.keeps(nodes, occs[0].EndLine-occs[0].StartLine+1, len(occs)) {
 			found = append(found, BlockClone{Occurrences: occs, Nodes: nodes})
 		}
 	}

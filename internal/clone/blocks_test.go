@@ -200,3 +200,28 @@ func TestBlockClonesKeepSmallRunsCopiedManyTimes(t *testing.T) {
 		t.Errorf("a small run copied twice was reported: %s", occurrenceLines(few[0]))
 	}
 }
+
+// transacting returns n functions that each open a transaction in two
+// lines, then make a call of a different arity.
+func transacting(n int) string {
+	var b strings.Builder
+	for i := range n {
+		fmt.Fprintf(&b, `async fn op%d(db: &Db) -> Result<(), Error> {
+    let mut db = db.clone();
+    let mut tx = db.transaction().await?;
+    tx.run(%s)
+}
+`, i, strings.Repeat("1, ", i))
+	}
+	return b.String()
+}
+
+func TestBlockClonesSkipShortIdiomsHoweverOftenCopied(t *testing.T) {
+	size := BlockSize{MinNodes: 100, FrequentNodes: 20, FrequentDuplicated: 300, FrequentLines: 3}
+	if got := BlockClones(rustUnits(t, "a.rs", transacting(40)), size, nil); len(got) != 0 {
+		t.Errorf("a two-line idiom copied 40 times was reported: %s", occurrenceLines(got[0]))
+	}
+	if got := BlockClones(rustUnits(t, "a.rs", guarded(12)), size, nil); len(got) != 1 {
+		t.Errorf("got %d block clones, want the four-line guard copied 12 times", len(got))
+	}
+}

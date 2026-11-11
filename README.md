@@ -150,8 +150,8 @@ leaves out:
 - test code: test functions, `#[cfg(test)]` modules (inline or in their
   own file), `tests/`, `benches/` and `tests.rs` (`--tests` includes it);
 - small functions and blocks (see the size flags below), unless a small
-  block is copied often enough to add up (25 nodes or more, 400
-  duplicated nodes in all);
+  block is copied often enough to add up (25 nodes and 3 lines or more,
+  400 duplicated nodes in all); one- and two-line idioms never count;
 - near misses whose names and values mostly differ, and candidates that
   would be mostly parameters: code that shares a shape, not logic;
 - public items of published crates, which are API, and anything the

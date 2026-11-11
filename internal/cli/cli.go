@@ -429,6 +429,7 @@ func check(root string, opts options) (report.Report, error) {
 	blocks := clone.BlockClones(units, clone.BlockSize{
 		MinNodes:           max(opts.minBlockNodes, opts.minNodes),
 		FrequentNodes:      frequentBlockNodes,
+		FrequentLines:      frequentBlockLines,
 		FrequentDuplicated: frequentBlockDuplicated,
 	}, reported)
 	g, traits := callGraph(root, files)
@@ -472,14 +473,19 @@ func internalCrates(root string, files []index.File) func(file string) bool {
 	return func(file string) bool { return internal[flow.CrateOf(file)] }
 }
 
-// frequentBlockNodes and frequentBlockDuplicated keep small copied blocks
-// that are copied often. Measured on a 735k-line Rust codebase: blocks of
-// 25 to 100 nodes whose copies duplicated 400 nodes or more in all (as
-// much as a 100-node block in five places) were 17 shared idioms worth a
-// helper, such as a 46-node connection guard in 27 methods; below 400
-// they were mostly two or three copies of ordinary statements.
+// frequentBlockNodes, frequentBlockLines and frequentBlockDuplicated keep
+// small blocks that are copied often. Measured on a 735k-line Rust
+// codebase: blocks of 25 to 100 nodes whose copies duplicated 400 nodes or
+// more in all (as much as a 100-node block in five places) were shared
+// code worth a helper, such as a 46-node connection guard in 27 methods;
+// below 400 they were mostly two or three copies of ordinary statements.
+// On it and a 188k-line one, every such block of one or two lines was an
+// idiom a helper call would not shorten (open a transaction, look up the
+// signed-in user, 14 in all), while from three lines on they were guards
+// and lookups worth extracting.
 const (
 	frequentBlockNodes      = 25
+	frequentBlockLines      = 3
 	frequentBlockDuplicated = 400
 )
 
