@@ -11,6 +11,7 @@ const verifierLedger = `pub struct VerifierFile {
     pub key_id: String,
     pub digest: String,
     pub state: State,
+    pub retired: bool,
 }
 `
 
@@ -18,6 +19,7 @@ const verifierInsights = `pub struct VerifierFile {
     pub digest: String,
     pub key_id: String,
     pub state: Option<State>,
+    pub retired: bool,
 }
 
 #[cfg(test)]
@@ -26,6 +28,7 @@ mod tests {
         key_id: String,
         digest: String,
         state: State,
+        retired: bool,
     }
 }
 `
@@ -53,7 +56,7 @@ func TestCheckReportsStructsWithTheSameFields(t *testing.T) {
 	for _, o := range c.Occurrences {
 		occs = append(occs, fmt.Sprintf("%s:%s:%d-%d", filepath.ToSlash(o.File), o.Name, o.StartLine, o.EndLine))
 	}
-	if got, want := strings.Join(occs, " "), "insights/src/principal.rs:VerifierFile:1-5 ledger/src/principal.rs:VerifierFile:1-5"; got != want {
+	if got, want := strings.Join(occs, " "), "insights/src/principal.rs:VerifierFile:1-6 ledger/src/principal.rs:VerifierFile:1-6"; got != want {
 		t.Errorf("occurrences = %s, want %s", got, want)
 	}
 	if len(c.Differences) != 1 || c.Differences[0].Kind != "type" || strings.Join(c.Differences[0].Values, "|") != "Option<State>|State" {

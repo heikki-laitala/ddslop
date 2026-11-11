@@ -25,7 +25,8 @@ func (g StructGroup) DuplicatedNodes() int {
 }
 
 // Structs groups structs declaring the same field names, in any order,
-// ignoring structs with fewer than minFields fields. Groups are ordered by
+// ignoring structs with fewer than minFields fields. Small structs must
+// match in field types too (see minFieldsForTypeDifferences). Groups are ordered by
 // duplicated size, largest first, then by the location of their first
 // struct.
 func Structs(structs []unit.Struct, minFields int) []StructGroup {
@@ -77,11 +78,22 @@ func withoutConverted(members []unit.Struct) []unit.Struct {
 	return slices.DeleteFunc(members, func(s unit.Struct) bool { return converted[s.Name] })
 }
 
-// fieldKey is a struct's field names, sorted.
+// minFieldsForTypeDifferences is the fewest fields structs need to be
+// grouped despite differing field types. Measured on a 188k-line Rust
+// codebase: three-field structs sharing names but not types were
+// coincidences ({id, name, count} with i64 and usize) or a view over a
+// database model, while those matching in types too were copies.
+const minFieldsForTypeDifferences = 4
+
+// fieldKey is a struct's field names, sorted; with fewer than
+// minFieldsForTypeDifferences fields, each with its type.
 func fieldKey(s unit.Struct) string {
 	names := make([]string, len(s.Fields))
 	for i, f := range s.Fields {
 		names[i] = f.Name
+		if len(s.Fields) < minFieldsForTypeDifferences {
+			names[i] += ":" + f.Type
+		}
 	}
 	slices.Sort(names)
 	return strings.Join(names, ",")

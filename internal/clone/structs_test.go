@@ -49,8 +49,8 @@ func TestStructsGroupsSameFieldNamesInAnyOrder(t *testing.T) {
 
 func TestStructsListDifferingNamesAndFieldTypes(t *testing.T) {
 	structs := []unit.Struct{
-		st("a.rs", "Rates", 1, "input:u64", "output:u64", "cache_read:u64"),
-		st("b.rs", "AudioRates", 1, "input:u64", "output:u64", "cache_read:Option<u64>"),
+		st("a.rs", "Rates", 1, "input:u64", "output:u64", "cache_read:u64", "cache_write:u64"),
+		st("b.rs", "AudioRates", 1, "input:u64", "output:u64", "cache_read:Option<u64>", "cache_write:u64"),
 	}
 	groups := Structs(structs, 3)
 	if len(groups) != 1 {
@@ -94,6 +94,19 @@ func TestStructsSkipStructsConvertingFromOneAnother(t *testing.T) {
 	}
 	// A true copy of the validated struct is still reported.
 	if got, want := structGroupStrings(Structs([]unit.Struct{port, authored, copied}, 3)), "other.rs:1 Port | spec.rs:1 Port"; got != want {
+		t.Errorf("groups:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestStructsWithThreeFieldsMustAlsoMatchTypes(t *testing.T) {
+	structs := []unit.Struct{
+		// {id, name, count} is common: with other types it is a coincidence
+		st("inference.rs", "ModelFacet", 1, "id:String", "name:String", "count:i64"),
+		st("grants.rs", "Choice", 1, "id:String", "name:String", "count:usize"),
+		st("fleet.rs", "Space", 1, "total:u64", "reserved:u64", "free:u64"),
+		st("protocol.rs", "Space", 1, "total:u64", "reserved:u64", "free:u64"),
+	}
+	if got, want := structGroupStrings(Structs(structs, 3)), "fleet.rs:1 Space | protocol.rs:1 Space"; got != want {
 		t.Errorf("groups:\n%s\nwant:\n%s", got, want)
 	}
 }
