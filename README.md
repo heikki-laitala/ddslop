@@ -68,6 +68,19 @@ go install github.com/heikki-laitala/ddslop@latest
 
 or clone the repository and run `make build` (binary in `bin/ddslop`).
 
+### Uninstall
+
+Remove ddslop from each repository you set it up in, then delete the
+binary:
+
+```sh
+ddslop uninstall --purge path/to/repo   # skills, instructions, .gitignore entry and index
+rm ~/.local/bin/ddslop                  # the installer's only file (or your --dir)
+```
+
+Without `--purge`, the index in `.ddslop/` is kept. `ddslop status` shows
+what is installed in a repository.
+
 ## Quick start
 
 ```sh
