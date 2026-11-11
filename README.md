@@ -303,6 +303,23 @@ by line, so unrelated edits do not invalidate it; a known family stays
 known while you clean it up, and a new copy of it is reported. Re-run
 `ddslop baseline` after cleaning up to shrink the file.
 
+To keep intended duplication out of every run, mark it in the code with
+a reason:
+
+```rust
+// ddslop:ignore wire format, mirrors the Ledger's on purpose
+pub struct LedgerRefusal { /* ... */ }
+
+.field("request_timeout", &self.timeout) // ddslop:ignore Debug field name
+```
+
+A marker on a line of its own applies to the function, method, struct,
+enum or constant below it (doc comments and attributes may sit between);
+a marker after code applies to that line's string literals, such as a
+value that only happens to equal a constant. Marked code is left out of
+the analysis, and the summary counts it. A marker without a reason is an
+error.
+
 The ddslop GitHub Action installs ddslop, runs `check`, and shows the
 results as annotations on pull requests through GitHub code scanning. In
 diff mode the annotation sits on the changed copy:

@@ -1235,9 +1235,20 @@ A linter on a sloppy codebase must not fail every build on day one:
   as `baselined`.
 - **Diff mode.** `--diff origin/main` in PR pipelines reports only
   duplication the PR introduces, compared against the whole repository.
-- **Suppressions.** `// ddslop:ignore <reason>` before a function or block
-  (or `#[allow]`-style placement in Rust via a comment) silences intentional
-  duplication. A reason is required, so suppressions stay reviewable.
+- **Suppressions.** `// ddslop:ignore <reason>` on a line of its own
+  applies to the first line below it that is neither a comment nor an
+  attribute; after code, to its own line. A function, method, struct,
+  enum or constant starting on such a line is left out of the analysis,
+  and so is a string literal on it (a value that only happens to equal a
+  constant, which `inlined-constant` would otherwise report). Leaving the
+  code out, rather than dropping occurrences from finished candidates,
+  keeps differences, scores and health consistent. Parallel flows still
+  follow calls through a marked function. Markers come from the syntax
+  tree's comments, so one inside a string is no marker, and a file is
+  searched only when its text holds `ddslop:ignore`. A reason is
+  required, so suppressions stay reviewable: a marker without one fails
+  the run with its file and line. The summary counts marked declarations
+  as `ignored`. Marking a block inside a function is not built.
 
 ### File discovery
 

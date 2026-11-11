@@ -158,6 +158,11 @@ What to do per `kind`:
 - Merge copies only when they change for the same reason. Copies that are
   meant to diverge (different business rules, different services' public
   contracts) are not duplication: skip them.
+- When you skip a candidate because the copies are meant to differ, or a
+  literal only happens to equal a constant, mark it so later runs do not
+  report it again: `// ddslop:ignore <reason>` on the line above the
+  function, struct, enum or constant, or after the code on a literal's
+  line. The reason is required; say why the duplication is intended.
 - Never edit generated files; fix their generator instead.
 - Keep public APIs stable unless asked otherwise.
 - After refactoring, run the project's tests and run ddslop again to confirm
