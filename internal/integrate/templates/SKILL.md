@@ -60,7 +60,8 @@ describes the codebase's conventions, one map per language:
   module goes through). Treat them as hints, not errors: some are
   deliberate, such as a composition root wiring everything together.
   Do not add to them; fix one only when asked.
-- `unplaced`: modules no counted call reaches, often types-only crates.
+- `unplaced`: modules with no counted calls to or from other modules
+  (often types-only crates): nothing says which layer they belong to.
 
 Only calls that name their target count (`f()`, `Type::f()`,
 `module::f()`, calls on `self`), so a method reached through a field
