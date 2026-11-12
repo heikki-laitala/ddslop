@@ -328,3 +328,30 @@ func TestGoStandardLibraryMethodsAreNotGuessed(t *testing.T) {
 		t.Errorf("c.fetchCached() resolved to %s, want the one fetchCached method", got)
 	}
 }
+
+func TestCalleesFoundOnlyByMethodNameAreMarked(t *testing.T) {
+	g := Build(Inputs{}, []unit.Unit{
+		fn("a/src/x.rs", "Store::save"),
+		fn("a/src/x.rs", "Store::load"),
+		fn("a/src/x.rs", "Store::flush_all"),
+		fn("a/src/y.rs", "named", path("Store", "save")),
+		fn("a/src/y.rs", "guessed", method("store", "load")),
+		fn("a/src/y.rs", "both", method("store", "flush_all"), path("Store", "flush_all")),
+		fn("a/src/x.rs", "Store::own", method("self", "load")),
+	})
+	cases := map[string][]bool{
+		"named":      {false}, // Type::f names its callee
+		"guessed":    {true},  // x.m() found only because one method is called load
+		"both":       {false}, // one named call is enough
+		"Store::own": {false}, // a call on self names its type
+	}
+	for i, u := range g.Units {
+		want, ok := cases[u.Name]
+		if !ok {
+			continue
+		}
+		if got := g.ByName[i]; fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("%s: ByName = %v, want %v", u.Name, got, want)
+		}
+	}
+}
