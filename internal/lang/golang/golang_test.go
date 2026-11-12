@@ -2,6 +2,7 @@ package golang
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -339,5 +340,49 @@ type Params struct{ Limit int }
 `
 	if got := fmt.Sprint(InterfaceMethods([]byte(src))); got != "[GetHealth GetDocument]" {
 		t.Errorf("InterfaceMethods = %s, want [GetHealth GetDocument]", got)
+	}
+}
+
+func TestUnitsRecordTheirErrorForms(t *testing.T) {
+	src := `package store
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+)
+
+func load(path string) error {
+	err := open(path)
+	if errors.Is(err, ErrMissing) {
+		return nil
+	}
+	if err == io.EOF || err != nil && err.Error() == "closed" {
+		return fmt.Errorf("load %s: %w", path, err)
+	}
+	if strings.Contains(err.Error(), "busy") {
+		return fmt.Errorf("load %s: %v", path, err)
+	}
+	if err != nil {
+		return fmt.Errorf("load %s: bad path", path)
+	}
+	return nil
+}
+`
+	var got []string
+	for _, f := range byName(t, mustUnits(t, "store/s.go", src), "load").Forms {
+		got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
+	}
+	want := []string{
+		"12 error-checks errors.Is/As",
+		"15 error-checks ==",
+		"15 error-checks message",
+		"16 error-wrapping %w",
+		"18 error-checks message",
+		"19 error-wrapping %v",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

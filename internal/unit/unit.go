@@ -67,6 +67,16 @@ type Unit struct {
 	// Params are the unit's named parameters in order, without self and
 	// without patterns that bind several names.
 	Params []Param
+	// Forms are the forms the unit uses for concerns its language's
+	// adapter knows, such as how it checks errors, in source order.
+	Forms []Form
+}
+
+// Form is one occurrence of a form for a concern: "error-checks" done
+// with "errors.Is/As" at a line.
+type Form struct {
+	Concern, Form string
+	Line          int
 }
 
 // Param is one parameter: its name and its type as written, without
