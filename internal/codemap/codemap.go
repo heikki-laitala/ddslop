@@ -7,6 +7,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/heikki-laitala/ddslop/internal/flow"
 )
 
 // Module returns the module a file belongs to: a Go file's package
@@ -19,11 +21,13 @@ func Module(file string, crates map[string]string) string {
 	if strings.HasSuffix(file, ".go") {
 		return path.Dir(file)
 	}
-	dir, rel := ".", "" // a file outside src/ is its crate's root
+	// The crate directory is the one call resolution uses; a file outside
+	// src/ (build.rs) belongs to its crate's root module.
+	dir, rel := flow.CrateOf(file), ""
 	if i := strings.Index(file, "/src/"); i >= 0 {
-		dir, rel = file[:i], file[i+len("/src/"):]
+		rel = file[i+len("/src/"):]
 	} else if after, ok := strings.CutPrefix(file, "src/"); ok {
-		rel = after // a crate at the root
+		dir, rel = ".", after // a crate at the root
 	}
 	name, ok := crates[dir]
 	if !ok {
