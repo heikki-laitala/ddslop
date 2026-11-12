@@ -33,18 +33,32 @@ func ByCrate(crates map[string]string) Grouping { return byFile(Crate, crates) }
 
 // byFile groups units by a name given to their file.
 func byFile(name func(file string, crates map[string]string) string, crates map[string]string) Grouping {
-	return func(u unit.Unit) string { return name(u.File, crates) }
+	return perFile(func(file string) string { return name(file, crates) })
+}
+
+// perFile names each file once: a grouping is asked about every unit, and
+// a file holds many.
+func perFile(name func(file string) string) Grouping {
+	names := map[string]string{}
+	return func(u unit.Unit) string {
+		n, ok := names[u.File]
+		if !ok {
+			n = name(u.File)
+			names[u.File] = n
+		}
+		return n
+	}
 }
 
 // InCrate groups the units of one Rust crate by module, leaving out the
 // rest.
 func InCrate(name string, crates map[string]string) Grouping {
-	return func(u unit.Unit) string {
-		if Crate(u.File, crates) != name {
+	return perFile(func(file string) string {
+		if Crate(file, crates) != name {
 			return ""
 		}
-		return Module(u.File, crates)
-	}
+		return Module(file, crates)
+	})
 }
 
 // Crate returns the Rust crate a file belongs to, "." for a crate at the
