@@ -179,12 +179,15 @@ const (
 	extractFlow      = "extract-pipeline"
 	reuseExisting    = "reuse-existing"
 	extractCommon    = "extract-common"
-	conventionDrift  = "convention-drift"
 	followConvention = "follow-convention"
 	kindIdentifier   = "identifier"
 	kindType         = "type"
 	kindLiteral      = "literal"
 )
+
+// ConventionDrift is the kind of a candidate breaking a convention its
+// peers follow; baselines know it by its fingerprint.
+const ConventionDrift = "convention-drift"
 
 // PipelinePattern is the way forward for a parallel-flow family: extract
 // the pipeline its features copy (the map names it too).
@@ -215,13 +218,13 @@ type Findings struct {
 	Drifts     []Drift
 }
 
-// Drift is an occurrence of another form for a concern where the code has
-// a convention: the unit and line, and the convention's occurrence to
-// follow, the closest one.
+// Drift is another form for a concern where the code has a convention, in
+// one unit: the lines of its occurrences there, and the convention's
+// occurrence to follow, the closest one.
 type Drift struct {
 	Concern, Form, Convention string
 	Unit                      unit.Unit
-	Line                      int
+	StartLine, EndLine        int
 	Target                    unit.Unit
 	TargetLine                int
 }
@@ -695,11 +698,11 @@ func paramCandidate(language string, g pattern.ParamGroup) Candidate {
 // fingerprint holds the function and the form, not the line, so it
 // survives edits around it.
 func driftCandidate(language string, d Drift) Candidate {
-	c := newCandidate(language, conventionDrift, conventionDrift,
+	c := newCandidate(language, ConventionDrift, ConventionDrift,
 		strings.Join([]string{d.Concern, d.Form, d.Unit.File, d.Unit.Name}, "\x00"),
 		Suggestion{Action: followConvention, Pattern: d.Convention},
-		Score{Nodes: 1, Lines: 1, Occurrences: 1},
-		[]Occurrence{{File: d.Unit.File, Name: d.Unit.Name, StartLine: d.Line, EndLine: d.Line}})
+		Score{Nodes: 1, Lines: d.EndLine - d.StartLine + 1, Occurrences: 1},
+		[]Occurrence{{File: d.Unit.File, Name: d.Unit.Name, StartLine: d.StartLine, EndLine: d.EndLine}})
 	c.Target = &Occurrence{File: d.Target.File, Name: d.Target.Name, StartLine: d.TargetLine, EndLine: d.TargetLine}
 	c.Values = []string{d.Form}
 	c.Concern = d.Concern

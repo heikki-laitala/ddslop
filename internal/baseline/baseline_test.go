@@ -104,3 +104,23 @@ func TestLoadErrors(t *testing.T) {
 		t.Errorf("unsupported version: err = %v, want a version error", err)
 	}
 }
+
+func TestADriftIsKnownOnlyByItsOwnFingerprint(t *testing.T) {
+	base := FromReport(rep(
+		cand("go:convention-drift:message", "convention-drift", occ("s.go", "load", 5)),
+		cand("go:fam", "near-miss", occ("s.go", "save", 1), occ("t.go", "store", 1)),
+	))
+
+	now := rep(
+		// The same drift, its line moved: known.
+		cand("go:convention-drift:message", "convention-drift", occ("s.go", "load", 30)),
+		// Another form drifting in the same function: new.
+		cand("go:convention-drift:==", "convention-drift", occ("s.go", "load", 8)),
+		// A drift in a function known for another kind: new.
+		cand("go:convention-drift:save", "convention-drift", occ("s.go", "save", 3)),
+	)
+
+	if got, want := ids(Filter(now, base)), "[c1:go:convention-drift:== c2:go:convention-drift:save]"; got != want {
+		t.Errorf("kept = %s, want %s", got, want)
+	}
+}

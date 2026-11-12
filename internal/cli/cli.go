@@ -571,14 +571,16 @@ func check(root string, opts options) (report.Report, error) {
 		Scopes:   pattern.Scopes(units),
 		Kinds:    pattern.StringKinds(units),
 		Params:   pattern.ParameterGroups(units),
-		Drifts:   drifts(g, packages(root, files)),
+		Drifts:   drifts(units, packages(root, files)),
 	}, summary)
 	return r, recordHealth(db, root, r.Summary.Health)
 }
 
-// drifts finds the convention drifts of each language on its own (see
-// codemap.Drifts): Go's and Rust's forms are never compared.
-func drifts(g *flow.Graph, crates map[string]string) []report.Drift {
+// drifts finds the convention drifts in the units check analyses (no
+// generated code, test code only with --tests), each language on its own
+// (see codemap.Drifts): Go's and Rust's forms are never compared.
+func drifts(units []unit.Unit, crates map[string]string) []report.Drift {
+	g := &flow.Graph{Units: units}
 	var out []report.Drift
 	for _, lang := range []string{"go", "rust"} {
 		inLang := codemap.Grouping(func(u unit.Unit) string {
@@ -589,7 +591,7 @@ func drifts(g *flow.Graph, crates map[string]string) []report.Drift {
 		})
 		for _, d := range codemap.Drifts(g, inLang, codemap.ByModule(crates)) {
 			out = append(out, report.Drift{Concern: d.Concern, Form: d.Form, Convention: d.Convention,
-				Unit: g.Units[d.Unit], Line: d.Line, Target: g.Units[d.Target], TargetLine: d.TargetLine})
+				Unit: g.Units[d.Unit], StartLine: d.StartLine, EndLine: d.EndLine, Target: g.Units[d.Target], TargetLine: d.TargetLine})
 		}
 	}
 	return out

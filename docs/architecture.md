@@ -1487,8 +1487,14 @@ because below it the forms are a mix the code chose, not a slip:
 the drifting form in `values`, the concern in `concern`, the
 convention's form as the suggestion's `pattern`, and as `target` the
 convention's closest occurrence: in the same file the nearest, else the
-first in the same module, else the first anywhere. Its fingerprint holds
-the function and the form, not the line. No other candidate covers an
+first in the same module, else the first anywhere. Drift reads the code
+`check` analyses: no generated files, and test code only with
+`--tests`. The occurrences of one form in one function are one
+candidate over their lines. Its fingerprint holds the concern, the form
+and the function, not the line, and a baseline knows a drift only by
+that fingerprint: matching on its one occurrence (`file#function`), as
+other kinds are matched, would let another kind's entry, or a drift of
+another form in the same function, hide a new one. No other candidate covers an
 error concern, so rule 3 of the concerns model (one candidate per
 occurrence and concern) has nothing to suppress yet.
 
