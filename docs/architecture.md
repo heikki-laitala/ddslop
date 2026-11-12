@@ -992,8 +992,9 @@ Sections 1 and 2 are built (`internal/codemap`, `ddslop map` with text
 and JSON output; see As built below), and section 3 in part: the
 flagged `parallel-flow` families, as measurement left the other two
 rules nothing real to report yet. Section 4 is built for error checks
-and error wrapping in Go and Rust; its other concerns, section 5,
-Markdown output and `--lang` are planned.
+and error wrapping in Go and Rust, and section 5 for drift from those
+idioms; their other concerns and sources, Markdown output and `--lang`
+are planned.
 
 The fragment and flow layers find copies after they are written. Most of
 them were written because the agent did not know how the codebase already
@@ -1473,6 +1474,34 @@ and uses `context` across its modules (74 of 249 wraps there), while
 `lens_emulator` mostly uses `context`. That mix is real, and the map
 reports it as such: a 70% convention with the other form listed beside
 it, and each crate's own convention under `--crate`.
+
+Section 5 is built for the error idioms (`codemap.Drifts`, kind
+`convention-drift`, action `follow-convention`). `check` finds, per
+language (Go's and Rust's forms are never compared), every occurrence of
+another form in a concern whose convention holds at least 90% of at
+least 5 occurrences across the repository. The map names a convention
+at a simple majority, which describes the code; drift needs more,
+because below it the forms are a mix the code chose, not a slip:
+`lens-artifact-hub` wraps errors with `map_err` in 69% and anyhow's
+`context` in the rest, throughout its main crate. The candidate gives
+the drifting form in `values`, the concern in `concern`, the
+convention's form as the suggestion's `pattern`, and as `target` the
+convention's closest occurrence: in the same file the nearest, else the
+first in the same module, else the first anywhere. Its fingerprint holds
+the function and the form, not the line. No other candidate covers an
+error concern, so rule 3 of the concerns model (one candidate per
+occurrence and concern) has nothing to suppress yet.
+
+Measured on the four codebases: one candidate, on
+`lns-inference-router`, where a tool checks a `serde_yaml` error with
+`error.to_string().contains("tab character")`. That is drift from a
+99.8% convention, but not a slip: the library's error has no variant
+for it, so the message is the only thing to match. Without types ddslop
+cannot tell an outside library's error from the codebase's own, so such
+a place is left to a `ddslop:ignore` comment saying why, which the
+rule's description and the skill ask for. Bypasses, skipped helpers in
+`parallel-flow` families and drift from the scope and kind idioms are
+the design's other sources and wait for their sections.
 
 ### Measurement before shipping
 
@@ -2051,9 +2080,9 @@ seconds, 713 candidates (60 exact, 166 renamed, 189 near-miss families,
 traits).
 
 Next: the map layer (see Map layer). Layers, shared helpers and the
-flagged pipeline families are built, and idioms for error checks and
-wrapping; the other concerns and deviations follow once they are
-measured on the Rust codebases.
+flagged pipeline families are built, idioms for error checks and
+wrapping, and drift from them; the other concerns and deviations follow
+once they are measured on the Rust codebases.
 
 1. **v1, fragment layer as a linter:** tree-sitter adapters for all three
    languages, canonicalisation, exact hashing, suffix-array repeats with
