@@ -1155,7 +1155,7 @@ gathered once, by the detectors that exist; `map` describes it and
 | Concern | Evidence | `map` shows | `check` reports |
 | --- | --- | --- | --- |
 | Feature pipelines | entry points, `parallel-flow` families, shared helpers entry points call | the shared pipeline a group of entry points calls, and every family flagged | `parallel-flow` |
-| Opening checks (sign-in, permission) | `shared-preamble` copies, entry points calling one shared helper first | the extractor or middleware most entry points call, or the copied check flagged | `shared-preamble`; `convention-drift` for an entry point skipping the extractor |
+| Opening checks (sign-in, permission) | `shared-preamble` copies; entry points calling one shared helper first; in Rust, an extractor type among a handler's parameters (`Unit.Params`). Middleware attached at route registration is not recognised yet | the helper or extractor most entry points use, or the copied check flagged | `shared-preamble`; `convention-drift` for an entry point skipping the helper or extractor |
 | Scopes | `setup-teardown`'s scopes (`Unit.Scope`), per producing call | the closure helper or guard for each resource, or manual copies flagged | `setup-teardown`; `convention-drift` |
 | Kinds and states | `string-kinds` matches, enums | the enum, or the strings flagged | `string-kinds`; `convention-drift` for strings matched where the enum exists |
 | Parameter groups | `parameter-group` | the groups flagged; a struct that already holds a group is not recognised yet, so this concern has no conventional or drift state | `parameter-group` |
@@ -1230,7 +1230,8 @@ The JSON output for one language, shortened:
      "modules": ["api::handlers", "billing::service", "ledger::service"]}
   ],
   "features": [
-    {"example": "create_order", "members": 11,
+    {"pipeline": "handle_write", "example": "create_order", "members": 6},
+    {"flagged": "parallel-flow", "shape": "refund", "members": 11,
      "steps": ["authorise", "fingerprint", "read_receipt", "build_event"]}
   ],
   "idioms": [
