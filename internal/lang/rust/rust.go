@@ -92,11 +92,11 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 		// A macro's arguments are an opaque token tree: read matches!'s
 		// pattern, after the value, from its tokens.
 		if m := n.ChildByFieldName("macro"); m != nil && lastSegment(m.Utf8Text(src)) == "matches" {
-			text := matchesPattern(n, src)
-			if p := errPattern.FindStringSubmatch(text); p != nil && isVariantPath(strings.ReplaceAll(p[1], " ", "")) {
+			pattern, guard := matchesPattern(n, src)
+			if p := errPattern.FindStringSubmatch(pattern); p != nil && isVariantPath(strings.ReplaceAll(p[1], " ", "")) {
 				form.Concern, form.Form = unit.ErrorChecks, "variant"
-			} else if messageCheck.MatchString(text) {
-				form.Concern, form.Form = unit.ErrorChecks, "message" // in a guard
+			} else if messageCheck.MatchString(guard) {
+				form.Concern, form.Form = unit.ErrorChecks, "message"
 			}
 		}
 	case "binary_expression":
@@ -138,24 +138,28 @@ var errPattern = regexp.MustCompile(`\bErr \( ([A-Za-z_][\w: ]*)`)
 // text, as isErrorMessage does in parsed code.
 var messageCheck = regexp.MustCompile(`\b(e|err|error|\w+_err|\w+_error) \. to_string \( \) (==|!=|\. (contains|starts_with|ends_with) \()`)
 
-// matchesPattern returns the tokens of a matches! invocation after its
-// first top-level comma: the pattern and any guard, without the value.
-func matchesPattern(n *sitter.Node, src []byte) string {
+// matchesPattern returns the tokens of a matches! invocation's pattern
+// and of its guard: after the value's top-level comma, split at a
+// top-level if.
+func matchesPattern(n *sitter.Node, src []byte) (pattern, guard string) {
 	tokens := strings.Fields(tokenText(n, src))
-	depth := 0
+	depth, start := 0, -1
 	for i, t := range tokens {
-		switch t {
-		case "(", "[", "{":
+		switch {
+		case t == "(" || t == "[" || t == "{":
 			depth++
-		case ")", "]", "}":
+		case t == ")" || t == "]" || t == "}":
 			depth--
-		case ",":
-			if depth == 1 { // inside the invocation's own parentheses
-				return strings.Join(tokens[i+1:], " ")
-			}
+		case t == "," && depth == 1 && start < 0: // inside the invocation's own parentheses
+			start = i + 1
+		case t == "if" && depth == 1 && start >= 0:
+			return strings.Join(tokens[start:i], " "), strings.Join(tokens[i+1:], " ")
 		}
 	}
-	return ""
+	if start < 0 {
+		return "", ""
+	}
+	return strings.Join(tokens[start:], " "), ""
 }
 
 // tokenText returns a macro's tokens separated by single spaces, leaving
