@@ -29,8 +29,8 @@ func Helpers(g *flow.Graph, crates map[string]string, entries []int) []Helper {
 	}
 	callers := make([][]string, len(g.Units))
 	for caller, callees := range g.Callees {
-		for _, callee := range callees {
-			if m := moduleOf[caller]; m != moduleOf[callee] {
+		for k, callee := range callees {
+			if m := moduleOf[caller]; m != moduleOf[callee] && named(g, caller, k) {
 				callers[callee] = append(callers[callee], m)
 			}
 		}

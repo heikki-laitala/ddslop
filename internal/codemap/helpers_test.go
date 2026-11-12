@@ -68,3 +68,18 @@ func TestEntryPointsAndWrappersAreNoHelpers(t *testing.T) {
 		t.Errorf("Helpers = %+v, want none: an entry point and a pass-through wrapper", got)
 	}
 }
+
+func TestCallsFoundOnlyByMethodNameMakeNoHelper(t *testing.T) {
+	// a.x and b.y call util.then only as x.then(): most likely bool::then.
+	g, at := helperGraph([]string{"util.then", "a.x", "b.y"},
+		map[string][]string{"util.then": {"a.x", "b.y"}})
+	g.ByName = make([][]bool, len(g.Units))
+	for i := range g.Callees {
+		for range g.Callees[i] {
+			g.ByName[i] = append(g.ByName[i], true)
+		}
+	}
+	if got := Helpers(g, nil, nil); len(got) != 0 {
+		t.Errorf("Helpers = %+v, want none: %s is reached only by method name", got, g.Units[at["util.then"]].Name)
+	}
+}

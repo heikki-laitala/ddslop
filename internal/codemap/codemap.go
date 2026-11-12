@@ -11,6 +11,15 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/flow"
 )
 
+// named reports whether a unit's k-th callee was reached by a call that
+// names it (f(), Type::f(), module::f() or a call on self), rather than
+// only by its method name. A guess by method name often reaches a library
+// method of the same name (Option::or, bool::then), so the map counts only
+// named calls.
+func named(g *flow.Graph, caller, k int) bool {
+	return caller >= len(g.ByName) || k >= len(g.ByName[caller]) || !g.ByName[caller][k]
+}
+
 // Module returns the module a file belongs to: a Go file's package
 // directory, or a Rust file's crate with the module directly under it
 // ("acme_ledger::store"). crates maps a crate directory to the name code
