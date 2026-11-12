@@ -57,7 +57,7 @@ macOS, x86_64 or aarch64, verifies its checksum, installs it to
 `~/.local/bin` and, inside a Git repository, offers to set ddslop up for
 your coding agent. Options: `--claude`, `--codex`, `--copilot` (set up
 without asking), `--dir DIR`, `--version V` (a release tag such as
-`v2026.11.10_0`), `--no-interactive`.
+`v1.2.0`), `--no-interactive`.
 
 ### From source
 
@@ -349,14 +349,16 @@ steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     with:
       fetch-depth: 0   # diff needs the base commit
-  - uses: heikki-laitala/ddslop@vYYYY.MM.DD_N   # pin a release; it installs that version
+  - uses: heikki-laitala/ddslop@v1   # the latest v1.x release
     with:
       diff: origin/${{ github.base_ref }}
       baseline: .ddslop-baseline.json
 ```
 
-Replace `vYYYY.MM.DD_N` with a [release](https://github.com/heikki-laitala/ddslop/releases)
-tag; the tag you pin is the ddslop version the action installs. Other
+`@v1` follows each v1.x release; pin an exact
+[release](https://github.com/heikki-laitala/ddslop/releases) such as
+`@v1.2.0` to stay on one. The tag you pin is the ddslop version the action
+installs. Other
 inputs: `path` (default `.`), `fail-over`, `args` (further `check`
 arguments) and `upload-sarif` (`false` to skip code scanning). Outside
 GitHub, run `ddslop check --format sarif` the same way.

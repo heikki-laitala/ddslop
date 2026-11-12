@@ -24,10 +24,13 @@ design changes.
 - `make lint`: Go and Markdown (`make lint-go`, `make lint-md`)
 - `make fmt`
 - `make help`: list all targets
-- Releases: tag the commit `vYYYY.MM.DD_N` (N counts that day's releases
-  from 0, e.g. `v2026.11.10_0`, `v2026.11.10_1`) and push the tag;
-  `.github/workflows/release.yml` builds and publishes it. Use `_`, not
-  `-`: a hyphen makes a pre-release that sorts before the plain date.
+- Releases: tag the commit with a semantic version `vMAJOR.MINOR.PATCH`
+  (e.g. `v1.2.0`; patch for fixes only, minor for new features, major for
+  breaking changes) and push the tag; `.github/workflows/release.yml`
+  builds, publishes and verifies it, then moves the major tag (`v1`) that
+  Action users pin. A major above 1 needs the module path changed to
+  `/vN`, so avoid one. List a release on the GitHub Marketplace by editing
+  it on GitHub and ticking "Publish this Action to the GitHub Marketplace".
 
 ## Rules
 
