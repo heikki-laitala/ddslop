@@ -10,8 +10,8 @@ import (
 )
 
 func TestModuleNamesGoPackagesAndRustTopModules(t *testing.T) {
-	crates := map[string]string{"crates/ledger": "acme_ledger"}
-	for file, want := range map[string]string{ //nolint:gosec // file paths, not credentials
+	crates := map[string]string{"crates/ledger": "acme_ledger", "crates/token-credentials": "token_credentials", ".": "acme"} //nolint:gosec // crate names, not credentials
+	for file, want := range map[string]string{                                                                                //nolint:gosec // file paths, not credentials
 		"internal/flow/flow.go":                 "internal/flow",
 		"main.go":                               ".",
 		"crates/ledger/src/lib.rs":              "acme_ledger",
@@ -45,8 +45,8 @@ func TestTheRootCrateStaysUnnamedWhateverItsManifestSays(t *testing.T) {
 }
 
 func TestCrateNamesTheRustCrateOfAFile(t *testing.T) {
-	crates := map[string]string{"crates/ledger": "acme_ledger"}
-	for file, want := range map[string]string{ //nolint:gosec // file paths, not credentials
+	crates := map[string]string{"crates/ledger": "acme_ledger", "crates/token-credentials": "token_credentials", ".": "acme"} //nolint:gosec // crate names, not credentials
+	for file, want := range map[string]string{                                                                                //nolint:gosec // file paths, not credentials
 		"crates/ledger/src/store/postgres.rs": "acme_ledger",
 		"crates/ledger/src/lib.rs":            "acme_ledger",
 		"crates/ledger/build.rs":              "acme_ledger",
@@ -95,5 +95,15 @@ func TestFilesOutsideSrcBelongToTheNearestCrate(t *testing.T) {
 		if c, m := Crate(file, crates), Module(file, crates); c != want[0] || m != want[1] {
 			t.Errorf("%s: crate %q, module %q; want %q, %q", file, c, m, want[0], want[1])
 		}
+	}
+}
+
+func TestFilesOutsideEveryPackageBelongToNoCrate(t *testing.T) {
+	crates := map[string]string{"crates/app": "app"}
+	if c, m := Crate("scripts/release.rs", crates), Module("scripts/release.rs", crates); c != "" || m != "" {
+		t.Errorf("scripts/release.rs: crate %q, module %q; want neither, it is in no package", c, m)
+	}
+	if c := Crate("scripts/release.rs", nil); c != "scripts" {
+		t.Errorf("without manifests, crate %q, want the directory scripts", c)
 	}
 }

@@ -96,6 +96,8 @@ func Module(file string, crates map[string]string) string {
 	}
 	name, top := rustModule(file, crates)
 	switch {
+	case name == "":
+		return "" // in no package
 	case top == "":
 		return name
 	case name == ".":
@@ -108,7 +110,9 @@ func Module(file string, crates map[string]string) string {
 // under the crate's src/ ("" for the crate's root module). crates maps the
 // directories holding a package's Cargo.toml: a file belongs to the
 // nearest one above it, as Cargo has it, and one outside src/ (build.rs,
-// examples/) to that crate's root module. Without a manifest above it, the
+// examples/) to that crate's root module. A file in no package, once
+// there are packages, belongs to no crate (both results ""), such as a
+// script beside a virtual workspace's members. Without any manifest, the
 // crate directory is the one call resolution uses.
 func rustModule(file string, crates map[string]string) (name, top string) {
 	dir, rel := flow.CrateOf(file), ""
@@ -117,6 +121,8 @@ func rustModule(file string, crates map[string]string) (name, top string) {
 		if after, ok := strings.CutPrefix(strings.TrimPrefix(file, root+"/"), "src/"); ok {
 			rel = after
 		}
+	} else if len(crates) > 0 {
+		return "", ""
 	} else if i := strings.Index(file, "/src/"); i >= 0 {
 		rel = file[i+len("/src/"):]
 	} else if after, ok := strings.CutPrefix(file, "src/"); ok {
