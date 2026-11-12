@@ -42,7 +42,7 @@ var leafKinds = map[string]unit.LeafKind{
 // imported package names, to tell calls apart.
 type grammar struct {
 	receiver string
-	packages map[string]bool
+	packages map[string]string // imported name -> import path
 }
 
 // Prefix keeps Go's symbols apart from other languages' alike-named kinds.
@@ -82,7 +82,7 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	case "call_expression":
 		if c, ok := g.call(n, s.Src); ok {
 			s.Calls = append(s.Calls, c)
-			if form := errorCallForm(c, n, s.Src); form.Form != "" {
+			if form := errorCallForm(c, g.packages[c.Qualifier], n, s.Src); form.Form != "" {
 				s.Forms = append(s.Forms, form)
 			}
 		}
@@ -136,7 +136,7 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 			switch name := operand.Utf8Text(src); {
 			case name == g.receiver:
 				c.Qualifier = "self"
-			case g.packages[name]:
+			case g.packages[name] != "":
 				c.Kind, c.Qualifier = unit.PathCall, name
 			}
 		}
@@ -161,35 +161,54 @@ var IdiomaticForms = map[string]string{errorChecks: "errors.Is/As", errorWrappin
 // errors.As checks an error, comparing err.Error() inside strings.Contains
 // and its kin checks its message, and fmt.Errorf wraps one with %w or
 // formats it with %v or %s.
-func errorCallForm(c unit.Call, n *sitter.Node, src []byte) unit.Form {
+func errorCallForm(c unit.Call, pkg string, n *sitter.Node, src []byte) unit.Form {
 	form := unit.Form{Line: c.Line}
 	args := n.ChildByFieldName("arguments")
 	if c.Kind != unit.PathCall || args == nil {
 		return form
 	}
 	switch {
-	case c.Qualifier == "errors" && (c.Name == "Is" || c.Name == "As"):
+	case pkg == "errors" && (c.Name == "Is" || c.Name == "As"):
 		form.Concern, form.Form = errorChecks, "errors.Is/As"
-	case c.Qualifier == "strings" && (c.Name == "Contains" || c.Name == "HasPrefix" || c.Name == "HasSuffix" || c.Name == "EqualFold"):
+	case pkg == "strings" && (c.Name == "Contains" || c.Name == "HasPrefix" || c.Name == "HasSuffix" || c.Name == "EqualFold"):
 		for i := uint(0); i < args.NamedChildCount(); i++ {
 			if isErrorMessage(args.NamedChild(i), src) {
 				form.Concern, form.Form = errorChecks, "message"
 			}
 		}
-	case c.Qualifier == "fmt" && c.Name == "Errorf" && args.NamedChildCount() > 1:
-		format := args.NamedChild(0).Utf8Text(src)
+	case pkg == "fmt" && c.Name == "Errorf" && args.NamedChildCount() > 1:
+		verbs := formatVerbs(args.NamedChild(0).Utf8Text(src))
 		formatsError := false
 		for i := uint(1); i < args.NamedChildCount(); i++ {
 			formatsError = formatsError || isErrorValue(args.NamedChild(i), src)
 		}
 		switch {
-		case strings.Contains(format, "%w"):
+		case strings.ContainsRune(verbs, 'w'):
 			form.Concern, form.Form = errorWrapping, "%w"
-		case formatsError && (strings.Contains(format, "%v") || strings.Contains(format, "%s")):
+		case formatsError && strings.ContainsAny(verbs, "vs"):
 			form.Concern, form.Form = errorWrapping, "%v"
 		}
 	}
 	return form
+}
+
+// formatVerbs returns the verbs of a format string's directives, in
+// order: %+v gives v and %[1]w gives w, while %% is a literal percent.
+func formatVerbs(format string) string {
+	var verbs strings.Builder
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' {
+			continue
+		}
+		i++
+		for i < len(format) && strings.IndexByte("+-# 0123456789.*[]", format[i]) >= 0 {
+			i++ // flags, width, precision and argument indexes
+		}
+		if i < len(format) && format[i] != '%' {
+			verbs.WriteByte(format[i])
+		}
+	}
+	return verbs.String()
 }
 
 // errorComparison returns the error check an == or != comparison is: on
@@ -271,7 +290,7 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 }
 
 // function makes a unit of a function or method declaration.
-func function(n *sitter.Node, path string, src []byte, test bool, packages map[string]bool) (unit.Unit, bool) {
+func function(n *sitter.Node, path string, src []byte, test bool, packages map[string]string) (unit.Unit, bool) {
 	name := n.ChildByFieldName("name")
 	if name == nil {
 		return unit.Unit{}, false
@@ -407,21 +426,25 @@ func embeddedName(typ string) string {
 // imports returns the names a file's imports bind: an alias, or the
 // path's last element ("encoding/json" is json; a major version suffix
 // such as /v3 is skipped).
-func imports(root *sitter.Node, src []byte) map[string]bool {
-	names := map[string]bool{}
+func imports(root *sitter.Node, src []byte) map[string]string {
+	names := map[string]string{}
 	var walk func(n *sitter.Node)
 	walk = func(n *sitter.Node) {
 		if n.Kind() == "import_spec" {
 			path := n.ChildByFieldName("path")
+			if path == nil {
+				return
+			}
+			imported := strings.Trim(path.Utf8Text(src), "\"`")
 			if alias := n.ChildByFieldName("name"); alias != nil {
-				names[alias.Utf8Text(src)] = true
-			} else if path != nil {
-				parts := strings.Split(strings.Trim(path.Utf8Text(src), "\"`"), "/")
+				names[alias.Utf8Text(src)] = imported
+			} else {
+				parts := strings.Split(imported, "/")
 				last := parts[len(parts)-1]
 				if len(parts) > 1 && len(last) > 1 && last[0] == 'v' && strings.Trim(last[1:], "0123456789") == "" {
 					last = parts[len(parts)-2]
 				}
-				names[last] = true
+				names[last] = imported
 			}
 			return
 		}
