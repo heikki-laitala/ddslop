@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/flow"
+	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
 // named reports whether a unit's k-th callee was reached by a call that
@@ -18,6 +19,15 @@ import (
 // named calls.
 func named(g *flow.Graph, caller, k int) bool {
 	return caller >= len(g.ByName) || k >= len(g.ByName[caller]) || !g.ByName[caller][k]
+}
+
+// Grouping names the group a unit belongs to (its module or its crate),
+// or "" to leave the unit out.
+type Grouping func(u unit.Unit) string
+
+// ByModule groups units by their module (see Module).
+func ByModule(crates map[string]string) Grouping {
+	return func(u unit.Unit) string { return Module(u.File, crates) }
 }
 
 // Module returns the module a file belongs to: a Go file's package

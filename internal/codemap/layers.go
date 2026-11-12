@@ -70,8 +70,8 @@ type edges []map[int]*edge
 // overlapping cycles, one can end up going down, and is no break); an
 // edge skipping a layer that the caller's module mostly
 // reaches through a module in between is a bypass.
-func Layers(g *flow.Graph, crates map[string]string) LayerMap {
-	names, all := moduleGraph(g, crates)
+func Layers(g *flow.Graph, group Grouping) LayerMap {
+	names, all := moduleGraph(g, group)
 	n := len(names)
 
 	// Edges are judged against the whole graph, so the order they are
@@ -167,15 +167,17 @@ func (es edges) bypassed(a, c int, layer func(int) int) (via, usual int) {
 	return via, usual
 }
 
-// moduleGraph counts the calls between the modules of the graph's units,
-// returning the module names, sorted, and the edges between them. Calls
-// inside a module say nothing about layers and are left out.
-func moduleGraph(g *flow.Graph, crates map[string]string) ([]string, edges) {
+// moduleGraph counts the calls between the groups of the graph's units
+// (modules or crates), returning the group names, sorted, and the edges
+// between them. Calls inside a group say nothing about layers, and units
+// the grouping leaves out take no part, so both are left out.
+func moduleGraph(g *flow.Graph, group Grouping) ([]string, edges) {
 	moduleOf := make([]string, len(g.Units))
 	var names []string
 	for i, u := range g.Units {
-		moduleOf[i] = Module(u.File, crates)
-		names = append(names, moduleOf[i])
+		if moduleOf[i] = group(u); moduleOf[i] != "" {
+			names = append(names, moduleOf[i])
+		}
 	}
 	slices.Sort(names)
 	names = slices.Compact(names)
@@ -188,8 +190,14 @@ func moduleGraph(g *flow.Graph, crates map[string]string) ([]string, edges) {
 		es[i] = map[int]*edge{}
 	}
 	for caller, callees := range g.Callees {
+		if moduleOf[caller] == "" {
+			continue
+		}
 		a := index[moduleOf[caller]]
 		for k, callee := range callees {
+			if moduleOf[callee] == "" {
+				continue
+			}
 			b := index[moduleOf[callee]]
 			if a == b || !named(g, caller, k) {
 				continue
