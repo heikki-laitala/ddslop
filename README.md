@@ -237,7 +237,7 @@ together to install for several agents.
 | `ddslop explain ID [path]` | show one candidate in full, with each occurrence's code and its differences marked |
 | `ddslop similar FILE:LINE [path]` | list existing functions like the one at that line, most similar first: ask before keeping a new helper |
 | `ddslop flows [path]` | list feature entry points (methods implementing generated API traits) and the functions each reaches |
-| `ddslop map [path]` | describe the layers the code forms (Go packages, a Rust workspace's crates, or one crate's modules with `--crate`), the calls breaking them, the helpers other modules share, the features copying one pipeline, and how the code checks and wraps errors (Go) |
+| `ddslop map [path]` | describe the layers the code forms (Go packages, a Rust workspace's crates, or one crate's modules with `--crate`), the calls breaking them, the helpers other modules share, the features copying one pipeline, and how the code checks and wraps errors |
 | `ddslop index [path]` | build or refresh the index at `.ddslop/index.db` |
 | `ddslop init [path]` | set ddslop up for coding agents |
 | `ddslop stats [path]` | describe the index, and the duplication trend over past checks |

@@ -28,8 +28,8 @@ agent to read before writing code: the layers its modules form, the calls
 breaking them, the helpers other modules share, the features that copy
 one pipeline (parallel-flow candidates in check: extract the pipeline
 rather than add another copy), and the idioms: the form the code uses
-for each concern, such as checking and wrapping errors (Go so far). Each language gets a
-map of its own. A module is a Go package, or a Rust module directly under
+for each concern, such as checking and wrapping errors. Each language
+gets a map of its own. A module is a Go package, or a Rust module directly under
 its crate. A Rust workspace is described as crates, each with how many
 modules and layers it holds; --crate describes one crate's modules, as a
 single crate is by default. Calls are resolved by name, as in flows; only
