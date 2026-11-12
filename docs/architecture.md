@@ -1007,6 +1007,14 @@ capped (`--limit`, default 10 entries) so the whole map fits in an
 agent's context; on the 735k-line codebase the aim is under 300 lines of
 text and under half a second on top of a warm index.
 
+Each language gets a map of its own, as each is analysed on its own
+elsewhere: a repository with a Rust service and a Go tool gets a Rust
+map and a Go map (`--lang` picks one). Most of a map is specific to the
+codebase rather than the language, since its layers, helpers and features
+come from the code itself. What depends on the language comes from its
+adapter: what a module is, what counts as an interface, and the idioms in
+section 4.
+
 ### Sections
 
 In the order they are built; each ships only once measured (below).
@@ -1049,14 +1057,40 @@ In the order they are built; each ships only once measured (below).
    `create_order`." Entry points outside any family are grouped by the
    trait or interface that made them entry points, with the member
    reaching the most shared helpers as the example.
-4. **Deviations.** A `check` candidate, `convention-drift` with suggestion
+4. **Idioms.** For each concern the language adapter knows, which form
+   this codebase uses and how consistently: "errors: `fmt.Errorf` with
+   `%w` in 92% of wrapped returns; 6 functions return `errors.New`
+   strings". Each form is recognised by fixed syntax rules the adapter
+   already has the evidence for (calls, `defer`, derives, match arms),
+   so no types are needed. The concerns and forms, first set:
+
+   | Concern | Rust forms | Go forms |
+   | --- | --- | --- |
+   | Errors | error enum (`thiserror`), `?` with `From`, `map_err` to a helper, `anyhow` | `fmt.Errorf` with `%w`, sentinel errors with `errors.Is`, custom error types |
+   | Scopes (transactions, leases) | closure helper, RAII guard, manual `commit` | `defer tx.Rollback()`, closure helper, manual `Commit` |
+   | Authentication in handlers | extractor, middleware layer, inline check | middleware `func(http.Handler) http.Handler`, inline check |
+   | Kinds and states | `enum` with `FromStr`, strings | typed constants with `iota` and `String()`, strings |
+   | Parameter groups | struct | options struct, functional options |
+
+   A form is the convention when most occurrences of the concern use it
+   (the share comes from measurement). The codebase's convention wins
+   even when it is not the textbook idiom, because consistency is what
+   prevents the next copy. Where a concern has no convention (too few
+   occurrences, or no form in the majority), the map says so, and the
+   skill's guidance for that language names the idiomatic form; ddslop
+   never guesses one. Pattern proposals already name the Rust form first
+   (`extractor`, `closure-helper`); this section gives Go, and later
+   TypeScript, the same treatment.
+5. **Deviations.** A `check` candidate, `convention-drift` with suggestion
    `follow-convention`, for code that breaks a convention most of its
-   peers follow: the bypasses from section 1, and entry points of one
-   group that skip a shared helper (such as a sign-in extractor) that most
-   of the group call. The target is what the peers do instead, which
+   peers follow: the bypasses from section 1, entry points of one group
+   that skip a shared helper (such as a sign-in extractor) that most of
+   the group call, and code using another form for a concern than the
+   idiom from section 4. The target is what the peers do instead, which
    always exists: for a bypass, the function in the middle module that
    the source module's other calls into the target go through most; for
-   a skipped helper, the helper. When the code belongs to a typical
+   a skipped helper, the helper; for an idiom, the occurrence of the
+   convention's form closest to the code (same module first). When the code belongs to a typical
    feature from section 3, that feature is named as the example. As
    a candidate kind it works with baselines and diff mode unchanged;
    SARIF needs the kind registered as a rule in `internal/report/sarif.go`
@@ -1087,6 +1121,11 @@ A JSON map, shortened:
   "features": [
     {"example": "create_order", "members": 11,
      "steps": ["authorise", "fingerprint", "read_receipt", "build_event"]}
+  ],
+  "idioms": [
+    {"concern": "scopes", "convention": "closure-helper", "share": 0.9,
+     "example": "ledger/src/store.rs:31 with_tx", "others": 6},
+    {"concern": "kinds", "convention": null}
   ]
 }
 ```
@@ -1095,7 +1134,9 @@ A JSON map, shortened:
 
 The skill gains a step before starting a feature: run `ddslop map
 --format json .`, put new code in the layer its neighbours use, reuse the
-listed helpers, and follow the typical feature of the same kind. Like the
+listed helpers, follow the typical feature of the same kind, and use
+the codebase's form for each concern (the language's idiom where it has
+none). Like the
 rest of ddslop, it runs when the agent decides to, never from a hook.
 `--format md` lets a team commit the map as notes for agents; ddslop never
 writes that file unasked.
@@ -1115,7 +1156,7 @@ sequenceDiagram
 
     Dev->>Agent: Implement feature
     Agent->>D: ddslop map
-    D-->>Agent: Layers, shared helpers, typical features
+    D-->>Agent: Layers, helpers, typical features, idioms
     Agent->>Agent: Write code following them
     Agent->>D: ddslop check --diff main
     D-->>Agent: Copies and convention-drift candidates
@@ -1127,11 +1168,11 @@ sequenceDiagram
 
 Each section is measured like the detectors: on the 735k-line and
 188k-line Rust codebases and the 100-file Go service, read every reported
-layer break and the top helpers and typical features, and keep a rule only
+layer break, the top helpers, typical features and idioms, and keep a rule only
 when what it reports is real. Thresholds (what "most calls" means for a
 bypass, how many peers make a convention) come from that measurement,
-not from guesses. Sections 1 and 2 come first; section 4 waits for 1 to
-3, since a wrong convention would make every deviation from it a wrong
+not from guesses. Sections 1 and 2 come first; section 5 waits for 1 to
+4, since a wrong convention would make every deviation from it a wrong
 candidate.
 
 ### Not planned
