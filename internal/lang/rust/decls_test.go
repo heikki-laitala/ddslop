@@ -615,3 +615,13 @@ fn qualified(r: Result<u8, Fault>) -> bool {
 		t.Errorf("forms = %v, want only %s", got, want)
 	}
 }
+
+func TestAnErrInAMatchesGuardIsNoVariantCheck(t *testing.T) {
+	src := `fn guarded(r: Result<u8, Fault>) -> bool {
+    matches!(r, Ok(v) if predicate(Err(Fault::Gone)))
+}
+`
+	if forms := byName(t, mustUnits(t, src), "guarded").Forms; len(forms) != 0 {
+		t.Errorf("forms = %v, want none: the pattern matches Ok", forms)
+	}
+}
