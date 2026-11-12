@@ -102,8 +102,8 @@ func TestEveryPartOfTheGraphGetsLayers(t *testing.T) {
 
 func TestCallsInsideAModuleShapeNoLayers(t *testing.T) {
 	m := Layers(graphOf(call{"solo", "solo", 10}), nil)
-	if want := [][]string{{"solo"}}; !reflect.DeepEqual(m.Layers, want) {
-		t.Errorf("layers = %v, want %v", m.Layers, want)
+	if len(m.Layers) != 0 || !reflect.DeepEqual(m.Unplaced, []string{"solo"}) {
+		t.Errorf("layers = %v, unplaced = %v; want no layers and solo unplaced", m.Layers, m.Unplaced)
 	}
 }
 
@@ -142,5 +142,16 @@ func TestCallsFoundOnlyByMethodNameShapeNoLayers(t *testing.T) {
 	m := Layers(g, nil)
 	if want := [][]string{{"handlers"}, {"service"}}; !reflect.DeepEqual(m.Layers, want) || len(m.Breaks) != 0 {
 		t.Errorf("layers = %v, breaks = %+v; want %v and no breaks", m.Layers, m.Breaks, want)
+	}
+}
+
+func TestModulesWithoutCallsToOrFromOthersAreUnplaced(t *testing.T) {
+	g := graphOf(call{"handlers", "service", 10}, call{"types", "types", 3})
+	m := Layers(g, nil)
+	if want := [][]string{{"handlers"}, {"service"}}; !reflect.DeepEqual(m.Layers, want) {
+		t.Errorf("layers = %v, want %v: types has no evidence for a layer", m.Layers, want)
+	}
+	if want := []string{"types"}; !reflect.DeepEqual(m.Unplaced, want) {
+		t.Errorf("unplaced = %v, want %v", m.Unplaced, want)
 	}
 }

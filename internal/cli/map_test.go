@@ -41,6 +41,11 @@ func Save()   {}
 func Remove() {}
 func Load()   {}
 `,
+	"types/t.go": `package types
+
+func Normalise() { trim() }
+func trim()      {}
+`,
 	"util/u.go": `package util
 
 // Respond writes a response.
@@ -67,7 +72,9 @@ type mapOutput struct {
 			UsualCalls int      `json:"usual_calls"`
 			Functions  []string `json:"functions"`
 		} `json:"breaks"`
-		Helpers []struct {
+		Unplaced     []string `json:"unplaced"`
+		UnplacedMore int      `json:"unplaced_more"`
+		Helpers      []struct {
 			Name      string   `json:"name"`
 			File      string   `json:"file"`
 			Line      int      `json:"line"`
@@ -107,6 +114,9 @@ func TestMapDescribesLayersBreaksAndHelpers(t *testing.T) {
 	if len(m.Helpers) != 1 || m.Helpers[0].Name != "Respond" || m.Helpers[0].Signature != "func Respond() {}" ||
 		!reflect.DeepEqual(m.Helpers[0].Modules, []string{"handlers", "service"}) {
 		t.Errorf("helpers = %+v, want util.Respond used by handlers and service", m.Helpers)
+	}
+	if !reflect.DeepEqual(m.Unplaced, []string{"types"}) {
+		t.Errorf("unplaced = %v, want [types]: it calls only itself", m.Unplaced)
 	}
 	if m.Calls == 0 || m.ResolvedCalls != m.Calls {
 		t.Errorf("calls = %d resolved of %d, want all resolved", m.ResolvedCalls, m.Calls)

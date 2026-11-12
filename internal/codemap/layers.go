@@ -46,6 +46,9 @@ type LayerMap struct {
 	// layer sorted.
 	Layers [][]string
 	Breaks []Break
+	// Unplaced are the modules no counted call goes to or comes from:
+	// nothing says where they belong.
+	Unplaced []string
 }
 
 // edge is the calls from one module to another: how many caller and callee
@@ -99,7 +102,17 @@ func Layers(g *flow.Graph, crates map[string]string) LayerMap {
 
 	comp := kept.components()
 	depth := kept.depths(comp)
+	linked := make([]bool, n)
+	for a, out := range all {
+		for b := range out {
+			linked[a], linked[b] = true, true
+		}
+	}
 	for m := range n {
+		if !linked[m] {
+			out.Unplaced = append(out.Unplaced, names[m])
+			continue
+		}
 		d := depth[comp[m]]
 		for len(out.Layers) <= d {
 			out.Layers = append(out.Layers, nil)
