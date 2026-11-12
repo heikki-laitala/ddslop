@@ -173,6 +173,14 @@ func buildMap(root, lang string, files []index.File, limit int, want string) (ma
 		}
 		if m.Scope == "crate" {
 			layerGroup, helperGroup = codemap.InCrate(m.Crate, crates), codemap.InCrate(m.Crate, crates)
+			// The crate's own call sites, as its layers come from them alone.
+			m.Calls, m.ResolvedCalls = 0, 0
+			for i, u := range g.Units {
+				if layerGroup(u) != "" {
+					m.Calls += len(u.Calls)
+					m.ResolvedCalls += g.ResolvedOf[i]
+				}
+			}
 		}
 	}
 

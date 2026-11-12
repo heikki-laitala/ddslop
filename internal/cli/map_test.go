@@ -161,10 +161,12 @@ var workspace = map[string]string{
 
 type scopedMap struct {
 	Maps []struct {
-		Lang   string `json:"lang"`
-		Scope  string `json:"scope"`
-		Crate  string `json:"crate"`
-		Layers []struct {
+		Lang          string `json:"lang"`
+		Scope         string `json:"scope"`
+		Calls         int    `json:"calls"`
+		ResolvedCalls int    `json:"resolved_calls"`
+		Crate         string `json:"crate"`
+		Layers        []struct {
 			Modules []string `json:"modules"`
 		} `json:"layers"`
 		Crates []struct {
@@ -224,6 +226,10 @@ func TestMapOfOneCrateLayersItsModules(t *testing.T) {
 	}
 	if want := [][]string{{"service"}, {"service::validate"}}; !reflect.DeepEqual(layerNames(r.Maps[0].Layers), want) {
 		t.Errorf("layers = %v, want %v", layerNames(r.Maps[0].Layers), want)
+	}
+	// service makes 3 calls, all resolved; api's call is not service's.
+	if m := r.Maps[0]; m.Calls != 3 || m.ResolvedCalls != 3 {
+		t.Errorf("calls = %d resolved of %d, want 3 of 3: the crate's own calls", m.ResolvedCalls, m.Calls)
 	}
 }
 
