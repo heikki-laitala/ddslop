@@ -62,8 +62,10 @@ type edges []map[int]*edge
 // direction of their calls. In each cycle, an edge is set aside when it is
 // weak next to the strongest cycle through it; what is still cyclic after
 // that are peers, collapsed into one layer. Each module's layer is then its
-// longest-path depth from the modules nothing calls. Set-aside edges are
-// upward calls; an edge skipping a layer that the caller's module mostly
+// longest-path depth from the modules nothing calls. A set-aside edge
+// whose caller ends up below its callee is an upward call (with
+// overlapping cycles, one can end up going down, and is no break); an
+// edge skipping a layer that the caller's module mostly
 // reaches through a module in between is a bypass.
 func Layers(g *flow.Graph, crates map[string]string) LayerMap {
 	names, all := moduleGraph(g, crates)
@@ -72,9 +74,12 @@ func Layers(g *flow.Graph, crates map[string]string) LayerMap {
 	// Edges are judged against the whole graph, so the order they are
 	// looked at does not matter.
 	var out LayerMap
+	var setAside []Break // upward calls if they still go up once the layers are known
+	positions := map[string]int{}
 	kept := make(edges, n)
 	for a := range n {
 		kept[a] = map[int]*edge{}
+		positions[names[a]] = a
 	}
 	for b := range n {
 		back := all.widestFrom(b) // back[a]: the strongest path from b to a
@@ -84,7 +89,7 @@ func Layers(g *flow.Graph, crates map[string]string) LayerMap {
 				continue
 			}
 			if back[a] > 0 && float64(e.calls) < weak*float64(back[a]) {
-				out.Breaks = append(out.Breaks, Break{Kind: Upward, From: names[a], To: names[b],
+				setAside = append(setAside, Break{Kind: Upward, From: names[a], To: names[b],
 					Calls: e.calls, UsualCalls: back[a], Callers: e.callers})
 				continue
 			}
@@ -103,6 +108,11 @@ func Layers(g *flow.Graph, crates map[string]string) LayerMap {
 	}
 
 	layer := func(m int) int { return depth[comp[m]] }
+	for _, b := range setAside {
+		if layer(positions[b.From]) > layer(positions[b.To]) {
+			out.Breaks = append(out.Breaks, b)
+		}
+	}
 	for a := range n {
 		for c, e := range kept[a] {
 			if via, usual := kept.bypassed(a, c, layer); via >= 0 && float64(e.calls) < weak*float64(usual) {

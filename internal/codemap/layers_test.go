@@ -106,3 +106,16 @@ func TestCallsInsideAModuleShapeNoLayers(t *testing.T) {
 		t.Errorf("layers = %v, want %v", m.Layers, want)
 	}
 }
+
+func TestASetAsideCallThatEndsUpGoingDownIsNoBreak(t *testing.T) {
+	// a->b is weak on a->b->c->a and b->c on b->c->d->b; with both set
+	// aside c is on top, so a (layer 1) calling b (layer 2) goes down.
+	m := Layers(graphOf(call{"a", "b", 1}, call{"b", "c", 10}, call{"c", "a", 40}, call{"c", "d", 100}, call{"d", "b", 100}), nil)
+	want := [][]string{{"c"}, {"a", "d"}, {"b"}}
+	if !reflect.DeepEqual(m.Layers, want) {
+		t.Errorf("layers = %v, want %v", m.Layers, want)
+	}
+	if len(m.Breaks) != 1 || m.Breaks[0].Kind != Upward || m.Breaks[0].From != "b" || m.Breaks[0].To != "c" {
+		t.Errorf("breaks = %+v, want only b's call up to c", m.Breaks)
+	}
+}
