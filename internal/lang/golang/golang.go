@@ -82,6 +82,13 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	case "call_expression":
 		if c, ok := g.call(n, s.Src); ok {
 			s.Calls = append(s.Calls, c)
+			if form := errorCallForm(c, n, s.Src); form.Form != "" {
+				s.Forms = append(s.Forms, form)
+			}
+		}
+	case "binary_expression":
+		if form := errorComparison(n, s.Src); form.Form != "" {
+			s.Forms = append(s.Forms, form)
 		}
 	case "expression_switch_statement":
 		var values []string
@@ -137,6 +144,90 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 		return c, false // function values, conversions
 	}
 	return c, true
+}
+
+// The error concerns and their forms. A form is recognised from syntax
+// alone: the calls made and the operands compared.
+const (
+	errorChecks   = "error-checks"
+	errorWrapping = "error-wrapping"
+)
+
+// errorCallForm returns the error form a call is, if any: errors.Is or
+// errors.As checks an error, comparing err.Error() inside strings.Contains
+// and its kin checks its message, and fmt.Errorf wraps one with %w or
+// formats it with %v or %s.
+func errorCallForm(c unit.Call, n *sitter.Node, src []byte) unit.Form {
+	form := unit.Form{Line: c.Line}
+	args := n.ChildByFieldName("arguments")
+	if c.Kind != unit.PathCall || args == nil {
+		return form
+	}
+	switch {
+	case c.Qualifier == "errors" && (c.Name == "Is" || c.Name == "As"):
+		form.Concern, form.Form = errorChecks, "errors.Is/As"
+	case c.Qualifier == "strings" && (c.Name == "Contains" || c.Name == "HasPrefix" || c.Name == "HasSuffix" || c.Name == "EqualFold"):
+		for i := uint(0); i < args.NamedChildCount(); i++ {
+			if isErrorMessage(args.NamedChild(i), src) {
+				form.Concern, form.Form = errorChecks, "message"
+			}
+		}
+	case c.Qualifier == "fmt" && c.Name == "Errorf" && args.NamedChildCount() > 1:
+		format := args.NamedChild(0).Utf8Text(src)
+		formatsError := false
+		for i := uint(1); i < args.NamedChildCount(); i++ {
+			formatsError = formatsError || isErrorValue(args.NamedChild(i), src)
+		}
+		switch {
+		case strings.Contains(format, "%w"):
+			form.Concern, form.Form = errorWrapping, "%w"
+		case formatsError && (strings.Contains(format, "%v") || strings.Contains(format, "%s")):
+			form.Concern, form.Form = errorWrapping, "%v"
+		}
+	}
+	return form
+}
+
+// errorComparison returns the error check an == or != comparison is: on
+// err.Error() a check of the message, between an error value and anything
+// but nil a check against a sentinel (err == io.EOF).
+func errorComparison(n *sitter.Node, src []byte) unit.Form {
+	form := unit.Form{Line: syntax.Line(n.StartPosition())}
+	op := n.ChildByFieldName("operator")
+	left, right := n.ChildByFieldName("left"), n.ChildByFieldName("right")
+	if op == nil || left == nil || right == nil || (op.Kind() != "==" && op.Kind() != "!=") {
+		return form
+	}
+	switch {
+	case isErrorMessage(left, src) || isErrorMessage(right, src):
+		form.Concern, form.Form = errorChecks, "message"
+	case (isErrorValue(left, src) && right.Kind() != "nil") || (isErrorValue(right, src) && left.Kind() != "nil"):
+		form.Concern, form.Form = errorChecks, "=="
+	}
+	return form
+}
+
+// isErrorValue reports whether n names an error by Go's naming habit: err,
+// or a name ending in err or Err (readErr, ErrMissing).
+func isErrorValue(n *sitter.Node, src []byte) bool {
+	if n.Kind() != "identifier" {
+		return false
+	}
+	name := n.Utf8Text(src)
+	return strings.HasSuffix(name, "err") || strings.HasSuffix(name, "Err")
+}
+
+// isErrorMessage reports whether n is a call of Error() on an error value.
+func isErrorMessage(n *sitter.Node, src []byte) bool {
+	if n.Kind() != "call_expression" {
+		return false
+	}
+	fn := n.ChildByFieldName("function")
+	if fn == nil || fn.Kind() != "selector_expression" {
+		return false
+	}
+	operand, field := fn.ChildByFieldName("operand"), fn.ChildByFieldName("field")
+	return operand != nil && field != nil && field.Utf8Text(src) == "Error" && isErrorValue(operand, src)
 }
 
 // Parse parses Go source and returns one unit per function or method, in
@@ -203,6 +294,7 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 		Calls:     s.Calls,
 		Forwards:  forwards(n, src),
 		Params:    params(n, src),
+		Forms:     s.Forms,
 
 		StringMatches: s.Matches,
 		// Exported names are public; methods may satisfy an interface

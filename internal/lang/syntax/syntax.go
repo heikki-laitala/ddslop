@@ -47,9 +47,10 @@ type Shaper struct {
 	Seq    []uint32
 	Lines  []int
 	Blocks [][]unit.Statement
-	// Calls and Matches are recorded by the grammar's Visit.
+	// Calls, Matches and Forms are recorded by the grammar's Visit.
 	Calls   []unit.Call
 	Matches []unit.StringMatch
+	Forms   []unit.Form
 	// Exits counts the early returns seen so far, and Closures how deep in
 	// closures the walk is: a return in a closure leaves the closure. The
 	// grammar's Visit maintains both.
