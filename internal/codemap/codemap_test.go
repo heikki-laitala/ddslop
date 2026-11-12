@@ -4,7 +4,7 @@ import "testing"
 
 func TestModuleNamesGoPackagesAndRustTopModules(t *testing.T) {
 	crates := map[string]string{"crates/ledger": "acme_ledger"}
-	for file, want := range map[string]string{
+	for file, want := range map[string]string{ //nolint:gosec // file paths, not credentials
 		"internal/flow/flow.go":                 "internal/flow",
 		"main.go":                               ".",
 		"crates/ledger/src/lib.rs":              "acme_ledger",

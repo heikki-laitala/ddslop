@@ -19,13 +19,11 @@ func Module(file string, crates map[string]string) string {
 	if strings.HasSuffix(file, ".go") {
 		return path.Dir(file)
 	}
-	dir, rel := ".", file
+	dir, rel := ".", "" // a file outside src/ is its crate's root
 	if i := strings.Index(file, "/src/"); i >= 0 {
 		dir, rel = file[:i], file[i+len("/src/"):]
 	} else if after, ok := strings.CutPrefix(file, "src/"); ok {
 		rel = after // a crate at the root
-	} else {
-		rel = ""
 	}
 	name, ok := crates[dir]
 	if !ok {
