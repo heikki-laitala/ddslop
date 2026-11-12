@@ -1023,18 +1023,22 @@ In the order they are built; each ships only once measured (below).
    its crate. Resolved calls outside test code give a module graph,
    weighted by the number of calls. The layers come from the dominant
    direction of the calls, so the calls that break them cannot shape
-   them: between two modules calling each other, the lighter direction is
-   set aside, and a longer cycle loses its lightest edge, one at a time,
-   until none is left (a greedy feedback arc set; module graphs are
-   small). What remains is acyclic, and each module's layer is its
+   them: in each cycle (strongly connected component), an edge is set
+   aside only when it is weak next to the others in its component (a
+   small share of their calls; the share comes from measurement), the
+   lighter direction between two modules being the simplest case. A
+   component that is still cyclic after that has no dominant direction:
+   its modules are peers, collapsed into one node that shares a layer,
+   rather than ordered by a tie-break the calls do not support. What
+   remains is acyclic, and each module's layer is its
    longest-path depth from the graph's sources, the modules no other
    module calls. Entry-point modules are sources, but so are the tops of
    parts no entry point reaches (a background worker, a library-only
    subsystem), so every module gets a layer. The map
    lists the layers with their modules, then the calls that break them:
    - an upward call: a set-aside edge carrying a small share of the calls
-     between its two modules (when the two directions are closer, the
-     modules depend on each other and share a layer instead);
+     in its component (when the calls are closer to balanced, the modules
+     are peers and share a layer instead);
    - a bypass: an edge that skips a layer, from a module whose calls to
      that target mostly go through a module in between ("3 functions in
      `handlers` call `store` directly; 40 calls go through `service`").
@@ -1066,14 +1070,21 @@ In the order they are built; each ships only once measured (below).
 
    | Concern | Rust forms | Go forms |
    | --- | --- | --- |
-   | Errors | error enum (`thiserror`), `?` with `From`, `map_err` to a helper, `anyhow` | `fmt.Errorf` with `%w`, sentinel errors with `errors.Is`, custom error types |
+   | Error values | error enum (`thiserror`), `anyhow` | sentinel errors, custom error types |
+   | Error wrapping | `?` with `From`, `map_err` to a helper | `fmt.Errorf` with `%w`, with `%v`, unwrapped |
+   | Error checks | match on the variant, compare the message | `errors.Is` and `errors.As`, `==`, compare the message |
    | Scopes (transactions, leases) | closure helper, RAII guard, manual `commit` | `defer tx.Rollback()`, closure helper, manual `Commit` |
    | Authentication in handlers | extractor, middleware layer, inline check | middleware `func(http.Handler) http.Handler`, inline check |
    | Kinds and states | `enum` with `FromStr`, strings | typed constants with `iota` and `String()`, strings |
    | Parameter groups | struct | options struct, functional options |
 
-   A form is the convention when most occurrences of the concern use it
-   (the share comes from measurement). The codebase's convention wins
+   The forms within one concern are alternatives: a codebase uses one or
+   another for the same job. Practices that work together (a sentinel
+   error, wrapped with `%w`, checked with `errors.Is`) belong to separate
+   concerns, so following all of them is never a deviation; a form that
+   turns out to combine with another in measurement moves to its own
+   concern. A form is the convention when most occurrences of the
+   concern use it (the share comes from measurement). The codebase's convention wins
    even when it is not the textbook idiom, because consistency is what
    prevents the next copy. Where a concern has no convention (too few
    occurrences, or no form in the majority), the map says so, and the
