@@ -1039,9 +1039,11 @@ In the order they are built; each ships only once measured (below).
    parts no entry point reaches (a background worker, a library-only
    subsystem), so every module gets a layer. The map
    lists the layers with their modules, then the calls that break them:
-   - an upward call: every set-aside edge, which is weak next to its
-     cycle by the rule above (edges closer to balanced are never set
-     aside: their modules are peers and share a layer instead);
+   - an upward call: a set-aside edge whose caller ends up in a lower
+     layer than its callee (edges closer to balanced are never set
+     aside: their modules are peers and share a layer instead; with
+     overlapping cycles, a set-aside edge can end up going down, and is
+     then an ordinary call, not a break);
    - a bypass: an edge that skips a layer, from a module whose calls to
      that target mostly go through a module in between ("3 functions in
      `handlers` call `store` directly; 40 calls go through `service`").
