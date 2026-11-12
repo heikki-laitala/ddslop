@@ -511,3 +511,34 @@ func TestUnitsRecordTheirErrorForms(t *testing.T) {
 		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestErrorFormsInMacrosQualifiedPathsAndAnyhowContext(t *testing.T) {
+	src := `fn check(r: Result<u8, Fault>, cx: Context) -> Result<u8, Fault> {
+    if matches!(r, Err(Fault::Gone)) {
+        return Ok(0);
+    }
+    if let Err(crate::errors::Fault::Busy) = r {
+        return Ok(1);
+    }
+    let a = load().context("load")?;
+    let b = load().context(format!("load {a}"))?;
+    let c = load().with_context(|| "load")?;
+    let d = serve().with_context(cx).await;
+    Ok(a + b + c + d)
+}
+`
+	var got []string
+	for _, f := range byName(t, mustUnits(t, src), "check").Forms {
+		got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
+	}
+	want := []string{
+		"2 error-checks variant",
+		"5 error-checks variant",
+		"8 error-wrapping context",
+		"9 error-wrapping context",
+		"10 error-wrapping context",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

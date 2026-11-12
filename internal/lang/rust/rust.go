@@ -74,18 +74,25 @@ func (grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 var IdiomaticForms = map[string]string{unit.ErrorChecks: "variant"}
 
 // errorForm returns the error form a node is, if any: a pattern
-// Err(Path::Variant ..) checks an error's variant; comparing an error's
-// to_string() (==, contains, starts_with, ends_with) checks its message;
-// map_err converts an error and context or with_context wraps one with
-// anyhow. All are recognised from syntax alone, so ? with a From
-// conversion, which looks like any other ?, is no form.
+// Err(Path::Variant ..), or one inside matches!, checks an error's
+// variant; comparing an error's to_string() (==, contains, starts_with,
+// ends_with) checks its message; map_err converts an error, and anyhow's
+// context (given a message) or with_context (given a closure) wraps one.
+// All are recognised from syntax alone, so ? with a From conversion,
+// which looks like any other ?, is no form.
 func errorForm(n *sitter.Node, src []byte) unit.Form {
 	form := unit.Form{Line: syntax.Line(n.StartPosition())}
 	switch n.Kind() {
 	case "tuple_struct_pattern":
 		typ := n.ChildByFieldName("type")
-		if typ != nil && typ.Utf8Text(src) == "Err" && n.NamedChildCount() > 1 {
-			if inner := n.NamedChild(1); strings.Contains(inner.Utf8Text(src), "::") && isUpper(inner.Utf8Text(src)) {
+		if typ != nil && typ.Utf8Text(src) == "Err" && n.NamedChildCount() > 1 && isVariantPath(n.NamedChild(1).Utf8Text(src)) {
+			form.Concern, form.Form = unit.ErrorChecks, "variant"
+		}
+	case "macro_invocation":
+		// A macro's arguments are an opaque token tree: read matches!'s
+		// pattern from its text.
+		if m := n.ChildByFieldName("macro"); m != nil && m.Utf8Text(src) == "matches" {
+			if p := errPattern.FindStringSubmatch(n.Utf8Text(src)); p != nil && isVariantPath(p[1]) {
 				form.Concern, form.Form = unit.ErrorChecks, "variant"
 			}
 		}
@@ -109,7 +116,9 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 		case "map_err":
 			form.Concern, form.Form = unit.ErrorWrapping, "map_err"
 		case "context", "with_context":
-			form.Concern, form.Form = unit.ErrorWrapping, "context"
+			if anyhowContext(field.Utf8Text(src), n) {
+				form.Concern, form.Form = unit.ErrorWrapping, "context"
+			}
 		case "contains", "starts_with", "ends_with":
 			if isErrorMessage(value, src) {
 				form.Concern, form.Form = unit.ErrorChecks, "message"
@@ -117,6 +126,37 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 		}
 	}
 	return form
+}
+
+// errPattern finds an Err(Path ..) pattern in a macro's text.
+var errPattern = regexp.MustCompile(`\bErr\s*\(\s*([A-Za-z_][\w:]*)`)
+
+// isVariantPath reports whether a pattern names an enum variant by path:
+// its last segment is upper case (Fault::Gone, crate::errors::Fault::Gone,
+// Fault::Store(_)), unlike a binding (e) or a bare name.
+func isVariantPath(pattern string) bool {
+	if i := strings.IndexAny(pattern, "({ "); i >= 0 {
+		pattern = pattern[:i]
+	}
+	i := strings.LastIndex(pattern, "::")
+	return i >= 0 && isUpper(pattern[i+2:])
+}
+
+// anyhowContext reports whether a context or with_context call wraps an
+// error as anyhow does: context with a message (a string or format!),
+// with_context with a closure. Other APIs share the names, such as
+// OpenTelemetry's with_context(cx), and take a value.
+func anyhowContext(method string, call *sitter.Node) bool {
+	args := call.ChildByFieldName("arguments")
+	if args == nil || args.NamedChildCount() != 1 {
+		return false
+	}
+	switch arg := args.NamedChild(0).Kind(); method {
+	case "context":
+		return arg == "string_literal" || arg == "raw_string_literal" || arg == "macro_invocation"
+	default:
+		return arg == "closure_expression"
+	}
 }
 
 // isErrorMessage reports whether n is to_string() called on an error

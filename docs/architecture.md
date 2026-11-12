@@ -1445,21 +1445,28 @@ values (`client.transaction()` and `bounded(...)`), grouped by the
 `map_err` after them until the opener looked through it.
 
 Rust's error forms come from syntax too. A check is a pattern
-`Err(Path::Variant ..)` (in a `match` arm, `if let` or `matches!`), or
+`Err(Path::Variant ..)` whose last segment is upper case (in a `match`
+arm, `if let`, or `matches!`, whose arguments the parser leaves as
+tokens, so its pattern is read from the text), or
 a comparison of an error's `to_string()` (`==`, `contains`,
 `starts_with`, `ends_with`) on a value named `e`, `err` or `error`, or
 ending in `_err` or `_error`. Wrapping is `map_err`, or anyhow's
-`context` or `with_context`. `?` with a `From` conversion looks like
+`context` given a message (a string or `format!`) or `with_context`
+given a closure; other APIs share the names with a value argument
+(OpenTelemetry's `with_context(cx)`). `?` with a `From` conversion looks like
 any other `?` without types, so it is no form yet. The idiomatic check
 is the variant (`rust.IdiomaticForms`); wrapping has no idiomatic form,
 as `map_err` to a typed error and anyhow's `context` are both idiomatic,
 one for libraries and one for applications, so a Rust map without a
 wrapping convention names none.
 
-Measured: `lns-inference-router` checks errors by variant in 433 of 434
+Measured: `lns-inference-router` checks errors by variant in 476 of 477
 checks, and the one message check (`yaml_to_json_value` matching
 `"tab character"` in a tool) is real drift; it wraps with `map_err` in
-2190 of 2193. `lens-artifact-hub` checks by variant in all 70, and wraps
+all 2190 wraps. Before `matches!` and qualified paths were read, 43 of
+those variant checks were missed, and before `context` needed anyhow's
+arguments, 3 OpenTelemetry calls counted as wraps in a codebase that
+does not use anyhow. `lens-artifact-hub` checks by variant in all 95, and wraps
 with `map_err` in 183 of 265. The rest is anyhow's `context`, and not
 only in binaries: the main crate depends on both anyhow and thiserror
 and uses `context` across its modules (74 of 249 wraps there), while
