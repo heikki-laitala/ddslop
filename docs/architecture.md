@@ -1128,7 +1128,8 @@ In the order they are built; each ships only once measured (below).
    the source module's other calls into the target go through most; for
    a skipped helper, the helper; for an idiom, the occurrence of the
    convention's form closest to the code (same module first). Only an
-   occurrence in no other candidate drifts (see Concerns). When the code
+   occurrence in no other candidate of the same concern drifts (see
+   Concerns). When the code
    belongs to a typical
    feature from section 3, that feature is named as the example. As
    a candidate kind it works with baselines and diff mode unchanged;
@@ -1162,11 +1163,12 @@ Every occurrence of a concern is exactly one of:
 
 - **conventional:** the majority form, and not itself repeated code;
 - **duplicated:** part of a clone, pattern proposal or `parallel-flow`
-  candidate, whose suggestion is the fix;
+  candidate of this concern, whose suggestion is the fix;
 - **drift:** another form where a convention exists, in no other
-  candidate: a `convention-drift` candidate;
-- **open:** the concern has no convention (too few occurrences, or no
-  form in the majority) and the occurrence is in no candidate: the map
+  candidate of this concern: a `convention-drift` candidate;
+- **open:** the concern has no convention, for any reason (too few
+  occurrences, no form in the majority, or a majority form that is
+  duplicated), and the occurrence is in no candidate of this concern: the map
   lists the forms and names the idiomatic one, and `check` reports
   nothing, since there is nothing to drift from.
 
@@ -1186,10 +1188,13 @@ Three rules follow:
    pattern as the way forward. A typical feature whose family is a
    `parallel-flow` candidate is shown the same way, never as "follow
    `create_order`".
-3. **One candidate per occurrence.** Clone kinds come first, then pattern
-   proposals, then `convention-drift`, as a block clone that is a
-   preamble is already reported once: an agent fixing the candidate it
-   is given never meets the same lines again.
+3. **One candidate per occurrence and concern.** Pattern proposals come
+   first, as the most specific (a block clone that is a preamble is
+   already reported as `shared-preamble`, not twice), then clone kinds,
+   then `convention-drift`. Only candidates of the same concern suppress
+   one another: an entry point in a `parallel-flow` family that also
+   skips the sign-in extractor keeps its `convention-drift`, since
+   extracting the pipeline does not restore a check one member lacks.
 
 Map entries and candidates carry the concern's name (`concern` in JSON),
 so an agent reading "kinds: no convention, 7 string matches flagged" in
