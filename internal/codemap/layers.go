@@ -176,9 +176,9 @@ func moduleGraph(g *flow.Graph, crates map[string]string) ([]string, edges) {
 	}
 	for caller, callees := range g.Callees {
 		a := index[moduleOf[caller]]
-		for _, callee := range callees {
+		for k, callee := range callees {
 			b := index[moduleOf[callee]]
-			if a == b {
+			if a == b || !named(g, caller, k) {
 				continue
 			}
 			e := es[a][b]

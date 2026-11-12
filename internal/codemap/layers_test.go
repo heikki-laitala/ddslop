@@ -129,3 +129,18 @@ func TestAModuleCalledFromAboveTheSkippedLayerIsNoBypassTarget(t *testing.T) {
 		t.Errorf("breaks = %+v, want none: types is not reached only through service", m.Breaks)
 	}
 }
+
+func TestCallsFoundOnlyByMethodNameShapeNoLayers(t *testing.T) {
+	g := graphOf(call{"handlers", "service", 10}, call{"service", "handlers", 10})
+	g.ByName = make([][]bool, len(g.Units))
+	for i := range g.Callees {
+		for range g.Callees[i] {
+			// service's calls back are x.m() guesses: only handlers -> service counts.
+			g.ByName[i] = append(g.ByName[i], Module(g.Units[i].File, nil) == "service")
+		}
+	}
+	m := Layers(g, nil)
+	if want := [][]string{{"handlers"}, {"service"}}; !reflect.DeepEqual(m.Layers, want) || len(m.Breaks) != 0 {
+		t.Errorf("layers = %v, breaks = %+v; want %v and no breaks", m.Layers, m.Breaks, want)
+	}
+}
