@@ -1,6 +1,6 @@
 ---
 name: ddslop
-description: Finds duplicated code (exact, renamed and near-miss copies, copied blocks, duplicated types and constants) and code to simplify (unused public helpers, pass-through wrappers, single-implementation traits), and proposes refactoring candidates. Use before finishing a code change, when asked to clean up, deduplicate or "deslop" code, and before writing a new helper, to reuse existing code instead of adding another copy.
+description: Finds duplicated code (exact, renamed and near-miss copies, copied blocks, duplicated types and constants) and code to simplify (unused public helpers, pass-through wrappers, single-implementation traits), and proposes refactoring candidates. Use before starting a feature, to see the codebase's layers and the helpers it already shares; before finishing a code change; when asked to clean up, deduplicate or "deslop" code; and before writing a new helper, to reuse existing code instead of adding another copy.
 {{- if .Claude}}
 allowed-tools: Bash(ddslop *), Read, Grep, Glob
 {{- end}}
@@ -16,6 +16,8 @@ forward their arguments, and traits with a single implementation.
 
 ## When to run it
 
+- Before starting a feature or a larger change: see how the codebase is
+  organised and what it already offers (see "Before you write" below).
 - Before finishing a change: check that you did not add another copy of
   existing code (see "Checking your change" below).
 - When asked to clean up, deduplicate or "deslop" code.
@@ -38,6 +40,32 @@ Useful flags: `--min-nodes` (default 50), `--min-block-nodes` (default
 `--min-similarity` (default 0.8) the threshold for near misses. A
 repository may set them, and files to exclude, in `.ddslop.yaml`; flags
 override it.
+
+## Before you write
+
+```sh
+ddslop map --format json .
+```
+
+describes the codebase's conventions, one map per language:
+
+- `layers`: the modules (Go packages, Rust modules under their crate),
+  top layer first, as the code's calls order them. Put new code in the
+  layer its neighbours use, and call downwards.
+- `helpers`: functions other modules already share, with their
+  signature and the modules using them. Reuse one before writing your
+  own; `ddslop similar` then checks a draft that remains.
+- `breaks`: calls against the layers: `upward` (a call back up, often a
+  dependency cycle) or `bypass` (a call past the layer the rest of the
+  module goes through). Treat them as hints, not errors: some are
+  deliberate, such as a composition root wiring everything together.
+  Do not add to them; fix one only when asked.
+- `unplaced`: modules no counted call reaches, often types-only crates.
+
+Only calls that name their target count (`f()`, `Type::f()`,
+`module::f()`, calls on `self`), so a method reached through a field
+(`x.store.get()`) is not seen: Go layers in particular stay shallow.
+`--limit` (default 10) caps each list.
 
 ## Checking your change
 
