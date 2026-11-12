@@ -119,3 +119,13 @@ func TestASetAsideCallThatEndsUpGoingDownIsNoBreak(t *testing.T) {
 		t.Errorf("breaks = %+v, want only b's call up to c", m.Breaks)
 	}
 }
+
+func TestAModuleCalledFromAboveTheSkippedLayerIsNoBypassTarget(t *testing.T) {
+	// types is shared: worker, in the top layer, calls it directly too, so
+	// handlers calling it directly skips nothing.
+	m := Layers(graphOf(call{"handlers", "service", 40}, call{"service", "types", 40}, call{"handlers", "types", 3},
+		call{"worker", "types", 10}), nil)
+	if len(m.Breaks) != 0 {
+		t.Errorf("breaks = %+v, want none: types is not reached only through service", m.Breaks)
+	}
+}
