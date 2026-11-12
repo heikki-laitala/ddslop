@@ -34,22 +34,17 @@ type FormCount struct {
 // by concern name. idiomatic maps a concern to its idiomatic form.
 func Idioms(g *flow.Graph, group Grouping, idiomatic map[string]string) []Idiom {
 	byConcern := map[string]map[string]*FormCount{}
-	for i, u := range g.Units {
-		if u.Test || u.Ignored || len(u.Forms) == 0 || group(u) == "" {
-			continue
-		}
-		for _, f := range u.Forms {
-			if byConcern[f.Concern] == nil {
-				byConcern[f.Concern] = map[string]*FormCount{}
-			}
-			fc := byConcern[f.Concern][f.Form]
+	for concern, occs := range concernOccurrences(g, group) {
+		byConcern[concern] = map[string]*FormCount{}
+		for _, o := range occs {
+			fc := byConcern[concern][o.form]
 			if fc == nil {
-				fc = &FormCount{Form: f.Form, Unit: i, Line: f.Line}
-				byConcern[f.Concern][f.Form] = fc
+				fc = &FormCount{Form: o.form, Unit: o.unit, Line: o.line}
+				byConcern[concern][o.form] = fc
 			}
 			fc.Count++
-			if first := g.Units[fc.Unit]; cmp.Or(cmp.Compare(u.File, first.File), cmp.Compare(f.Line, fc.Line)) < 0 {
-				fc.Unit, fc.Line = i, f.Line
+			if first := g.Units[fc.Unit]; cmp.Or(cmp.Compare(g.Units[o.unit].File, first.File), cmp.Compare(o.line, fc.Line)) < 0 {
+				fc.Unit, fc.Line = o.unit, o.line
 			}
 		}
 	}
