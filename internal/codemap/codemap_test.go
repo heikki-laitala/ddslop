@@ -16,6 +16,7 @@ func TestModuleNamesGoPackagesAndRustTopModules(t *testing.T) {
 		"crates/token-credentials/src/lib.rs":   "token_credentials",
 		"crates/token-credentials/src/codec.rs": "token_credentials::codec",
 		"build.rs":                              ".",
+		"crates/ledger/build.rs":                "acme_ledger",
 		"src/lib.rs":                            ".",
 		"src/store/postgres.rs":                 "store",
 	} {
