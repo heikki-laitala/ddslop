@@ -35,7 +35,7 @@ func graphOf(calls ...call) *flow.Graph {
 }
 
 func TestLayersFollowTheCallDirection(t *testing.T) {
-	m := Layers(graphOf(call{"handlers", "service", 40}, call{"service", "store", 40}), nil)
+	m := Layers(graphOf(call{"handlers", "service", 40}, call{"service", "store", 40}), ByModule(nil))
 	want := [][]string{{"handlers"}, {"service"}, {"store"}}
 	if !reflect.DeepEqual(m.Layers, want) {
 		t.Errorf("layers = %v, want %v", m.Layers, want)
@@ -46,7 +46,7 @@ func TestLayersFollowTheCallDirection(t *testing.T) {
 }
 
 func TestADirectCallPastAMiddleLayerIsABypass(t *testing.T) {
-	m := Layers(graphOf(call{"handlers", "service", 40}, call{"service", "store", 40}, call{"handlers", "store", 3}), nil)
+	m := Layers(graphOf(call{"handlers", "service", 40}, call{"service", "store", 40}, call{"handlers", "store", 3}), ByModule(nil))
 	want := [][]string{{"handlers"}, {"service"}, {"store"}}
 	if !reflect.DeepEqual(m.Layers, want) {
 		t.Errorf("layers = %v, want %v: the direct call must not lift store", m.Layers, want)
@@ -61,7 +61,7 @@ func TestADirectCallPastAMiddleLayerIsABypass(t *testing.T) {
 }
 
 func TestAWeakCallClosingACycleIsAnUpwardCall(t *testing.T) {
-	m := Layers(graphOf(call{"a", "b", 40}, call{"b", "c", 40}, call{"c", "a", 1}), nil)
+	m := Layers(graphOf(call{"a", "b", 40}, call{"b", "c", 40}, call{"c", "a", 1}), ByModule(nil))
 	want := [][]string{{"a"}, {"b"}, {"c"}}
 	if !reflect.DeepEqual(m.Layers, want) {
 		t.Errorf("layers = %v, want %v", m.Layers, want)
@@ -72,7 +72,7 @@ func TestAWeakCallClosingACycleIsAnUpwardCall(t *testing.T) {
 }
 
 func TestTheLighterDirectionBetweenTwoModulesIsAnUpwardCall(t *testing.T) {
-	m := Layers(graphOf(call{"api", "db", 30}, call{"db", "api", 2}), nil)
+	m := Layers(graphOf(call{"api", "db", 30}, call{"db", "api", 2}), ByModule(nil))
 	if want := [][]string{{"api"}, {"db"}}; !reflect.DeepEqual(m.Layers, want) {
 		t.Errorf("layers = %v, want %v", m.Layers, want)
 	}
@@ -82,7 +82,7 @@ func TestTheLighterDirectionBetweenTwoModulesIsAnUpwardCall(t *testing.T) {
 }
 
 func TestABalancedCycleIsOneLayerOfPeers(t *testing.T) {
-	m := Layers(graphOf(call{"a", "b", 5}, call{"b", "c", 5}, call{"c", "a", 5}, call{"c", "z", 5}), nil)
+	m := Layers(graphOf(call{"a", "b", 5}, call{"b", "c", 5}, call{"c", "a", 5}, call{"c", "z", 5}), ByModule(nil))
 	want := [][]string{{"a", "b", "c"}, {"z"}}
 	if !reflect.DeepEqual(m.Layers, want) {
 		t.Errorf("layers = %v, want %v", m.Layers, want)
@@ -93,7 +93,7 @@ func TestABalancedCycleIsOneLayerOfPeers(t *testing.T) {
 }
 
 func TestEveryPartOfTheGraphGetsLayers(t *testing.T) {
-	m := Layers(graphOf(call{"handlers", "store", 10}, call{"worker", "jobs", 10}, call{"jobs", "queue", 10}), nil)
+	m := Layers(graphOf(call{"handlers", "store", 10}, call{"worker", "jobs", 10}, call{"jobs", "queue", 10}), ByModule(nil))
 	want := [][]string{{"handlers", "worker"}, {"jobs", "store"}, {"queue"}}
 	if !reflect.DeepEqual(m.Layers, want) {
 		t.Errorf("layers = %v, want %v", m.Layers, want)
@@ -101,7 +101,7 @@ func TestEveryPartOfTheGraphGetsLayers(t *testing.T) {
 }
 
 func TestCallsInsideAModuleShapeNoLayers(t *testing.T) {
-	m := Layers(graphOf(call{"solo", "solo", 10}), nil)
+	m := Layers(graphOf(call{"solo", "solo", 10}), ByModule(nil))
 	if len(m.Layers) != 0 || !reflect.DeepEqual(m.Unplaced, []string{"solo"}) {
 		t.Errorf("layers = %v, unplaced = %v; want no layers and solo unplaced", m.Layers, m.Unplaced)
 	}
@@ -110,7 +110,7 @@ func TestCallsInsideAModuleShapeNoLayers(t *testing.T) {
 func TestASetAsideCallThatEndsUpGoingDownIsNoBreak(t *testing.T) {
 	// a->b is weak on a->b->c->a and b->c on b->c->d->b; with both set
 	// aside c is on top, so a (layer 1) calling b (layer 2) goes down.
-	m := Layers(graphOf(call{"a", "b", 1}, call{"b", "c", 10}, call{"c", "a", 40}, call{"c", "d", 100}, call{"d", "b", 100}), nil)
+	m := Layers(graphOf(call{"a", "b", 1}, call{"b", "c", 10}, call{"c", "a", 40}, call{"c", "d", 100}, call{"d", "b", 100}), ByModule(nil))
 	want := [][]string{{"c"}, {"a", "d"}, {"b"}}
 	if !reflect.DeepEqual(m.Layers, want) {
 		t.Errorf("layers = %v, want %v", m.Layers, want)
@@ -124,7 +124,7 @@ func TestAModuleCalledFromAboveTheSkippedLayerIsNoBypassTarget(t *testing.T) {
 	// types is shared: worker, in the top layer, calls it directly too, so
 	// handlers calling it directly skips nothing.
 	m := Layers(graphOf(call{"handlers", "service", 40}, call{"service", "types", 40}, call{"handlers", "types", 3},
-		call{"worker", "types", 10}), nil)
+		call{"worker", "types", 10}), ByModule(nil))
 	if len(m.Breaks) != 0 {
 		t.Errorf("breaks = %+v, want none: types is not reached only through service", m.Breaks)
 	}
@@ -139,7 +139,7 @@ func TestCallsFoundOnlyByMethodNameShapeNoLayers(t *testing.T) {
 			g.ByName[i] = append(g.ByName[i], Module(g.Units[i].File, nil) == "service")
 		}
 	}
-	m := Layers(g, nil)
+	m := Layers(g, ByModule(nil))
 	if want := [][]string{{"handlers"}, {"service"}}; !reflect.DeepEqual(m.Layers, want) || len(m.Breaks) != 0 {
 		t.Errorf("layers = %v, breaks = %+v; want %v and no breaks", m.Layers, m.Breaks, want)
 	}
@@ -147,7 +147,7 @@ func TestCallsFoundOnlyByMethodNameShapeNoLayers(t *testing.T) {
 
 func TestModulesWithoutCallsToOrFromOthersAreUnplaced(t *testing.T) {
 	g := graphOf(call{"handlers", "service", 10}, call{"types", "types", 3})
-	m := Layers(g, nil)
+	m := Layers(g, ByModule(nil))
 	if want := [][]string{{"handlers"}, {"service"}}; !reflect.DeepEqual(m.Layers, want) {
 		t.Errorf("layers = %v, want %v: types has no evidence for a layer", m.Layers, want)
 	}
@@ -160,7 +160,7 @@ func TestAModuleCalledFromBelowTheSkippedLayerIsNoBypassTarget(t *testing.T) {
 	// types is a foundation: service and the lower index both call it, so
 	// handlers calling it directly skips nothing.
 	m := Layers(graphOf(call{"handlers", "service", 40}, call{"service", "types", 40}, call{"handlers", "types", 3},
-		call{"service", "index", 40}, call{"index", "types", 10}), nil)
+		call{"service", "index", 40}, call{"index", "types", 10}), ByModule(nil))
 	for _, b := range m.Breaks {
 		if b.Kind == Bypass {
 			t.Errorf("break %+v: types is reached from below service too", b)

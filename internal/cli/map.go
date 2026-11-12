@@ -124,7 +124,7 @@ func buildMap(root, lang string, files []index.File, limit int) mapJSON {
 	m := mapJSON{Lang: lang, Calls: g.Calls, ResolvedCalls: g.Resolved,
 		Layers: []layerJSON{}, Breaks: []breakJSON{}, Unplaced: []string{}, Helpers: []helperJSON{}}
 
-	layers := codemap.Layers(g, crates)
+	layers := codemap.Layers(g, codemap.ByModule(crates))
 	for d, modules := range layers.Layers {
 		l := layerJSON{Depth: d, Modules: modules}
 		if len(modules) > limit {
@@ -142,7 +142,7 @@ func buildMap(root, lang string, files []index.File, limit int) mapJSON {
 		}
 		m.Breaks = append(m.Breaks, bj)
 	}
-	helpers := codemap.Helpers(g, crates, g.Entries(traits))
+	helpers := codemap.Helpers(g, codemap.ByModule(crates), g.Entries(traits))
 	for _, h := range helpers[:min(limit, len(helpers))] {
 		u := g.Units[h.Unit]
 		m.Helpers = append(m.Helpers, helperJSON{Name: shortName(u.Name), File: u.File, Line: u.StartLine,

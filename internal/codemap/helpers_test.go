@@ -46,7 +46,7 @@ func TestHelpersAreRankedByTheModulesCallingThem(t *testing.T) {
 			"util.local":   {"util.other"},    // only its own module
 			"util.oneUser": {"orders.create"}, // one other module is a dependency, not a shared helper
 		})
-	got := Helpers(g, nil, nil)
+	got := Helpers(g, ByModule(nil), nil)
 	want := []Helper{
 		{Unit: at["util.respond"], Modules: []string{"billing", "orders", "users"}},
 		{Unit: at["util.withTx"], Modules: []string{"orders", "users"}},
@@ -64,7 +64,7 @@ func TestEntryPointsAndWrappersAreNoHelpers(t *testing.T) {
 			"util.forward": {"a.x", "b.y", "c.z"},
 		})
 	g.Units[at["util.forward"]].Forwards = "load"
-	if got := Helpers(g, nil, []int{at["api.handle"]}); len(got) != 0 {
+	if got := Helpers(g, ByModule(nil), []int{at["api.handle"]}); len(got) != 0 {
 		t.Errorf("Helpers = %+v, want none: an entry point and a pass-through wrapper", got)
 	}
 }
@@ -79,7 +79,7 @@ func TestCallsFoundOnlyByMethodNameMakeNoHelper(t *testing.T) {
 			g.ByName[i] = append(g.ByName[i], true)
 		}
 	}
-	if got := Helpers(g, nil, nil); len(got) != 0 {
+	if got := Helpers(g, ByModule(nil), nil); len(got) != 0 {
 		t.Errorf("Helpers = %+v, want none: %s is reached only by method name", got, g.Units[at["util.then"]].Name)
 	}
 }

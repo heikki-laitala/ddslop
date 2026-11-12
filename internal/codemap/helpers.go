@@ -22,15 +22,15 @@ type Helper struct {
 // first. Callers count once per module, so one busy module does not make a
 // helper. Entry points are features, not helpers, and pass-through
 // wrappers are already check candidates: neither is listed.
-func Helpers(g *flow.Graph, crates map[string]string, entries []int) []Helper {
+func Helpers(g *flow.Graph, group Grouping, entries []int) []Helper {
 	moduleOf := make([]string, len(g.Units))
 	for i, u := range g.Units {
-		moduleOf[i] = Module(u.File, crates)
+		moduleOf[i] = group(u)
 	}
 	callers := make([][]string, len(g.Units))
 	for caller, callees := range g.Callees {
 		for k, callee := range callees {
-			if m := moduleOf[caller]; m != moduleOf[callee] && named(g, caller, k) {
+			if m := moduleOf[caller]; m != "" && moduleOf[callee] != "" && m != moduleOf[callee] && named(g, caller, k) {
 				callers[callee] = append(callers[callee], m)
 			}
 		}
