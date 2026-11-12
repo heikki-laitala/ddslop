@@ -1245,15 +1245,15 @@ The JSON output for one language, shortened:
 
 ### How agents use it
 
-The skill has a step before starting a feature (built for sections 1 and
-2, with breaks presented as hints, not errors, since 2 of the 4 measured
-were arguable): run `ddslop map --format json .`, put new code in the
-layer its neighbours use, reuse the listed helpers, follow the typical
-feature of the same kind, and use the codebase's form for each concern
-(the language's idiom where it has none). Like the
+The skill has a step before starting a feature: run `ddslop map --format
+json .`, put new code in the layer its neighbours use, reuse the listed
+helpers, and treat breaks as hints, not errors (2 of the 4 measured were
+arguable). Once sections 3 and 4 are built, the step will also say to
+follow the typical feature of the same kind and use the codebase's form
+for each concern (the language's idiom where it has none). Like the
 rest of ddslop, it runs when the agent decides to, never from a hook.
-`--format md` lets a team commit the map as notes for agents; ddslop never
-writes that file unasked.
+`--format md`, once built, will let a team commit the map as notes for
+agents; ddslop never writes that file unasked.
 
 `check` does not print the map. The two answer different questions at
 different moments: `map` before writing (what are the conventions?),
