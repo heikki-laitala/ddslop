@@ -452,3 +452,26 @@ fn leased(pool: &Pool) -> anyhow::Result<()> {
 		t.Errorf("scopes:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+func TestAScopeOpensThroughCallsWithTypeArguments(t *testing.T) {
+	src := `async fn attempt(&mut self) -> Result<(), Attempt> {
+    let transaction = self.client.transaction().await.map_err::<Attempt, _>(retry)?;
+    write(&transaction).await?;
+    transaction.commit().await.map_err(retry)
+}
+fn leased(pool: &Pool) {
+    let lease = pool.acquire::<Lease>();
+    use_it(&lease);
+    lease.release();
+}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		if s := u.Scope; s != nil {
+			got = append(got, u.Name+" "+s.Opens+".."+s.Closes)
+		}
+	}
+	if want := "attempt transaction..commit\nleased acquire..release"; strings.Join(got, "\n") != want {
+		t.Errorf("scopes:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
