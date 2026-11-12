@@ -1025,9 +1025,11 @@ In the order they are built; each ships only once measured (below).
    weighted by the number of calls. The layers come from the dominant
    direction of the calls, so the calls that break them cannot shape
    them: in each cycle (strongly connected component), an edge is set
-   aside only when it is weak next to the others in its component (a
-   small share of their calls; the share comes from measurement), the
-   lighter direction between two modules being the simplest case. A
+   aside only when it is weak next to the other edges on a cycle through
+   it (a small fraction of the weakest of them, so the test does not
+   depend on the size of the component; the fraction comes from
+   measurement), the lighter direction between two modules being the
+   simplest case. A
    component that is still cyclic after that has no dominant direction:
    its modules are peers, collapsed into one node that shares a layer,
    rather than ordered by a tie-break the calls do not support. What
@@ -1084,9 +1086,13 @@ In the order they are built; each ships only once measured (below).
 
    The forms within one concern are alternatives: a codebase uses one or
    another for the same job. A form is the whole pattern, so a deferred
-   `Rollback` with a `Commit` on success is one form, counted once. Practices that work together (a sentinel
-   error, wrapped with `%w`, checked with `errors.Is`) belong to separate
-   concerns, so following all of them is never a deviation; a form that
+   `Rollback` with a `Commit` on success is one form, counted once.
+   Forms are compared only for the same resource: scopes are grouped by
+   the call producing the value (as `setup-teardown` groups them), so a
+   closure helper for transactions and a guard for leases are two
+   conventions, not one with drift. Practices that work together (a
+   sentinel error, wrapped with `%w`, checked with `errors.Is`) belong
+   to separate concerns, so following all of them is never a deviation; a form that
    turns out to combine with another in measurement moves to its own
    concern. A form is the convention when most occurrences of the
    concern use it (the share comes from measurement). The codebase's convention wins
