@@ -176,6 +176,13 @@ What to do per `kind`:
   is a connection or context (`db`, `transaction`), a type holding it with
   the functions as methods is often better. Leave signatures a framework
   dictates (middleware, handlers) and small recursive helpers alone.
+- `convention-drift` (`follow-convention`, the convention's form in
+  `pattern`): the occurrence does a job named in `concern` (such as
+  `error-checks`) in another form, given in `values`, than at least 90%
+  of the codebase. Write it as the `target` does, the closest use of the
+  convention, which `ddslop map` lists under `idioms`. When this place
+  needs the other form (an outside library's error with no variant to
+  match, say), leave it and say why in a `ddslop:ignore` comment.
 - `duplicate-type`: structs with the same field names, or enums with the
   same variants (often one error enum per module). Keep one type and
   use it everywhere. Differences list field types that differ; when one
