@@ -180,6 +180,10 @@ const (
 	kindLiteral    = "literal"
 )
 
+// PipelinePattern is the way forward for a parallel-flow family: extract
+// the pipeline its features copy (the map names it too).
+const PipelinePattern = "generic-pipeline"
+
 var leafKindNames = map[unit.LeafKind]string{
 	unit.Identifier: kindIdentifier,
 	unit.Type:       kindType,
@@ -502,7 +506,7 @@ func flowCandidate(language string, f Flow) Candidate {
 		Kind:        parallelFlow,
 		Similarity:  math.Round(f.Cover*1000) / 1000,
 		Differences: []Difference{},
-		Suggestion:  Suggestion{Action: extractFlow, Pattern: "generic-pipeline", GoF: "Template Method"},
+		Suggestion:  Suggestion{Action: extractFlow, Pattern: PipelinePattern, GoF: "Template Method"},
 		Score: Score{
 			Lines:           anchor.EndLine - anchor.StartLine + 1,
 			Occurrences:     len(f.Entries),

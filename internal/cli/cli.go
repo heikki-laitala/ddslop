@@ -262,7 +262,7 @@ func runIndex(args []string, stdout, stderr io.Writer) int {
 // function reads them for the repository at root: a setting in its
 // .ddslop.yaml applies unless the flag was given.
 func analysisFlags(fs *flag.FlagSet) func(root string) (options, error) {
-	minNodes := fs.Int("min-nodes", 50, "ignore functions with fewer syntax nodes than this")
+	minNodes := fs.Int("min-nodes", defaultMinNodes, "ignore functions with fewer syntax nodes than this")
 	minBlockNodes := fs.Int("min-block-nodes", 100, "ignore copied blocks inside functions with fewer syntax nodes than this (never below --min-nodes)")
 	minNearNodes := fs.Int("min-near-nodes", 150, "ignore near-miss copies of functions with fewer syntax nodes than this (never below --min-nodes)")
 	tests := fs.Bool("tests", false, "include test functions, test modules and test files")
@@ -645,6 +645,10 @@ const minStructFields = 3
 // fingerprint, read receipt, build event, interpret, refuse), even at 20-30%
 // coverage, since each feature also has steps of its own; a single matched
 // step is already a near miss.
+// defaultMinNodes is the smallest function analysed unless --min-nodes or
+// .ddslop.yaml says otherwise.
+const defaultMinNodes = 50
+
 var parallelFlowOptions = flow.ParallelOptions{
 	Depth:          6,
 	MinSteps:       4,
@@ -691,12 +695,18 @@ func callGraph(root string, files []index.File) (*flow.Graph, map[string]bool) {
 	return flow.Build(graphInputs(root, files), units), traits
 }
 
-// parallelFlows finds features running the same pipeline.
-func parallelFlows(g *flow.Graph, traits map[string]bool, minNodes int) []report.Flow {
+// families finds the parallel-flow families among the entry points,
+// ignoring steps smaller than minNodes.
+func families(g *flow.Graph, traits map[string]bool, minNodes int) []flow.ParallelFlow {
 	opts := parallelFlowOptions
 	opts.MinNodes = minNodes
+	return g.Parallel(g.Entries(traits), opts)
+}
+
+// parallelFlows finds features running the same pipeline.
+func parallelFlows(g *flow.Graph, traits map[string]bool, minNodes int) []report.Flow {
 	var out []report.Flow
-	for _, pf := range g.Parallel(g.Entries(traits), opts) {
+	for _, pf := range families(g, traits, minNodes) {
 		f := report.Flow{MatchedNodes: pf.MatchedNodes, Cover: pf.Cover}
 		for _, e := range pf.Entries {
 			f.Entries = append(f.Entries, g.Units[e])
