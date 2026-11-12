@@ -49,3 +49,14 @@ func TestIdiomsNameTheMajorityFormOfEachConcern(t *testing.T) {
 		t.Errorf("Idioms =\n%+v\nwant\n%+v", got, want)
 	}
 }
+
+func TestIgnoredFunctionsShapeNoIdiom(t *testing.T) {
+	ignored := formUnit("api/a.go", 10, "error-checks", "message")
+	ignored.Ignored = true
+	g := &flow.Graph{Units: []unit.Unit{ignored, formUnit("api/b.go", 20, "error-checks", "errors.Is/As")}}
+
+	got := Idioms(g, ByModule(nil), nil)
+	if len(got) != 1 || got[0].Occurrences != 1 || got[0].Forms[0].Form != "errors.Is/As" {
+		t.Errorf("Idioms = %+v, want only the errors.Is/As check", got)
+	}
+}
