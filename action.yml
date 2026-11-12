@@ -7,7 +7,7 @@ branding:
 
 inputs:
   version:
-    description: ddslop release to install, such as v1.2.0. Defaults to the tag this action is pinned to (v1 means the release it points to), else the latest release.
+    description: ddslop release to install, such as v1.0.0. Defaults to the tag this action is pinned to (v1 means the release it points to), else the latest release.
     default: ""
   path:
     description: Repository to analyse.
