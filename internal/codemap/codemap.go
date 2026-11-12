@@ -126,7 +126,7 @@ func rustModule(file string, crates map[string]string) (name, top string) {
 	} else if i := strings.Index(file, "/src/"); i >= 0 {
 		rel = file[i+len("/src/"):]
 	} else if after, ok := strings.CutPrefix(file, "src/"); ok {
-		dir, rel = ".", after // a crate at the root
+		rel = after // a crate at the root
 	}
 	// The root crate stays unnamed: whether the crates map names it
 	// depends on incidental files such as a root build.rs.
