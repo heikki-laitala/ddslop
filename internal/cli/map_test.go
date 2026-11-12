@@ -496,3 +496,37 @@ func TestMapLimitCountsTheFormsItLeavesOut(t *testing.T) {
 		t.Errorf("text map does not count the left-out form:\n%s", text)
 	}
 }
+
+func TestMapNamesRustErrorIdioms(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("pub fn wrap(r: Result<u8, E>) -> Result<u8, F> { r.map_err(F::E) }\n")
+	for i := range 5 {
+		fmt.Fprintf(&b, "pub fn check%d(r: Result<u8, E>) -> bool { matches!(r, Err(E::Gone)) || if let Err(E::Gone) = r { true } else { false } }\n", i)
+	}
+	root := repo(t, map[string]string{"Cargo.toml": "[package]\nname = \"svc\"\n", "src/lib.rs": b.String()})
+
+	_, stdout, _ := run("map", "--format", "json", root)
+	var r struct {
+		Maps []struct {
+			Idioms []struct {
+				Concern    string `json:"concern"`
+				Convention string `json:"convention"`
+				Idiomatic  string `json:"idiomatic"`
+			} `json:"idioms"`
+		} `json:"maps"`
+	}
+	decodeInto(t, stdout, &r)
+	if len(r.Maps) != 1 || len(r.Maps[0].Idioms) != 2 {
+		t.Fatalf("maps = %+v, want error checks and error wrapping", r.Maps)
+	}
+	if c := r.Maps[0].Idioms[0]; c.Concern != "error-checks" || c.Convention != "variant" {
+		t.Errorf("checks = %+v, want the variant convention", c)
+	}
+	if w := r.Maps[0].Idioms[1]; w.Concern != "error-wrapping" || w.Convention != "" || w.Idiomatic != "" {
+		t.Errorf("wrapping = %+v, want no convention and no idiomatic form", w)
+	}
+	_, text, _ := run("map", "--format", "text", root)
+	if !strings.Contains(text, "error-wrapping: no convention in 1 occurrence(s)\n") {
+		t.Errorf("text map does not say wrapping has no convention, without an idiomatic form:\n%s", text)
+	}
+}

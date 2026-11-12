@@ -475,3 +475,39 @@ fn leased(pool: &Pool) {
 		t.Errorf("scopes:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+func TestUnitsRecordTheirErrorForms(t *testing.T) {
+	src := `fn load(store: &Store) -> Result<Row, Fault> {
+    match store.get().map_err(Fault::Store) {
+        Err(StoreError::Missing) => return Ok(Row::default()),
+        Err(e) if e.to_string().contains("busy") => return Err(Fault::Busy),
+        other => other,
+    }?;
+    if let Err(Fault::Store(_)) = store.ping() {
+        return Err(Fault::Down);
+    }
+    let row = store.read().with_context(|| "read")?;
+    if row.err.to_string() == "stale" {
+        return Err(Fault::Stale);
+    }
+    store.write(&row).map_err(|e| Fault::Write(e))?;
+    Ok(row)
+}
+`
+	var got []string
+	for _, f := range byName(t, mustUnits(t, src), "load").Forms {
+		got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
+	}
+	want := []string{
+		"2 error-wrapping map_err",
+		"3 error-checks variant",
+		"4 error-checks message",
+		"7 error-checks variant",
+		"10 error-wrapping context",
+		"11 error-checks message",
+		"14 error-wrapping map_err",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

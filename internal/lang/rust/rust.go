@@ -44,6 +44,9 @@ func (grammar) Statements(kind string) bool { return kind == "block" }
 // Visit records calls, matches on strings and early returns (a return or
 // a let-else outside closures).
 func (grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
+	if form := errorForm(n, s.Src); form.Form != "" {
+		s.Forms = append(s.Forms, form)
+	}
 	switch n.Kind() {
 	case "call_expression":
 		recordCall(s, n)
@@ -62,6 +65,89 @@ func (grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		return func() { s.Closures-- }
 	}
 	return nil
+}
+
+// The error concerns and their forms, recognised from syntax alone. ? with
+// a From conversion looks like any other ?, so it is not a form here.
+const (
+	errorChecks   = "error-checks"
+	errorWrapping = "error-wrapping"
+)
+
+// IdiomaticForms names the idiomatic form of each concern the adapter
+// knows, which the map suggests where a codebase has no convention. Error
+// wrapping has none: map_err to a typed error and anyhow's context are
+// both idiomatic, for libraries and applications.
+var IdiomaticForms = map[string]string{errorChecks: "variant"}
+
+// errorForm returns the error form a node is, if any: a pattern
+// Err(Path::Variant ..) checks an error's variant; comparing an error's
+// to_string() (==, contains, starts_with, ends_with) checks its message;
+// map_err converts an error and context or with_context wraps one with
+// anyhow.
+func errorForm(n *sitter.Node, src []byte) unit.Form {
+	form := unit.Form{Line: syntax.Line(n.StartPosition())}
+	switch n.Kind() {
+	case "tuple_struct_pattern":
+		typ := n.ChildByFieldName("type")
+		if typ != nil && typ.Utf8Text(src) == "Err" && n.NamedChildCount() > 1 {
+			if inner := n.NamedChild(1); strings.Contains(inner.Utf8Text(src), "::") && isUpper(inner.Utf8Text(src)) {
+				form.Concern, form.Form = errorChecks, "variant"
+			}
+		}
+	case "binary_expression":
+		op := n.ChildByFieldName("operator")
+		left, right := n.ChildByFieldName("left"), n.ChildByFieldName("right")
+		if op != nil && (op.Kind() == "==" || op.Kind() == "!=") && left != nil && right != nil &&
+			(isErrorMessage(left, src) || isErrorMessage(right, src)) {
+			form.Concern, form.Form = errorChecks, "message"
+		}
+	case "call_expression":
+		callee := calleeOf(n)
+		if callee == nil || callee.Kind() != "field_expression" {
+			break
+		}
+		field, value := callee.ChildByFieldName("field"), callee.ChildByFieldName("value")
+		if field == nil || value == nil {
+			break
+		}
+		switch field.Utf8Text(src) {
+		case "map_err":
+			form.Concern, form.Form = errorWrapping, "map_err"
+		case "context", "with_context":
+			form.Concern, form.Form = errorWrapping, "context"
+		case "contains", "starts_with", "ends_with":
+			if isErrorMessage(value, src) {
+				form.Concern, form.Form = errorChecks, "message"
+			}
+		}
+	}
+	return form
+}
+
+// isErrorMessage reports whether n is to_string() called on an error
+// value: one named e, err or error, or ending in _err or _error, possibly
+// a field (row.err).
+func isErrorMessage(n *sitter.Node, src []byte) bool {
+	if n.Kind() != "call_expression" {
+		return false
+	}
+	callee := calleeOf(n)
+	if callee == nil || callee.Kind() != "field_expression" {
+		return false
+	}
+	field, value := callee.ChildByFieldName("field"), callee.ChildByFieldName("value")
+	if field == nil || value == nil || field.Utf8Text(src) != "to_string" {
+		return false
+	}
+	if value.Kind() == "field_expression" {
+		value = value.ChildByFieldName("field")
+	}
+	if value == nil || (value.Kind() != "identifier" && value.Kind() != "field_identifier") {
+		return false
+	}
+	name := value.Utf8Text(src)
+	return name == "e" || name == "err" || name == "error" || strings.HasSuffix(name, "_err") || strings.HasSuffix(name, "_error")
 }
 
 // leafKinds maps tree-sitter node kinds that are blanked out to their
@@ -331,6 +417,7 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 
 		StringMatches: s.Matches,
 		Params:        params(n, e.src),
+		Forms:         s.Forms,
 	})
 }
 
