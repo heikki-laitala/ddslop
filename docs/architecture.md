@@ -1066,16 +1066,20 @@ In the order they are built; each ships only once measured (below).
    first line of the signature, and the modules calling it. This is
    `ddslop similar` turned around: the agent sees what to reuse before
    drafting anything.
-3. **Typical features.** For each `parallel-flow` family, the member most
-   similar to the others (the medoid of its step similarities): its entry
-   point, its steps in order with the shared helpers each calls, and the
-   other members. "To add another operation like these, follow
-   `create_order`." Entry points outside any family are grouped by the
-   trait or interface that made them entry points, with the member
-   reaching the most shared helpers as the example. A family that is a
-   `parallel-flow` candidate is shown flagged, with the extracted pipeline
-   as the way forward, never as an example to copy (see Concerns). Such
-   a group only gives an example: one generated interface can hold unrelated
+3. **Typical features.** Every `parallel-flow` family is a `check`
+   candidate, so the map always shows one flagged: the member most
+   similar to the others (the medoid of its step similarities) as the
+   current shape, its steps with the shared helpers each calls, the other
+   members, and extracting the pipeline as the way forward, never as an
+   example to copy (see Concerns). The example to follow comes from
+   features that already share their pipeline, which is what a family
+   looks like once extracted: entry points of one trait or interface that
+   call the same shared helper (section 2), such as a generic handler,
+   give that helper and the entry point calling it as the example ("to
+   add an operation, call `handle_write` as `create_order` does"). Other
+   entry points are grouped by the trait or interface that made them
+   entry points, with the member reaching the most shared helpers as the
+   example. Such a group only gives an example: one generated interface can hold unrelated
    operations (health and sign-in routes next to authenticated ones), so
    its members are not peers for section 5.
 4. **Idioms.** For each concern the language adapter knows, which form
@@ -1150,18 +1154,20 @@ gathered once, by the detectors that exist; `map` describes it and
 
 | Concern | Evidence | `map` shows | `check` reports |
 | --- | --- | --- | --- |
-| Feature pipelines | entry points, `parallel-flow` families | the typical feature, or the family flagged | `parallel-flow` |
+| Feature pipelines | entry points, `parallel-flow` families, shared helpers entry points call | the shared pipeline a group of entry points calls, and every family flagged | `parallel-flow` |
 | Opening checks (sign-in, permission) | `shared-preamble` copies, entry points calling one shared helper first | the extractor or middleware most entry points call, or the copied check flagged | `shared-preamble`; `convention-drift` for an entry point skipping the extractor |
 | Scopes | `setup-teardown`'s scopes (`Unit.Scope`), per producing call | the closure helper or guard for each resource, or manual copies flagged | `setup-teardown`; `convention-drift` |
 | Kinds and states | `string-kinds` matches, enums | the enum, or the strings flagged | `string-kinds`; `convention-drift` for strings matched where the enum exists |
-| Parameter groups | `parameter-group` | the struct, or the group flagged | `parameter-group` |
+| Parameter groups | `parameter-group` | the groups flagged; a struct that already holds a group is not recognised yet, so this concern has no conventional or drift state | `parameter-group` |
 | Errors | per-adapter error forms (section 4) | the form of each error concern | `convention-drift` |
 | Layers | the module graph | the layers | `convention-drift` (upward calls, bypasses) |
 | Helpers | the call graph, clone groups | the shared helpers, a helper with copies flagged | the clone candidate |
 
 Every occurrence of a concern is exactly one of:
 
-- **conventional:** the majority form, and not itself repeated code;
+- **conventional:** an occurrence of the convention's form, when the
+  concern has a convention (a majority form that is not itself repeated
+  code);
 - **duplicated:** part of a clone, pattern proposal or `parallel-flow`
   candidate of this concern, whose suggestion is the fix;
 - **drift:** another form where a convention exists, in no other
