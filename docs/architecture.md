@@ -991,8 +991,9 @@ comparison adds about 0.35 s to a warm check there.
 Sections 1 and 2 are built (`internal/codemap`, `ddslop map` with text
 and JSON output; see As built below), and section 3 in part: the
 flagged `parallel-flow` families, as measurement left the other two
-rules nothing real to report yet. Sections 4 and 5, Markdown output and
-`--lang` are planned.
+rules nothing real to report yet. Section 4 is built for Go's error
+checks and error wrapping; its other concerns, Rust's forms, section 5,
+Markdown output and `--lang` are planned.
 
 The fragment and flow layers find copies after they are written. Most of
 them were written because the agent did not know how the codebase already
@@ -1251,9 +1252,8 @@ The skill has a step before starting a feature: run `ddslop map --format
 json .`, put new code in the layer its neighbours use, reuse the listed
 helpers, treat breaks as hints, not errors (2 of the 4 measured were
 arguable), and, for a feature of the same kind as a flagged family,
-extract its pipeline rather than copy a member. Once section 4 is built,
-the step will also say to use the codebase's form for each concern (the
-language's idiom where it has none). Like the
+extract its pipeline rather than copy a member, and write each concern
+in the codebase's form (the language's idiom where it has none). Like the
 rest of ddslop, it runs when the agent decides to, never from a hook.
 `--format md`, once built, will let a team commit the map as notes for
 agents; ddslop never writes that file unasked.
@@ -1416,6 +1416,33 @@ shapes whose steps read as the pipeline (`authorize`, `admissible`,
 `attempt`, `interpret`, `refusal`). The workspace map grew to 125 lines
 of text, and computing the families takes about 0.27 s warm (0.97 s to
 1.24 s for the map).
+
+Section 4 is built for two concerns in Go (`codemap.Idioms`, `idioms`
+in JSON). The Go adapter records each function's error forms with their
+lines (`Unit.Forms`), from syntax alone: a check is `errors.Is` or
+`errors.As`, `==` or `!=` between an error value and anything but `nil`
+(a sentinel), or a comparison of `err.Error()`, directly or inside
+`strings.Contains` and its kin; wrapping is `fmt.Errorf` with `%w`, or
+with `%v` or `%s` and an error among its arguments. An error value is
+told by Go's naming habit: `err`, or a name ending in `err` or `Err`.
+The map counts each concern's forms over the non-test functions in its
+scope and calls the most used form the convention when it holds a
+majority of at least 5 occurrences; otherwise it names the adapter's
+idiomatic form (`golang.IdiomaticForms`: `errors.Is/As` and `%w`). Every
+form is listed with its count and first occurrence, so an occurrence of
+another form is visible before section 5 reports it.
+
+Measured on `searchbox` and ddslop: errors are checked with `errors.Is`
+or `errors.As` in all 27 and 7 checks and wrapped with `%w` in all 24
+and 10 wraps; the `==` and message comparisons the adapter recognised
+were all in tests (5 and 15), which the map leaves out. The threshold
+of 5 is not yet tested by a codebase near it. Scopes and kinds wait: on
+the Rust codebases their only form was the duplicated one, already a
+`setup-teardown` or `string-kinds` candidate, so the map would add
+nothing to `check`; and on `lns-inference-router` the 6 functions of
+its one `setup-teardown` candidate turned out to open two different
+values (`client.transaction()` and `bounded(...)`), grouped by the
+`map_err` after them until the opener looked through it.
 
 ### Measurement before shipping
 
@@ -1994,7 +2021,8 @@ seconds, 713 candidates (60 exact, 166 renamed, 189 near-miss families,
 traits).
 
 Next: the map layer (see Map layer). Layers, shared helpers and the
-flagged pipeline families are built; idioms and deviations follow once
+flagged pipeline families are built, and idioms for Go's error checks and
+wrapping; Rust's idioms, the other concerns and deviations follow once
 they are measured on the Rust codebases.
 
 1. **v1, fragment layer as a linter:** tree-sitter adapters for all three
