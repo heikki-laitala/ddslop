@@ -1,6 +1,13 @@
 package codemap
 
-import "testing"
+import (
+	"fmt"
+	"reflect"
+	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/flow"
+	"github.com/heikki-laitala/ddslop/internal/unit"
+)
 
 func TestModuleNamesGoPackagesAndRustTopModules(t *testing.T) {
 	crates := map[string]string{"crates/ledger": "acme_ledger"}
@@ -34,5 +41,44 @@ func TestTheRootCrateStaysUnnamedWhateverItsManifestSays(t *testing.T) {
 		if got := Module(file, crates); got != want {
 			t.Errorf("Module(%q) = %q, want %q", file, got, want)
 		}
+	}
+}
+
+func TestCrateNamesTheRustCrateOfAFile(t *testing.T) {
+	crates := map[string]string{"crates/ledger": "acme_ledger", ".": "acme"}
+	for file, want := range map[string]string{ //nolint:gosec // file paths, not credentials
+		"crates/ledger/src/store/postgres.rs": "acme_ledger",
+		"crates/ledger/src/lib.rs":            "acme_ledger",
+		"crates/ledger/build.rs":              "acme_ledger",
+		"crates/token-credentials/src/lib.rs": "token_credentials",
+		"src/store.rs":                        ".", // the root crate stays unnamed
+		"build.rs":                            ".",
+		"internal/flow/flow.go":               "", // Go has no crates
+	} {
+		if got := Crate(file, crates); got != want {
+			t.Errorf("Crate(%q) = %q, want %q", file, got, want)
+		}
+	}
+}
+
+func TestLayersOfCratesAndOfTheModulesInsideOne(t *testing.T) {
+	g := &flow.Graph{}
+	add := func(file string, callees ...int) int {
+		g.Units = append(g.Units, unit.Unit{File: file, Name: fmt.Sprint("f", len(g.Units))})
+		g.Callees = append(g.Callees, callees)
+		return len(g.Units) - 1
+	}
+	save := add("crates/store/src/lib.rs")
+	check := add("crates/service/src/validate.rs", save)
+	create := add("crates/service/src/lib.rs", check, save)
+	add("crates/api/src/lib.rs", create)
+
+	byCrate := Layers(g, ByCrate(nil))
+	if want := [][]string{{"api"}, {"service"}, {"store"}}; !reflect.DeepEqual(byCrate.Layers, want) {
+		t.Errorf("crate layers = %v, want %v", byCrate.Layers, want)
+	}
+	inService := Layers(g, InCrate("service", nil))
+	if want := [][]string{{"service"}, {"service::validate"}}; !reflect.DeepEqual(inService.Layers, want) {
+		t.Errorf("service's module layers = %v, want %v: calls leaving the crate take no part", inService.Layers, want)
 	}
 }
