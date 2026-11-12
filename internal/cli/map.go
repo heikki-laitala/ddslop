@@ -73,6 +73,8 @@ type idiomJSON struct {
 	Share       float64         `json:"share"`
 	Occurrences int             `json:"occurrences"`
 	Forms       []formCountJSON `json:"forms"`
+	// FormsMore counts the forms left out by --limit.
+	FormsMore int `json:"forms_more"`
 }
 
 type formCountJSON struct {
@@ -141,7 +143,7 @@ type helperJSON struct {
 func runMap(args []string, stdout, stderr io.Writer) int {
 	fs := newFlags("map", mapUsage, stderr)
 	format := fs.String("format", "", `output format, "text" or "json" (default: text on a terminal, json otherwise)`)
-	limit := fs.Int("limit", 10, "list at most this many modules per layer, breaks, functions per break, helpers, features, and steps and other members per feature")
+	limit := fs.Int("limit", 10, "list at most this many modules per layer, breaks, functions per break, helpers, features, steps and other members per feature, and forms per idiom")
 	crate := fs.String("crate", "", "describe the modules of this Rust crate (default: a workspace's crates)")
 	root, code, ok := parseRoot(fs, args, stderr)
 	if !ok {
@@ -300,7 +302,8 @@ func buildMap(root, lang string, files []index.File, opts mapOptions) (mapJSON, 
 	}
 	for _, id := range codemap.Idioms(g, helperGroup, idiomatic) {
 		ij := idiomJSON{Concern: id.Concern, Convention: id.Convention, Idiomatic: id.Idiomatic,
-			Share: math.Round(float64(id.Forms[0].Count)/float64(id.Occurrences)*1000) / 1000, Occurrences: id.Occurrences}
+			Share: math.Round(float64(id.Forms[0].Count)/float64(id.Occurrences)*1000) / 1000, Occurrences: id.Occurrences,
+			FormsMore: max(0, len(id.Forms)-limit)}
 		for _, fc := range id.Forms[:min(limit, len(id.Forms))] {
 			u := g.Units[fc.Unit]
 			ij.Forms = append(ij.Forms, formCountJSON{Form: fc.Form, Count: fc.Count, Example: fmt.Sprintf("%s:%d %s", u.File, fc.Line, u.Name)})
@@ -496,6 +499,9 @@ func writeIdiomsText(b *strings.Builder, idioms []idiomJSON) {
 		}
 		for _, f := range id.Forms {
 			fmt.Fprintf(b, "      %s %d, e.g. %s\n", f.Form, f.Count, f.Example)
+		}
+		if id.FormsMore > 0 {
+			fmt.Fprintf(b, "      and %d more form(s)\n", id.FormsMore)
 		}
 	}
 }

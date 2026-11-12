@@ -471,3 +471,28 @@ func TestMapNamesTheCodebasesFormForEachErrorConcern(t *testing.T) {
 		}
 	}
 }
+
+func TestMapLimitCountsTheFormsItLeavesOut(t *testing.T) {
+	root := repo(t, errorsService)
+
+	_, stdout, _ := run("map", "--format", "json", "--limit", "1", root)
+	var r struct {
+		Maps []struct {
+			Idioms []struct {
+				Forms     []any `json:"forms"`
+				FormsMore int   `json:"forms_more"`
+			} `json:"idioms"`
+		} `json:"maps"`
+	}
+	decodeInto(t, stdout, &r)
+	if len(r.Maps) != 1 || len(r.Maps[0].Idioms) == 0 {
+		t.Fatalf("maps = %+v, want idioms", r.Maps)
+	}
+	if checks := r.Maps[0].Idioms[0]; len(checks.Forms) != 1 || checks.FormsMore != 1 {
+		t.Errorf("forms = %d, forms_more = %d; want 1 listed and the message check counted", len(checks.Forms), checks.FormsMore)
+	}
+	_, text, _ := run("map", "--format", "text", "--limit", "1", root)
+	if !strings.Contains(text, "and 1 more form(s)") {
+		t.Errorf("text map does not count the left-out form:\n%s", text)
+	}
+}
