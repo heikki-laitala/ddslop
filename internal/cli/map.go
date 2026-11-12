@@ -296,9 +296,9 @@ func buildMap(root, lang string, files []index.File, opts mapOptions) (mapJSON, 
 		}
 		m.Features = append(m.Features, fj)
 	}
-	var idiomatic map[string]string
-	if lang == "go" {
-		idiomatic = golang.IdiomaticForms
+	idiomatic := golang.IdiomaticForms
+	if lang == "rust" {
+		idiomatic = rust.IdiomaticForms
 	}
 	for _, id := range codemap.Idioms(g, helperGroup, idiomatic) {
 		ij := idiomJSON{Concern: id.Concern, Convention: id.Convention, Idiomatic: id.Idiomatic,
@@ -495,7 +495,11 @@ func writeIdiomsText(b *strings.Builder, idioms []idiomJSON) {
 		if id.Convention != "" {
 			fmt.Fprintf(b, "  %s: %s in %d of %d\n", id.Concern, id.Convention, id.Forms[0].Count, id.Occurrences)
 		} else {
-			fmt.Fprintf(b, "  %s: no convention in %d occurrence(s); idiomatic: %s\n", id.Concern, id.Occurrences, id.Idiomatic)
+			fmt.Fprintf(b, "  %s: no convention in %d occurrence(s)", id.Concern, id.Occurrences)
+			if id.Idiomatic != "" {
+				fmt.Fprintf(b, "; idiomatic: %s", id.Idiomatic)
+			}
+			b.WriteString("\n")
 		}
 		for _, f := range id.Forms {
 			fmt.Fprintf(b, "      %s %d, e.g. %s\n", f.Form, f.Count, f.Example)
