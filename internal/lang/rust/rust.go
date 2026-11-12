@@ -90,9 +90,9 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 		}
 	case "macro_invocation":
 		// A macro's arguments are an opaque token tree: read matches!'s
-		// pattern from its text.
-		if m := n.ChildByFieldName("macro"); m != nil && m.Utf8Text(src) == "matches" {
-			text := tokenText(n, src)
+		// pattern, after the value, from its tokens.
+		if m := n.ChildByFieldName("macro"); m != nil && lastSegment(m.Utf8Text(src)) == "matches" {
+			text := matchesPattern(n, src)
 			if p := errPattern.FindStringSubmatch(text); p != nil && isVariantPath(strings.ReplaceAll(p[1], " ", "")) {
 				form.Concern, form.Form = unit.ErrorChecks, "variant"
 			} else if messageCheck.MatchString(text) {
@@ -137,6 +137,26 @@ var errPattern = regexp.MustCompile(`\bErr \( ([A-Za-z_][\w: ]*)`)
 // messageCheck finds a comparison of an error's message in a macro's
 // text, as isErrorMessage does in parsed code.
 var messageCheck = regexp.MustCompile(`\b(e|err|error|\w+_err|\w+_error) \. to_string \( \) (==|!=|\. (contains|starts_with|ends_with) \()`)
+
+// matchesPattern returns the tokens of a matches! invocation after its
+// first top-level comma: the pattern and any guard, without the value.
+func matchesPattern(n *sitter.Node, src []byte) string {
+	tokens := strings.Fields(tokenText(n, src))
+	depth := 0
+	for i, t := range tokens {
+		switch t {
+		case "(", "[", "{":
+			depth++
+		case ")", "]", "}":
+			depth--
+		case ",":
+			if depth == 1 { // inside the invocation's own parentheses
+				return strings.Join(tokens[i+1:], " ")
+			}
+		}
+	}
+	return ""
+}
 
 // tokenText returns a macro's tokens separated by single spaces, leaving
 // out literals and comments, whose text may look like code.
