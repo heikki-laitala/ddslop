@@ -1013,13 +1013,22 @@ In the order they are built; each ships only once measured (below).
 
 1. **Layers.** A module is a Go package or a Rust module directly under
    its crate. Resolved calls outside test code give a module graph,
-   weighted by the number of calls. Cycles are collapsed (strongly
-   connected components), and each module's layer is its depth from the
-   modules holding entry points. The map lists the layers with their
-   modules, then the calls that break them: a call from a lower layer up
-   to a higher one, and a bypass, where most calls from a module into a
-   lower layer go through a middle module and a few skip it ("3 functions
-   in `handlers` call `store` directly; 40 calls go through `service`").
+   weighted by the number of calls. The layers come from the dominant
+   direction of the calls, so the calls that break them cannot shape
+   them: between two modules calling each other, the lighter direction is
+   set aside, and a longer cycle loses its lightest edge, one at a time,
+   until none is left (a greedy feedback arc set; module graphs are
+   small). What remains is acyclic, and each module's layer is its
+   longest-path depth from the modules holding entry points. The map
+   lists the layers with their modules, then the calls that break them:
+   - an upward call: a set-aside edge carrying a small share of the calls
+     between its two modules (when the two directions are closer, the
+     modules depend on each other and share a layer instead);
+   - a bypass: an edge that skips a layer, from a module whose calls to
+     that target mostly go through a module in between ("3 functions in
+     `handlers` call `store` directly; 40 calls go through `service`").
+     Longest-path depth keeps `store` below `service` despite the direct
+     edge, so the skipped layer stays visible.
    Only resolved calls count, so the map states the share of calls that
    resolved, and a flat codebase with no layering gets no layers rather
    than invented ones.
@@ -1042,8 +1051,10 @@ In the order they are built; each ships only once measured (below).
    peers follow: the bypasses from section 1, and entry points of one
    group that skip a shared helper (such as a sign-in extractor) that most
    of the group call. The target is the typical feature from section 3. As
-   a candidate kind it works with baselines, diff mode and SARIF without
-   changes. `shared-preamble`, `string-kinds` and `parameter-group`
+   a candidate kind it works with baselines and diff mode unchanged;
+   SARIF needs the kind registered as a rule in `internal/report/sarif.go`
+   (the `rules` list, which `ruleShort` is built from), with its test, like
+   every new kind. `shared-preamble`, `string-kinds` and `parameter-group`
    already do this for one idiom each; this generalises it.
 
 A JSON map, shortened:
