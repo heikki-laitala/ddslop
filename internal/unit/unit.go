@@ -72,6 +72,12 @@ type Unit struct {
 	Forms []Form
 }
 
+// The concerns adapters record forms for.
+const (
+	ErrorChecks   = "error-checks"   // how code tells one error from another
+	ErrorWrapping = "error-wrapping" // how code adds context to an error it passes on
+)
+
 // Form is one occurrence of a form for a concern: "error-checks" done
 // with "errors.Is/As" at a line.
 type Form struct {

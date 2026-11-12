@@ -67,24 +67,18 @@ func (grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	return nil
 }
 
-// The error concerns and their forms, recognised from syntax alone. ? with
-// a From conversion looks like any other ?, so it is not a form here.
-const (
-	errorChecks   = "error-checks"
-	errorWrapping = "error-wrapping"
-)
-
 // IdiomaticForms names the idiomatic form of each concern the adapter
 // knows, which the map suggests where a codebase has no convention. Error
 // wrapping has none: map_err to a typed error and anyhow's context are
 // both idiomatic, for libraries and applications.
-var IdiomaticForms = map[string]string{errorChecks: "variant"}
+var IdiomaticForms = map[string]string{unit.ErrorChecks: "variant"}
 
 // errorForm returns the error form a node is, if any: a pattern
 // Err(Path::Variant ..) checks an error's variant; comparing an error's
 // to_string() (==, contains, starts_with, ends_with) checks its message;
 // map_err converts an error and context or with_context wraps one with
-// anyhow.
+// anyhow. All are recognised from syntax alone, so ? with a From
+// conversion, which looks like any other ?, is no form.
 func errorForm(n *sitter.Node, src []byte) unit.Form {
 	form := unit.Form{Line: syntax.Line(n.StartPosition())}
 	switch n.Kind() {
@@ -92,7 +86,7 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 		typ := n.ChildByFieldName("type")
 		if typ != nil && typ.Utf8Text(src) == "Err" && n.NamedChildCount() > 1 {
 			if inner := n.NamedChild(1); strings.Contains(inner.Utf8Text(src), "::") && isUpper(inner.Utf8Text(src)) {
-				form.Concern, form.Form = errorChecks, "variant"
+				form.Concern, form.Form = unit.ErrorChecks, "variant"
 			}
 		}
 	case "binary_expression":
@@ -100,7 +94,7 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 		left, right := n.ChildByFieldName("left"), n.ChildByFieldName("right")
 		if op != nil && (op.Kind() == "==" || op.Kind() == "!=") && left != nil && right != nil &&
 			(isErrorMessage(left, src) || isErrorMessage(right, src)) {
-			form.Concern, form.Form = errorChecks, "message"
+			form.Concern, form.Form = unit.ErrorChecks, "message"
 		}
 	case "call_expression":
 		callee := calleeOf(n)
@@ -113,12 +107,12 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 		}
 		switch field.Utf8Text(src) {
 		case "map_err":
-			form.Concern, form.Form = errorWrapping, "map_err"
+			form.Concern, form.Form = unit.ErrorWrapping, "map_err"
 		case "context", "with_context":
-			form.Concern, form.Form = errorWrapping, "context"
+			form.Concern, form.Form = unit.ErrorWrapping, "context"
 		case "contains", "starts_with", "ends_with":
 			if isErrorMessage(value, src) {
-				form.Concern, form.Form = errorChecks, "message"
+				form.Concern, form.Form = unit.ErrorChecks, "message"
 			}
 		}
 	}

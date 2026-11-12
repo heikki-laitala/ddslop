@@ -146,16 +146,9 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 	return c, true
 }
 
-// The error concerns and their forms. A form is recognised from syntax
-// alone: the calls made and the operands compared.
-const (
-	errorChecks   = "error-checks"
-	errorWrapping = "error-wrapping"
-)
-
 // IdiomaticForms names the idiomatic form of each concern the adapter
 // knows, which the map suggests where a codebase has no convention.
-var IdiomaticForms = map[string]string{errorChecks: "errors.Is/As", errorWrapping: "%w"}
+var IdiomaticForms = map[string]string{unit.ErrorChecks: "errors.Is/As", unit.ErrorWrapping: "%w"}
 
 // errorCallForm returns the error form a call is, if any: errors.Is or
 // errors.As checks an error, comparing err.Error() inside strings.Contains
@@ -169,11 +162,11 @@ func errorCallForm(c unit.Call, pkg string, n *sitter.Node, src []byte) unit.For
 	}
 	switch {
 	case pkg == "errors" && (c.Name == "Is" || c.Name == "As"):
-		form.Concern, form.Form = errorChecks, "errors.Is/As"
+		form.Concern, form.Form = unit.ErrorChecks, "errors.Is/As"
 	case pkg == "strings" && (c.Name == "Contains" || c.Name == "HasPrefix" || c.Name == "HasSuffix" || c.Name == "EqualFold"):
 		for i := uint(0); i < args.NamedChildCount(); i++ {
 			if isErrorMessage(args.NamedChild(i), src) {
-				form.Concern, form.Form = errorChecks, "message"
+				form.Concern, form.Form = unit.ErrorChecks, "message"
 			}
 		}
 	case pkg == "fmt" && c.Name == "Errorf" && args.NamedChildCount() > 1:
@@ -184,9 +177,9 @@ func errorCallForm(c unit.Call, pkg string, n *sitter.Node, src []byte) unit.For
 		}
 		switch {
 		case strings.ContainsRune(verbs, 'w'):
-			form.Concern, form.Form = errorWrapping, "%w"
+			form.Concern, form.Form = unit.ErrorWrapping, "%w"
 		case formatsError && strings.ContainsAny(verbs, "vs"):
-			form.Concern, form.Form = errorWrapping, "%v"
+			form.Concern, form.Form = unit.ErrorWrapping, "%v"
 		}
 	}
 	return form
@@ -223,9 +216,9 @@ func errorComparison(n *sitter.Node, src []byte) unit.Form {
 	}
 	switch {
 	case isErrorMessage(left, src) || isErrorMessage(right, src):
-		form.Concern, form.Form = errorChecks, "message"
+		form.Concern, form.Form = unit.ErrorChecks, "message"
 	case (isErrorValue(left, src) && right.Kind() != "nil") || (isErrorValue(right, src) && left.Kind() != "nil"):
-		form.Concern, form.Form = errorChecks, "=="
+		form.Concern, form.Form = unit.ErrorChecks, "=="
 	}
 	return form
 }
