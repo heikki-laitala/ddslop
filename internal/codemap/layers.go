@@ -143,9 +143,9 @@ func Layers(g *flow.Graph, crates map[string]string) LayerMap {
 // bypassed returns the module an edge a->c would skip: of the modules in
 // a layer between a's and c's that a calls and that call c, the one a calls
 // most, with a's calls into it; -1 when there is none. Only a module
-// otherwise reached from that layer or below can be skipped: one that
-// modules above it call directly too (shared types, utilities) is used by
-// everyone, not layered.
+// otherwise reached from that layer alone can be skipped: one that other
+// layers call too (shared types, utilities) is a foundation everyone uses,
+// not a layer to go through.
 func (es edges) bypassed(a, c int, layer func(int) int) (via, usual int) {
 	via = -1
 	for _, v := range sortedTargets(es[a]) {
@@ -160,7 +160,7 @@ func (es edges) bypassed(a, c int, layer func(int) int) (via, usual int) {
 		return -1, 0
 	}
 	for m, out := range es {
-		if m != a && out[c] != nil && layer(m) < layer(via) {
+		if m != a && out[c] != nil && layer(m) != layer(via) {
 			return -1, 0
 		}
 	}

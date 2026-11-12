@@ -155,3 +155,15 @@ func TestModulesWithoutCallsToOrFromOthersAreUnplaced(t *testing.T) {
 		t.Errorf("unplaced = %v, want %v", m.Unplaced, want)
 	}
 }
+
+func TestAModuleCalledFromBelowTheSkippedLayerIsNoBypassTarget(t *testing.T) {
+	// types is a foundation: service and the lower index both call it, so
+	// handlers calling it directly skips nothing.
+	m := Layers(graphOf(call{"handlers", "service", 40}, call{"service", "types", 40}, call{"handlers", "types", 3},
+		call{"service", "index", 40}, call{"index", "types", 10}), nil)
+	for _, b := range m.Breaks {
+		if b.Kind == Bypass {
+			t.Errorf("break %+v: types is reached from below service too", b)
+		}
+	}
+}
