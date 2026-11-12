@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/config"
 	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/index"
+	"github.com/heikki-laitala/ddslop/internal/lang/golang"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
 	"github.com/heikki-laitala/ddslop/internal/report"
 	"github.com/heikki-laitala/ddslop/internal/unit"
@@ -23,9 +25,10 @@ const mapUsage = `usage: ddslop map [flags] [path]
 
 Describes the conventions of the code under path (default "."), for an
 agent to read before writing code: the layers its modules form, the calls
-breaking them, the helpers other modules share, and the features that
-copy one pipeline (parallel-flow candidates in check: extract the
-pipeline rather than add another copy). Each language gets a
+breaking them, the helpers other modules share, the features that copy
+one pipeline (parallel-flow candidates in check: extract the pipeline
+rather than add another copy), and the idioms: the form the code uses
+for each concern, such as checking and wrapping errors (Go so far). Each language gets a
 map of its own. A module is a Go package, or a Rust module directly under
 its crate. A Rust workspace is described as crates, each with how many
 modules and layers it holds; --crate describes one crate's modules, as a
@@ -57,6 +60,25 @@ type mapJSON struct {
 	UnplacedMore int           `json:"unplaced_more"`
 	Helpers      []helperJSON  `json:"helpers"`
 	Features     []featureJSON `json:"features"`
+	Idioms       []idiomJSON   `json:"idioms"`
+}
+
+// idiomJSON is how the code does one concern: the convention (the form
+// most occurrences use, with its share), or none and the language's
+// idiomatic form, and every form with its count and first occurrence.
+type idiomJSON struct {
+	Concern     string          `json:"concern"`
+	Convention  string          `json:"convention,omitempty"`
+	Idiomatic   string          `json:"idiomatic,omitempty"`
+	Share       float64         `json:"share"`
+	Occurrences int             `json:"occurrences"`
+	Forms       []formCountJSON `json:"forms"`
+}
+
+type formCountJSON struct {
+	Form    string `json:"form"`
+	Count   int    `json:"count"`
+	Example string `json:"example"`
 }
 
 // featureJSON is a typical feature: so far only a parallel-flow family,
@@ -201,7 +223,7 @@ func buildMap(root, lang string, files []index.File, opts mapOptions) (mapJSON, 
 	crates := packages(root, files)
 	m := mapJSON{Lang: lang, Scope: "packages", Calls: g.Calls, ResolvedCalls: g.Resolved,
 		Layers: []layerJSON{}, Breaks: []breakJSON{}, Unplaced: []string{}, Helpers: []helperJSON{},
-		Features: []featureJSON{}}
+		Features: []featureJSON{}, Idioms: []idiomJSON{}}
 	layerGroup, helperGroup := codemap.ByModule(crates), codemap.ByModule(crates)
 	if lang == "rust" {
 		names := crateNames(files, crates)
@@ -271,6 +293,19 @@ func buildMap(root, lang string, files []index.File, opts mapOptions) (mapJSON, 
 			fj.Steps = append(fj.Steps, sj)
 		}
 		m.Features = append(m.Features, fj)
+	}
+	var idiomatic map[string]string
+	if lang == "go" {
+		idiomatic = golang.IdiomaticForms
+	}
+	for _, id := range codemap.Idioms(g, helperGroup, idiomatic) {
+		ij := idiomJSON{Concern: id.Concern, Convention: id.Convention, Idiomatic: id.Idiomatic,
+			Share: math.Round(float64(id.Forms[0].Count)/float64(id.Occurrences)*1000) / 1000, Occurrences: id.Occurrences}
+		for _, fc := range id.Forms[:min(limit, len(id.Forms))] {
+			u := g.Units[fc.Unit]
+			ij.Forms = append(ij.Forms, formCountJSON{Form: fc.Form, Count: fc.Count, Example: fmt.Sprintf("%s:%d %s", u.File, fc.Line, u.Name)})
+		}
+		m.Idioms = append(m.Idioms, ij)
 	}
 	return m, nil
 }
@@ -407,6 +442,7 @@ func writeMapText(w io.Writer, r mapReport) error {
 			}
 		}
 		writeFeaturesText(&b, m.Features)
+		writeIdiomsText(&b, m.Idioms)
 	}
 	if len(r.Maps) == 0 {
 		b.WriteString("no Go or Rust code found\n")
@@ -441,6 +477,25 @@ func writeFeaturesText(b *strings.Builder, features []featureJSON) {
 				fmt.Fprintf(b, " and %d more", f.MembersMore)
 			}
 			b.WriteString("\n")
+		}
+	}
+}
+
+// writeIdiomsText lists how the code does each concern: follow the
+// convention, or the idiomatic form where there is none.
+func writeIdiomsText(b *strings.Builder, idioms []idiomJSON) {
+	if len(idioms) == 0 {
+		return
+	}
+	b.WriteString("\nIdioms (use the convention; where there is none, the idiomatic form):\n")
+	for _, id := range idioms {
+		if id.Convention != "" {
+			fmt.Fprintf(b, "  %s: %s in %d of %d\n", id.Concern, id.Convention, id.Forms[0].Count, id.Occurrences)
+		} else {
+			fmt.Fprintf(b, "  %s: no convention in %d occurrence(s); idiomatic: %s\n", id.Concern, id.Occurrences, id.Idiomatic)
+		}
+		for _, f := range id.Forms {
+			fmt.Fprintf(b, "      %s %d, e.g. %s\n", f.Form, f.Count, f.Example)
 		}
 	}
 }

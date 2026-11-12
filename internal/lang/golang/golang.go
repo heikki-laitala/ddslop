@@ -153,6 +153,10 @@ const (
 	errorWrapping = "error-wrapping"
 )
 
+// IdiomaticForms names the idiomatic form of each concern the adapter
+// knows, which the map suggests where a codebase has no convention.
+var IdiomaticForms = map[string]string{errorChecks: "errors.Is/As", errorWrapping: "%w"}
+
 // errorCallForm returns the error form a call is, if any: errors.Is or
 // errors.As checks an error, comparing err.Error() inside strings.Contains
 // and its kin checks its message, and fmt.Errorf wraps one with %w or
