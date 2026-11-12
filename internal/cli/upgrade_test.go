@@ -32,7 +32,7 @@ func asVersion(t *testing.T, v string) {
 }
 
 func TestUpgradeRefusesDevelopmentBuildsWithoutForce(t *testing.T) {
-	asVersion(t, "v2026.11.11_2-4-geb25f25-dirty")
+	asVersion(t, "v1.0.0-4-geb25f25-dirty")
 	code, _, stderr := run("upgrade")
 	if code != 2 || !strings.Contains(stderr, "--force") {
 		t.Errorf("exit code %d, stderr %q; want 2 and a hint about --force", code, stderr)
@@ -40,17 +40,17 @@ func TestUpgradeRefusesDevelopmentBuildsWithoutForce(t *testing.T) {
 }
 
 func TestUpgradeCheckReportsANewerRelease(t *testing.T) {
-	asVersion(t, "v2026.11.11_2")
-	latestServer(t, "v2026.11.12_0")
+	asVersion(t, "v1.0.0")
+	latestServer(t, "v1.1.0")
 	code, stdout, stderr := run("upgrade", "--check")
-	if code != 0 || !strings.Contains(stdout, "v2026.11.12_0 is available (this is v2026.11.11_2)") {
+	if code != 0 || !strings.Contains(stdout, "v1.1.0 is available (this is v1.0.0)") {
 		t.Errorf("exit code %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 }
 
 func TestUpgradeDoesNothingWhenUpToDate(t *testing.T) {
-	asVersion(t, "v2026.11.12_0")
-	latestServer(t, "v2026.11.12_0")
+	asVersion(t, "v1.1.0")
+	latestServer(t, "v1.1.0")
 	code, stdout, _ := run("upgrade")
 	if code != 0 || !strings.Contains(stdout, "already up to date") {
 		t.Errorf("exit code %d, stdout %q; want 0 and already up to date", code, stdout)

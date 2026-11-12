@@ -33,7 +33,7 @@ var (
 
 func runUpgrade(args []string, stdout, stderr io.Writer) int {
 	fs := newFlags("upgrade", upgradeUsage, stderr)
-	want := fs.String("version", "", "install this release, such as v2026.11.11_2 (default: the latest)")
+	want := fs.String("version", "", "install this release, such as v1.2.0 (default: the latest)")
 	check := fs.Bool("check", false, "only report whether a newer release exists")
 	force := fs.Bool("force", false, "replace a development build too")
 	if code, ok := parseFlags(fs, args); !ok {

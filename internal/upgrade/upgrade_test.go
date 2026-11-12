@@ -60,22 +60,22 @@ func fakeGitHub(t *testing.T, tag, asset string, archive []byte, badChecksum boo
 }
 
 func TestLatestReadsTheTagFromTheRedirect(t *testing.T) {
-	srv := fakeGitHub(t, "v2026.11.12_0", "ddslop-linux-x86_64", nil, false)
+	srv := fakeGitHub(t, "v1.1.0", "ddslop-linux-x86_64", nil, false)
 	got, err := Latest(srv.Client(), srv.URL)
-	if err != nil || got != "v2026.11.12_0" {
-		t.Errorf("Latest = %q, %v; want v2026.11.12_0", got, err)
+	if err != nil || got != "v1.1.0" {
+		t.Errorf("Latest = %q, %v; want v1.1.0", got, err)
 	}
 }
 
 func TestInstallReplacesTheBinaryWithAVerifiedRelease(t *testing.T) {
 	asset := "ddslop-linux-x86_64"
-	srv := fakeGitHub(t, "v2026.11.12_0", asset, release(t, asset, "new binary"), false)
+	srv := fakeGitHub(t, "v1.1.0", asset, release(t, asset, "new binary"), false)
 	bin := filepath.Join(t.TempDir(), "ddslop")
 	if err := os.WriteFile(bin, []byte("old binary"), 0o755); err != nil { //nolint:gosec // an executable test file
 		t.Fatal(err)
 	}
 
-	if err := Install(srv.Client(), srv.URL, "v2026.11.12_0", asset, bin); err != nil {
+	if err := Install(srv.Client(), srv.URL, "v1.1.0", asset, bin); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 	got, _ := os.ReadFile(bin) //nolint:gosec // the test's own file
@@ -90,13 +90,13 @@ func TestInstallReplacesTheBinaryWithAVerifiedRelease(t *testing.T) {
 
 func TestInstallRefusesAReleaseWhoseChecksumDoesNotMatch(t *testing.T) {
 	asset := "ddslop-linux-x86_64"
-	srv := fakeGitHub(t, "v2026.11.12_0", asset, release(t, asset, "tampered binary"), true)
+	srv := fakeGitHub(t, "v1.1.0", asset, release(t, asset, "tampered binary"), true)
 	bin := filepath.Join(t.TempDir(), "ddslop")
 	if err := os.WriteFile(bin, []byte("old binary"), 0o755); err != nil { //nolint:gosec // an executable test file
 		t.Fatal(err)
 	}
 
-	err := Install(srv.Client(), srv.URL, "v2026.11.12_0", asset, bin)
+	err := Install(srv.Client(), srv.URL, "v1.1.0", asset, bin)
 	if err == nil || !strings.Contains(err.Error(), "checksum") {
 		t.Errorf("Install with a bad checksum: %v, want a checksum error", err)
 	}
@@ -124,8 +124,11 @@ func TestAssetNamesTheReleaseArchiveForThePlatform(t *testing.T) {
 
 func TestIsReleaseTellsReleasesFromDevelopmentBuilds(t *testing.T) {
 	for v, want := range map[string]bool{
-		"v2026.11.11_2":                      true,
-		"v2026.11.11_2-4-geb25f25-dirty":     false,
+		"v1.0.0":                             true,
+		"v1.12.3":                            true,
+		"v1.0.0-4-geb25f25-dirty":            false,
+		"v1.0.0-rc.1":                        false,
+		"v2026.11.11_2":                      false,
 		"dev":                                false,
 		"v0.0.0-20261111094512-eb25f2551a3f": false,
 	} {

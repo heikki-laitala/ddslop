@@ -23,8 +23,8 @@ import (
 // Repository is where releases are published.
 const Repository = "https://github.com/heikki-laitala/ddslop"
 
-// releaseTag matches a release tag, vYYYY.MM.DD_N.
-var releaseTag = regexp.MustCompile(`^v\d{4}\.\d{2}\.\d{2}_\d+$`)
+// releaseTag matches a release tag, vMAJOR.MINOR.PATCH.
+var releaseTag = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 
 // IsRelease reports whether a version names a release, rather than a
 // development build ("dev", or a git describe or pseudo-version).
