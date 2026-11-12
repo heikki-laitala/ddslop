@@ -1282,10 +1282,23 @@ sequenceDiagram
 
 `internal/codemap` computes sections 1 and 2 from the call graph `flows`
 uses, and `ddslop map` prints them per language (`{"maps": [...]}`, each
-map with `lang`, `calls` and `resolved_calls` counts as in `flows`,
-`layers`, `unplaced`, `breaks` and `helpers`), each list capped by
-`--limit` (default 10; left-out modules are counted in `more` and
+map with `lang`, `scope`, `calls` and `resolved_calls` counts as in
+`flows`, `layers`, `unplaced`, `breaks` and `helpers`), each list capped
+by `--limit` (default 10; left-out modules are counted in `more` and
 `unplaced_more`).
+
+The map has two levels for Rust. A workspace is described by crate
+(`"scope": "crates"`): the layers the crates form, the breaks between
+them, and a summary per crate (`crates`: its modules and the layers they
+form). `--crate NAME` describes one crate's modules (`"scope": "crate"`),
+from the calls inside it alone, and a repository with one crate gets that
+view by default. Cargo forbids cycles between crates, so the crate view
+only ever shows bypasses; the cycles measured were all between modules of
+one crate. Go keeps one level (`"scope": "packages"`): a package is
+already the unit, and Go codebases measured 4 to 6 layers. Helpers stay
+counted by module in both Rust views, narrowed to one crate's modules
+under `--crate`. Units are grouped by a `Grouping` (module, crate, or a
+crate's modules), which names each file once.
 
 - A Go module is the package directory; a Rust module is the crate's
   name (as `flows` reads it from `Cargo.toml`) with the module directly
@@ -1329,8 +1342,7 @@ requiring the skipped module to be the target's only way in from above
 left one, `cli` calling `syntax.IsGenerated` past the adapters that wrap
 `syntax`, which is arguable.
 
-Then on the reference codebases, warm (`map` adds about 0.37 s to the
-0.86 s index refresh on the largest):
+Then on the reference codebases, by module, before the crate view:
 
 | Codebase | Layers | Unplaced | Breaks | Helpers |
 | --- | --- | --- | --- | --- |
@@ -1346,9 +1358,22 @@ composition root, constructing a `batch` value directly. Before calls
 by method name were left out, 6 of the 25 helpers listed on
 `lens-artifact-hub` were such guesses, and before the bypass target had
 to be reached from the skipped layer alone, ddslop reported `rust`
-calling `unit` past `syntax`. 19 layers in one crate with many modules is
-the granularity question below: a crate-level summary may serve agents
-better.
+calling `unit` past `syntax`.
+
+The 19 layers came almost all from one crate, `lns_ledger` (138 modules
+over 18 layers; every other crate had 5 or fewer), so the global module
+view mixed the architecture between crates with one crate's insides. By
+crate, `lns-inference-router` has 5 layers of 17 crates (the services
+`lns_insights` and `lns_price_controller` on top, then `lns_ledger` and
+`lns_router`, the API, credential and trace crates, the translation
+crates, and `switchyard_protocol` at the bottom) and 7 unplaced, all test
+fakes and tools that run as their own binaries; `lens-artifact-hub` has
+the main crate over its contract and types crates. Warm, `map` takes
+0.94 s on `lns-inference-router`, about as long as `flows` (0.88 s), which
+loads the same index and builds the same call graph, against 1.8 s for
+`check`; `--crate lns_ledger` takes 0.89 s. Naming a file's crate and
+module once per grouping rather than once per function took the crate
+view from 1.7 s to 0.94 s.
 
 ### Measurement before shipping
 
@@ -1369,10 +1394,9 @@ candidate.
 - Prose written by a model: the map is data, and the agent explains it.
 - Conventions across languages, as for the other layers.
 
-Open questions: whether a Rust module directly under its crate is the
-right granularity, or the crate itself in workspaces with many small
-crates; and whether name-based resolution resolves enough method calls
-for the layers to hold without SCIP.
+Open question: whether name-based resolution resolves enough method
+calls for the layers to hold without SCIP or, for Go, the typed call
+graph; Go layers stay shallow until then.
 
 ## Modes
 

@@ -47,11 +47,19 @@ override it.
 ddslop map --format json .
 ```
 
-describes the codebase's conventions, one map per language:
+describes the codebase's conventions, one map per language. Its `scope`
+says what the layers hold: Go `packages`; for a Rust workspace,
+`crates`, with a summary of each crate's modules and layers; or one
+crate's modules (`crate`), which a single-crate repository gets by
+default. In a workspace, then look inside the crate you are changing:
 
-- `layers`: the modules (Go packages, Rust modules under their crate),
-  top layer first, as the code's calls order them. Put new code in the
-  layer its neighbours use, and call downwards.
+```sh
+ddslop map --format json --crate <name> .
+```
+
+- `layers`: the packages, crates or modules, top layer first, as the
+  code's calls order them. Put new code in the layer its neighbours use,
+  and call downwards.
 - `helpers`: functions other modules already share, with their
   signature and the modules using them. Reuse one before writing your
   own; `ddslop similar` then checks a draft that remains.
@@ -60,8 +68,9 @@ describes the codebase's conventions, one map per language:
   module goes through). Treat them as hints, not errors: some are
   deliberate, such as a composition root wiring everything together.
   Do not add to them; fix one only when asked.
-- `unplaced`: modules with no counted calls to or from other modules
-  (often types-only crates): nothing says which layer they belong to.
+- `unplaced`: modules or crates with no counted calls to or from the
+  others (often types-only crates, or test fakes run as their own
+  binaries): nothing says which layer they belong to.
 
 Only calls that name their target count (`f()`, `Type::f()`,
 `module::f()`, calls on `self`), so a method reached through a field
