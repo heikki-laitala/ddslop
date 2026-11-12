@@ -402,3 +402,72 @@ func TestMapLimitCapsAFeaturesSteps(t *testing.T) {
 		t.Errorf("steps = %d, steps_more = %d; want 1 step listed and the rest counted", len(f.Steps), f.StepsMore)
 	}
 }
+
+// errorsService checks errors with errors.Is in five places and by their
+// message in one, and wraps one error with %w.
+var errorsService = map[string]string{
+	"store/s.go": `package store
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
+var ErrMissing = errors.New("missing")
+
+func A(err error) bool { return errors.Is(err, ErrMissing) }
+func B(err error) bool { return errors.Is(err, ErrMissing) }
+func C(err error) bool { return errors.Is(err, ErrMissing) }
+func D(err error) bool { return errors.Is(err, ErrMissing) }
+func E(err error) bool { return errors.Is(err, ErrMissing) }
+func F(err error) bool { return strings.Contains(err.Error(), "missing") }
+func G(err error) error { return fmt.Errorf("g: %w", err) }
+`,
+}
+
+func TestMapNamesTheCodebasesFormForEachErrorConcern(t *testing.T) {
+	root := repo(t, errorsService)
+
+	code, stdout, stderr := run("map", "--format", "json", root)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr)
+	}
+	var r struct {
+		Maps []struct {
+			Idioms []struct {
+				Concern     string  `json:"concern"`
+				Convention  string  `json:"convention"`
+				Idiomatic   string  `json:"idiomatic"`
+				Share       float64 `json:"share"`
+				Occurrences int     `json:"occurrences"`
+				Forms       []struct {
+					Form    string `json:"form"`
+					Count   int    `json:"count"`
+					Example string `json:"example"`
+				} `json:"forms"`
+			} `json:"idioms"`
+		} `json:"maps"`
+	}
+	decodeInto(t, stdout, &r)
+	if len(r.Maps) != 1 || len(r.Maps[0].Idioms) != 2 {
+		t.Fatalf("idioms = %+v, want error checks and error wrapping", r.Maps)
+	}
+	checks, wrapping := r.Maps[0].Idioms[0], r.Maps[0].Idioms[1]
+	if checks.Concern != "error-checks" || checks.Convention != "errors.Is/As" || checks.Occurrences != 6 || checks.Share < 0.83 || checks.Share > 0.84 {
+		t.Errorf("checks = %+v, want errors.Is/As in 5 of 6", checks)
+	}
+	if len(checks.Forms) != 2 || checks.Forms[1].Form != "message" || checks.Forms[1].Example != "store/s.go:16 F" {
+		t.Errorf("check forms = %+v, want the message check at F as the other form", checks.Forms)
+	}
+	if wrapping.Concern != "error-wrapping" || wrapping.Convention != "" || wrapping.Idiomatic != "%w" {
+		t.Errorf("wrapping = %+v, want no convention from one occurrence, %%w named idiomatic", wrapping)
+	}
+
+	_, text, _ := run("map", "--format", "text", root)
+	for _, want := range []string{"Idioms", "error-checks: errors.Is/As in 5 of 6", "message 1, e.g. store/s.go:16 F", "error-wrapping: no convention"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("text map lacks %q:\n%s", want, text)
+		}
+	}
+}
