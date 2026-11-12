@@ -295,3 +295,15 @@ func TestMapCountsCratesWithoutFunctions(t *testing.T) {
 		t.Errorf("--crate types = %+v, want the types crate", r.Maps)
 	}
 }
+
+func TestMapOfOnePackageWithExamplesIsOneCrate(t *testing.T) {
+	r := mapOf(t, repo(t, map[string]string{
+		"Cargo.toml":       "[package]\nname = \"acme\"\n",
+		"src/lib.rs":       "pub fn run() { store::save(); }\n",
+		"src/store.rs":     "pub fn save() {}\n",
+		"examples/demo.rs": "fn main() { acme::run(); }\n",
+	}))
+	if len(r.Maps) != 1 || r.Maps[0].Scope != "crate" || r.Maps[0].Crate != "." {
+		t.Errorf("maps = %+v, want one crate: examples/ belongs to the package", r.Maps)
+	}
+}

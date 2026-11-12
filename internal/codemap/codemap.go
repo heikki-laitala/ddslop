@@ -71,6 +71,19 @@ func Crate(file string, crates map[string]string) string {
 	return name
 }
 
+// packageOf returns the nearest directory above a file that crates lists,
+// "." for the repository root.
+func packageOf(file string, crates map[string]string) (string, bool) {
+	for dir := path.Dir(file); ; dir = path.Dir(dir) {
+		if _, ok := crates[dir]; ok {
+			return dir, true
+		}
+		if dir == "." || dir == "/" {
+			return "", false
+		}
+	}
+}
+
 // Module returns the module a file belongs to: a Go file's package
 // directory, or a Rust file's crate with the module directly under it
 // ("acme_ledger::store"). crates maps a crate directory to the name code
@@ -92,12 +105,19 @@ func Module(file string, crates map[string]string) string {
 }
 
 // rustModule returns a Rust file's crate name and the module directly
-// under the crate's src/ ("" for the crate's root module).
+// under the crate's src/ ("" for the crate's root module). crates maps the
+// directories holding a package's Cargo.toml: a file belongs to the
+// nearest one above it, as Cargo has it, and one outside src/ (build.rs,
+// examples/) to that crate's root module. Without a manifest above it, the
+// crate directory is the one call resolution uses.
 func rustModule(file string, crates map[string]string) (name, top string) {
-	// The crate directory is the one call resolution uses; a file outside
-	// src/ (build.rs) belongs to its crate's root module.
 	dir, rel := flow.CrateOf(file), ""
-	if i := strings.Index(file, "/src/"); i >= 0 {
+	if root, ok := packageOf(file, crates); ok {
+		dir = root
+		if after, ok := strings.CutPrefix(strings.TrimPrefix(file, root+"/"), "src/"); ok {
+			rel = after
+		}
+	} else if i := strings.Index(file, "/src/"); i >= 0 {
 		rel = file[i+len("/src/"):]
 	} else if after, ok := strings.CutPrefix(file, "src/"); ok {
 		dir, rel = ".", after // a crate at the root
