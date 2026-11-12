@@ -212,8 +212,8 @@ measurements are in [docs/architecture.md](docs/architecture.md).
 `ddslop init` installs a skill that tells the agent when to run ddslop
 (`map` before starting a feature, to follow the codebase's layers and
 reuse its shared helpers; `check` before finishing a change, when asked
-to clean up and before writing a new helper), how to act on each kind of candidate, and to leave copies that
-are meant to diverge alone:
+to clean up and before writing a new helper), how to act on each kind of
+candidate, and to leave copies that are meant to diverge alone:
 
 | Flag | Skill | Instructions |
 | --- | --- | --- |
