@@ -45,7 +45,7 @@ func TestTheRootCrateStaysUnnamedWhateverItsManifestSays(t *testing.T) {
 }
 
 func TestCrateNamesTheRustCrateOfAFile(t *testing.T) {
-	crates := map[string]string{"crates/ledger": "acme_ledger", ".": "acme"}
+	crates := map[string]string{"crates/ledger": "acme_ledger"}
 	for file, want := range map[string]string{ //nolint:gosec // file paths, not credentials
 		"crates/ledger/src/store/postgres.rs": "acme_ledger",
 		"crates/ledger/src/lib.rs":            "acme_ledger",
@@ -80,5 +80,20 @@ func TestLayersOfCratesAndOfTheModulesInsideOne(t *testing.T) {
 	inService := Layers(g, InCrate("service", nil))
 	if want := [][]string{{"service"}, {"service::validate"}}; !reflect.DeepEqual(inService.Layers, want) {
 		t.Errorf("service's module layers = %v, want %v: calls leaving the crate take no part", inService.Layers, want)
+	}
+}
+
+func TestFilesOutsideSrcBelongToTheNearestCrate(t *testing.T) {
+	// crates maps the directories holding a Cargo.toml.
+	crates := map[string]string{"crates/ledger": "acme_ledger", ".": "acme"}
+	for file, want := range map[string][2]string{
+		"crates/ledger/examples/demo.rs": {"acme_ledger", "acme_ledger"},
+		"crates/ledger/src/store.rs":     {"acme_ledger", "acme_ledger::store"},
+		"examples/demo.rs":               {".", "."},
+		"src/store.rs":                   {".", "store"},
+	} {
+		if c, m := Crate(file, crates), Module(file, crates); c != want[0] || m != want[1] {
+			t.Errorf("%s: crate %q, module %q; want %q, %q", file, c, m, want[0], want[1])
+		}
 	}
 }

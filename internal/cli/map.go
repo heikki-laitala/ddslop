@@ -151,7 +151,7 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 // workspace by crate, and one Rust crate (want, or the only one) by module.
 func buildMap(root, lang string, files []index.File, limit int, want string) (mapJSON, error) {
 	g, traits := callGraph(root, files)
-	crates := graphInputs(root, files).Crates
+	crates := packages(root, files)
 	m := mapJSON{Lang: lang, Scope: "packages", Calls: g.Calls, ResolvedCalls: g.Resolved,
 		Layers: []layerJSON{}, Breaks: []breakJSON{}, Unplaced: []string{}, Helpers: []helperJSON{}}
 	layerGroup, helperGroup := codemap.ByModule(crates), codemap.ByModule(crates)
@@ -209,6 +209,28 @@ func buildMap(root, lang string, files []index.File, limit int, want string) (ma
 			Signature: sourceLine(root, u.File, u.StartLine), Modules: h.Modules})
 	}
 	return m, nil
+}
+
+// packages maps the directories under root holding a package's Cargo.toml
+// to the crate's name, for every directory above a Rust file.
+func packages(root string, files []index.File) map[string]string {
+	out := map[string]string{}
+	seen := map[string]bool{}
+	for _, f := range files {
+		if languageOf(f.Path) != "rust" {
+			continue
+		}
+		for dir := filepath.Dir(f.Path); !seen[dir]; dir = filepath.Dir(dir) {
+			seen[dir] = true
+			if name := rust.CrateName(manifest(root, dir)); name != "" {
+				out[filepath.ToSlash(dir)] = name
+			}
+			if dir == "." || dir == string(filepath.Separator) {
+				break
+			}
+		}
+	}
+	return out
 }
 
 // crateNames returns the crates of the Rust files outside test paths,
