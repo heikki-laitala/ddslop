@@ -47,7 +47,7 @@ func TestInstalledGuidanceReadsTheMapBeforeAFeature(t *testing.T) {
 	}
 	for _, want := range []string{"## Before you write", "ddslop map --format json .", "hints, not errors",
 		"ddslop map --format json --crate <name> .", "- `features`: ", "extract the pipeline",
-		"- `idioms`: "} {
+		"- `idioms`: ", "- `convention-drift` (`follow-convention`"} {
 		if !strings.Contains(skill, want) {
 			t.Errorf("skill lacks %q", want)
 		}
