@@ -1060,7 +1060,10 @@ In the order they are built; each ships only once measured (below).
    other members. "To add another operation like these, follow
    `create_order`." Entry points outside any family are grouped by the
    trait or interface that made them entry points, with the member
-   reaching the most shared helpers as the example.
+   reaching the most shared helpers as the example. Such a group only
+   gives an example: one generated interface can hold unrelated
+   operations (health and sign-in routes next to authenticated ones), so
+   its members are not peers for section 5.
 4. **Idioms.** For each concern the language adapter knows, which form
    this codebase uses and how consistently: "errors: `fmt.Errorf` with
    `%w` in 92% of wrapped returns; 6 functions return `errors.New`
@@ -1094,9 +1097,10 @@ In the order they are built; each ships only once measured (below).
    TypeScript, the same treatment.
 5. **Deviations.** A `check` candidate, `convention-drift` with suggestion
    `follow-convention`, for code that breaks a convention most of its
-   peers follow: the bypasses from section 1, entry points of one group
-   that skip a shared helper (such as a sign-in extractor) that most of
-   the group call, and code using another form for a concern than the
+   peers follow: the bypasses from section 1, entry points of one
+   `parallel-flow` family (features already shown to work alike) that
+   skip a shared helper (such as a sign-in extractor) that most of the
+   family call, and code using another form for a concern than the
    idiom from section 4. The target is what the peers do instead, which
    always exists: for a bypass, the function in the middle module that
    the source module's other calls into the target go through most; for
