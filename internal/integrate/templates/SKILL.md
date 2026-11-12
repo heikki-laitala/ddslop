@@ -68,6 +68,12 @@ ddslop map --format json --crate <name> .
   module goes through). Treat them as hints, not errors: some are
   deliberate, such as a composition root wiring everything together.
   Do not add to them; fix one only when asked.
+- `features`: entry points that copy one pipeline through their own
+  functions (a `parallel-flow` candidate in `check`): the `shape` (the
+  most typical copy), its `steps` with the shared helpers each calls,
+  and the other `members`. They show what not to do again: when your
+  feature is of the same kind, extract the pipeline (the `pattern`)
+  rather than copy a member, or ask whether to.
 - `unplaced`: modules or crates with no counted calls to or from the
   others (often types-only crates, or test fakes run as their own
   binaries): nothing says which layer they belong to.
