@@ -596,3 +596,22 @@ func TestQualifiedErrPatternsAreVariantChecks(t *testing.T) {
 		t.Errorf("forms = %v, want variant checks on lines 3 and 4", got)
 	}
 }
+
+func TestOnlyTheMatchesPatternIsSearchedAndItsPathMayBeQualified(t *testing.T) {
+	src := `fn value_side(r: Option<Result<u8, Fault>>) -> bool {
+    matches!(Some(Err(Fault::Gone)), Some(Ok(_)))
+}
+fn qualified(r: Result<u8, Fault>) -> bool {
+    core::matches!(r, Err(Fault::Gone))
+}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		for _, f := range u.Forms {
+			got = append(got, u.Name+" "+f.Form)
+		}
+	}
+	if want := "qualified variant"; strings.Join(got, "\n") != want {
+		t.Errorf("forms = %v, want only %s", got, want)
+	}
+}
