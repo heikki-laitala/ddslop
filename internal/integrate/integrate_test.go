@@ -46,7 +46,8 @@ func TestInstalledGuidanceReadsTheMapBeforeAFeature(t *testing.T) {
 		t.Fatalf("skill has no front matter:\n%s", skill[:min(300, len(skill))])
 	}
 	for _, want := range []string{"## Before you write", "ddslop map --format json .", "hints, not errors",
-		"ddslop map --format json --crate <name> .", "- `features`: ", "extract the pipeline"} {
+		"ddslop map --format json --crate <name> .", "- `features`: ", "extract the pipeline",
+		"- `idioms`: "} {
 		if !strings.Contains(skill, want) {
 			t.Errorf("skill lacks %q", want)
 		}
