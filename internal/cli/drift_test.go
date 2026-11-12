@@ -120,4 +120,8 @@ func TestDriftsOfOneFormInOneFunctionAreOneCandidate(t *testing.T) {
 	if got := driftCandidates(t, stdout); strings.Join(got, ", ") != "store/s.go:40-40 ByMessage, store/t.go:6-6,7-7 Twice" {
 		t.Errorf("drifts = %v, want Twice's two checks as one candidate with an occurrence on each line", got)
 	}
+	_, text, _ := run("check", "--format", "text", root)
+	if !strings.Contains(text, "convention-drift: 2 place(s) using message, follow-convention") {
+		t.Errorf("text does not count Twice's places using the drifting form:\n%s", text)
+	}
 }

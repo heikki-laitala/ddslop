@@ -43,3 +43,18 @@ func TestAMixOfFormsIsNoDrift(t *testing.T) {
 		t.Errorf("Drifts = %+v, want none below the drift share", got)
 	}
 }
+
+func TestDriftsOnOneLineComeInConcernOrder(t *testing.T) {
+	var units []unit.Unit
+	for i := range 20 {
+		units = append(units, formUnit("a/a.go", i+1, "error-checks", "variant", "error-wrapping", "map_err"))
+	}
+	both := formUnit("a/b.go", 1, "error-wrapping", "context")
+	both.Forms = append(both.Forms, unit.Form{Concern: "error-checks", Form: "message", Line: 1})
+	units = append(units, both)
+
+	got := Drifts(&flow.Graph{Units: units}, ByModule(nil), ByModule(nil))
+	if len(got) != 2 || got[0].Concern != "error-checks" || got[1].Concern != "error-wrapping" {
+		t.Errorf("Drifts = %+v, want error-checks then error-wrapping", got)
+	}
+}
