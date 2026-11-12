@@ -79,7 +79,7 @@ ddslop map --format json --crate <name> .
   its `share`), or none and the language's `idiomatic` form, and every
   form with an example. Write new code in the convention's form, or the
   idiomatic one where there is none, even where a nearby function uses
-  another. Go only so far.
+  another.
 - `unplaced`: modules or crates with no counted calls to or from the
   others (often types-only crates, or test fakes run as their own
   binaries): nothing says which layer they belong to.
