@@ -556,3 +556,25 @@ func TestAMessageCheckInAMatchesGuardIsRecorded(t *testing.T) {
 		t.Errorf("forms = %v, want %s", got, want)
 	}
 }
+
+func TestLiteralsAndCommentsInMatchesAreNoErrorChecks(t *testing.T) {
+	src := `fn quoted(s: &str) -> bool {
+    matches!(s, "Err(Fault::Gone)" | "e.to_string() == x") // Err(Fault::Gone)
+}
+fn commented(r: Result<u8, Fault>) -> bool {
+    matches!(r, /* Err(Fault::Gone) */ Ok(_))
+}
+fn real(r: Result<u8, Fault>) -> bool {
+    matches!(r, Err(crate::Fault::Gone))
+}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		for _, f := range u.Forms {
+			got = append(got, u.Name+" "+f.Form)
+		}
+	}
+	if want := "real variant"; strings.Join(got, "\n") != want {
+		t.Errorf("forms = %v, want only %s", got, want)
+	}
+}
