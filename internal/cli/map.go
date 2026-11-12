@@ -13,7 +13,7 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/codemap"
 	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/index"
-	"github.com/heikki-laitala/ddslop/internal/unit"
+	"github.com/heikki-laitala/ddslop/internal/lang/rust"
 )
 
 const mapUsage = `usage: ddslop map [flags] [path]
@@ -156,7 +156,7 @@ func buildMap(root, lang string, files []index.File, limit int, want string) (ma
 		Layers: []layerJSON{}, Breaks: []breakJSON{}, Unplaced: []string{}, Helpers: []helperJSON{}}
 	layerGroup, helperGroup := codemap.ByModule(crates), codemap.ByModule(crates)
 	if lang == "rust" {
-		names := crateNames(g.Units, crates)
+		names := crateNames(files, crates)
 		switch {
 		case want != "" && !slices.Contains(names, want):
 			return m, fmt.Errorf("no crate %q; the crates are %s", want, strings.Join(names, ", "))
@@ -203,11 +203,13 @@ func buildMap(root, lang string, files []index.File, limit int, want string) (ma
 	return m, nil
 }
 
-// crateNames returns the Rust crates of the units, sorted.
-func crateNames(units []unit.Unit, crates map[string]string) []string {
+// crateNames returns the crates of the Rust files outside test paths,
+// sorted: a crate of only types or constants is a crate too, though no
+// function of it is in the call graph.
+func crateNames(files []index.File, crates map[string]string) []string {
 	var names []string
-	for _, u := range units {
-		if c := codemap.Crate(u.File, crates); c != "" {
+	for _, f := range files {
+		if c := codemap.Crate(f.Path, crates); c != "" && !rust.IsTestPath(f.Path) {
 			names = append(names, c)
 		}
 	}
