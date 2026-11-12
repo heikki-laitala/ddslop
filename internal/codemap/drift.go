@@ -96,7 +96,8 @@ func Drifts(g *flow.Graph, group, module Grouping) []Drift {
 		}
 	}
 	slices.SortFunc(out, func(a, b Drift) int {
-		return cmp.Or(cmp.Compare(a.Unit, b.Unit), cmp.Compare(a.Lines[0], b.Lines[0]))
+		return cmp.Or(cmp.Compare(a.Unit, b.Unit), cmp.Compare(a.Lines[0], b.Lines[0]),
+			cmp.Compare(a.Concern, b.Concern), cmp.Compare(a.Form, b.Form))
 	})
 	return out
 }

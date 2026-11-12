@@ -789,7 +789,11 @@ func Headline(c Candidate) string {
 	if c.Kind == nearMiss {
 		fmt.Fprintf(&b, " (%.0f%% similar)", 100*c.Similarity)
 	}
-	fmt.Fprintf(&b, ": %s (%d nodes), %s", size(c), c.Score.Nodes, c.Suggestion.Action)
+	fmt.Fprintf(&b, ": %s", size(c))
+	if c.Kind != ConventionDrift { // a drift copies no code
+		fmt.Fprintf(&b, " (%d nodes)", c.Score.Nodes)
+	}
+	fmt.Fprintf(&b, ", %s", c.Suggestion.Action)
 	switch {
 	case c.Suggestion.GoF != "":
 		fmt.Fprintf(&b, " (%s; GoF: %s)", c.Suggestion.Pattern, c.Suggestion.GoF)
@@ -805,6 +809,9 @@ func Headline(c Candidate) string {
 // size describes a candidate's extent: its lines, and the number of copies
 // when there are several.
 func size(c Candidate) string {
+	if c.Kind == ConventionDrift { // places breaking a convention, not copies
+		return fmt.Sprintf("%d place(s) using %s", c.Score.Occurrences, strings.Join(c.Values, ", "))
+	}
 	if c.Score.Occurrences == 1 {
 		return fmt.Sprintf("%d lines", c.Score.Lines)
 	}
