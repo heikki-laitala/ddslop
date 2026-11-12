@@ -47,6 +47,7 @@
         "internal/cli/integrate.go#runStats",
         "internal/cli/integrate.go#runStatus",
         "internal/cli/integrate.go#runUninstall",
+        "internal/cli/map.go#runMap",
         "internal/cli/similar.go#runSimilar",
         "internal/cli/upgrade.go#runUpgrade"
       ]

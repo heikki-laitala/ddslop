@@ -49,6 +49,7 @@ Commands:
   check     report duplicated code (default)
   baseline  record known duplication, so check --baseline reports only new
   flows     list feature entry points and the functions they reach
+  map       describe the layers and shared helpers, before writing code
   similar   find existing functions like the one at FILE:LINE
   explain   show one candidate in full, with each occurrence's code
   index     build or refresh the index at <path>/.ddslop/index.db
@@ -96,6 +97,7 @@ var commands = map[string]command{
 	"check":     runCheck,
 	"baseline":  runBaseline,
 	"flows":     runFlows,
+	"map":       runMap,
 	"similar":   runSimilar,
 	"explain":   runExplain,
 	"upgrade":   runUpgrade,
