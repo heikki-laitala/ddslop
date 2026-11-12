@@ -11,16 +11,21 @@ import (
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/codemap"
+	"github.com/heikki-laitala/ddslop/internal/config"
 	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
+	"github.com/heikki-laitala/ddslop/internal/report"
+	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
 const mapUsage = `usage: ddslop map [flags] [path]
 
 Describes the conventions of the code under path (default "."), for an
 agent to read before writing code: the layers its modules form, the calls
-breaking them, and the helpers other modules share. Each language gets a
+breaking them, the helpers other modules share, and the features that
+copy one pipeline (parallel-flow candidates in check: extract the
+pipeline rather than add another copy). Each language gets a
 map of its own. A module is a Go package, or a Rust module directly under
 its crate. A Rust workspace is described as crates, each with how many
 modules and layers it holds; --crate describes one crate's modules, as a
@@ -48,9 +53,33 @@ type mapJSON struct {
 	Breaks        []breakJSON `json:"breaks"`
 	// Unplaced are modules no counted call goes to or comes from, and
 	// UnplacedMore counts those left out by --limit.
-	Unplaced     []string     `json:"unplaced"`
-	UnplacedMore int          `json:"unplaced_more"`
-	Helpers      []helperJSON `json:"helpers"`
+	Unplaced     []string      `json:"unplaced"`
+	UnplacedMore int           `json:"unplaced_more"`
+	Helpers      []helperJSON  `json:"helpers"`
+	Features     []featureJSON `json:"features"`
+}
+
+// featureJSON is a typical feature: so far only a parallel-flow family,
+// flagged with its candidate kind and the pattern that extracts it.
+type featureJSON struct {
+	Concern string `json:"concern"`
+	Flagged string `json:"flagged"`
+	Pattern string `json:"pattern"`
+	// Shape is the family's anchor and Members the others, as
+	// "file:line name"; MembersMore and StepsMore count those left out by
+	// --limit.
+	Shape       string            `json:"shape"`
+	Members     []string          `json:"members"`
+	MembersMore int               `json:"members_more"`
+	Steps       []featureStepJSON `json:"steps"`
+	StepsMore   int               `json:"steps_more"`
+}
+
+// featureStepJSON is a step of a feature's shape and the shared helpers it
+// calls.
+type featureStepJSON struct {
+	Function string   `json:"function"`
+	Helpers  []string `json:"helpers"`
 }
 
 // crateJSON summarises a crate in a workspace map: how many modules it
@@ -90,7 +119,7 @@ type helperJSON struct {
 func runMap(args []string, stdout, stderr io.Writer) int {
 	fs := newFlags("map", mapUsage, stderr)
 	format := fs.String("format", "", `output format, "text" or "json" (default: text on a terminal, json otherwise)`)
-	limit := fs.Int("limit", 10, "list at most this many modules per layer, breaks, functions per break and helpers")
+	limit := fs.Int("limit", 10, "list at most this many modules per layer, breaks, functions per break, helpers, features, and steps and other members per feature")
 	crate := fs.String("crate", "", "describe the modules of this Rust crate (default: a workspace's crates)")
 	root, code, ok := parseRoot(fs, args, stderr)
 	if !ok {
@@ -104,6 +133,14 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, fmt.Errorf("--limit must be at least 1, got %d", *limit))
 	}
 
+	cfg, err := config.Load(root)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	minNodes := defaultMinNodes
+	if cfg.MinNodes != nil {
+		minNodes = *cfg.MinNodes // as check reads it, so the map flags the families check reports
+	}
 	db, files, _, err := openFiles(root)
 	if err != nil {
 		return fail(stderr, err)
@@ -124,7 +161,7 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 		if len(langFiles) == 0 {
 			continue
 		}
-		m, err := buildMap(root, lang, langFiles, *limit, *crate)
+		m, err := buildMap(root, lang, langFiles, mapOptions{limit: *limit, crate: *crate, minNodes: minNodes})
 		if err != nil {
 			return fail(stderr, err)
 		}
@@ -147,13 +184,24 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 	return exitClean
 }
 
+// mapOptions are map's settings: the --limit on each list, the --crate to
+// describe, and the smallest function in a feature's steps.
+type mapOptions struct {
+	limit    int
+	crate    string
+	minNodes int
+}
+
 // buildMap describes one language's files: Go by package, a Rust
-// workspace by crate, and one Rust crate (want, or the only one) by module.
-func buildMap(root, lang string, files []index.File, limit int, want string) (mapJSON, error) {
+// workspace by crate, and one Rust crate (opts.crate, or the only one) by
+// module.
+func buildMap(root, lang string, files []index.File, opts mapOptions) (mapJSON, error) {
+	limit, want := opts.limit, opts.crate
 	g, traits := callGraph(root, files)
 	crates := packages(root, files)
 	m := mapJSON{Lang: lang, Scope: "packages", Calls: g.Calls, ResolvedCalls: g.Resolved,
-		Layers: []layerJSON{}, Breaks: []breakJSON{}, Unplaced: []string{}, Helpers: []helperJSON{}}
+		Layers: []layerJSON{}, Breaks: []breakJSON{}, Unplaced: []string{}, Helpers: []helperJSON{},
+		Features: []featureJSON{}}
 	layerGroup, helperGroup := codemap.ByModule(crates), codemap.ByModule(crates)
 	if lang == "rust" {
 		names := crateNames(files, crates)
@@ -197,8 +245,7 @@ func buildMap(root, lang string, files []index.File, limit int, want string) (ma
 	for _, b := range layers.Breaks[:min(limit, len(layers.Breaks))] {
 		bj := breakJSON{Kind: string(b.Kind), From: b.From, To: b.To, Via: b.Via, Calls: b.Calls, UsualCalls: b.UsualCalls}
 		for _, c := range b.Callers[:min(limit, len(b.Callers))] {
-			u := g.Units[c]
-			bj.Functions = append(bj.Functions, fmt.Sprintf("%s:%d %s", u.File, u.StartLine, u.Name))
+			bj.Functions = append(bj.Functions, located(g.Units[c]))
 		}
 		m.Breaks = append(m.Breaks, bj)
 	}
@@ -208,7 +255,29 @@ func buildMap(root, lang string, files []index.File, limit int, want string) (ma
 		m.Helpers = append(m.Helpers, helperJSON{Name: shortName(u.Name), File: u.File, Line: u.StartLine,
 			Signature: sourceLine(root, u.File, u.StartLine), Modules: h.Modules})
 	}
+	features := codemap.Features(g, families(g, traits, opts.minNodes), helperGroup, helpers)
+	for _, f := range features[:min(limit, len(features))] {
+		fj := featureJSON{Concern: "feature-pipelines", Flagged: "parallel-flow", Pattern: report.PipelinePattern,
+			Shape: located(g.Units[f.Shape]), Members: []string{}, MembersMore: max(0, len(f.Members)-limit),
+			StepsMore: max(0, len(f.Steps)-limit)}
+		for _, u := range f.Members[:min(limit, len(f.Members))] {
+			fj.Members = append(fj.Members, located(g.Units[u]))
+		}
+		for _, s := range f.Steps[:min(limit, len(f.Steps))] {
+			sj := featureStepJSON{Function: located(g.Units[s.Unit]), Helpers: []string{}}
+			for _, h := range s.Helpers {
+				sj.Helpers = append(sj.Helpers, shortName(g.Units[h].Name))
+			}
+			fj.Steps = append(fj.Steps, sj)
+		}
+		m.Features = append(m.Features, fj)
+	}
 	return m, nil
+}
+
+// located names a function as "file:line name".
+func located(u unit.Unit) string {
+	return fmt.Sprintf("%s:%d %s", u.File, u.StartLine, u.Name)
 }
 
 // packages maps the directories under root holding a package's Cargo.toml
@@ -337,10 +406,41 @@ func writeMapText(w io.Writer, r mapReport) error {
 				fmt.Fprintf(&b, "  %s (%s:%d), used by %s\n      %s\n", h.Name, h.File, h.Line, strings.Join(h.Modules, ", "), h.Signature)
 			}
 		}
+		writeFeaturesText(&b, m.Features)
 	}
 	if len(r.Maps) == 0 {
 		b.WriteString("no Go or Rust code found\n")
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// writeFeaturesText lists the typical features: copies of one pipeline,
+// shown so the next feature extracts it rather than copies it again.
+func writeFeaturesText(b *strings.Builder, features []featureJSON) {
+	if len(features) == 0 {
+		return
+	}
+	b.WriteString("\nTypical features copying one pipeline (parallel-flow in check): extract the pipeline, do not copy it again:\n")
+	for _, f := range features {
+		others := len(f.Members) + f.MembersMore
+		fmt.Fprintf(b, "  %s and %d other(s), pattern %s\n", f.Shape, others, f.Pattern)
+		for _, s := range f.Steps {
+			fmt.Fprintf(b, "      step %s", s.Function)
+			if len(s.Helpers) > 0 {
+				fmt.Fprintf(b, ", calls %s", strings.Join(s.Helpers, ", "))
+			}
+			b.WriteString("\n")
+		}
+		if f.StepsMore > 0 {
+			fmt.Fprintf(b, "      and %d more step(s)\n", f.StepsMore)
+		}
+		if len(f.Members) > 0 {
+			fmt.Fprintf(b, "      others: %s", strings.Join(f.Members, "; "))
+			if f.MembersMore > 0 {
+				fmt.Fprintf(b, " and %d more", f.MembersMore)
+			}
+			b.WriteString("\n")
+		}
+	}
 }

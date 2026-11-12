@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -318,5 +319,86 @@ func TestMapLeavesOutRustFilesInNoPackage(t *testing.T) {
 	}))
 	if len(r.Maps) != 1 || r.Maps[0].Scope != "crate" || r.Maps[0].Crate != "app" {
 		t.Errorf("maps = %+v, want app's modules: scripts/ is in no package", r.Maps)
+	}
+}
+
+type featureOutput struct {
+	Maps []struct {
+		Features []struct {
+			Concern     string   `json:"concern"`
+			Flagged     string   `json:"flagged"`
+			Pattern     string   `json:"pattern"`
+			Shape       string   `json:"shape"`
+			Members     []string `json:"members"`
+			MembersMore int      `json:"members_more"`
+			Steps       []struct {
+				Function string   `json:"function"`
+				Helpers  []string `json:"helpers"`
+			} `json:"steps"`
+		} `json:"features"`
+	} `json:"maps"`
+}
+
+// featureMapRepo is featureRepo with min-nodes lowered in .ddslop.yaml, as
+// check would read it, so its two features are a parallel-flow family.
+func featureMapRepo(t *testing.T) string {
+	t.Helper()
+	return repo(t, map[string]string{"api/src/generated/server.rs": featureAPI, "svc/src/lib.rs": featureService,
+		".ddslop.yaml": "min-nodes: 10\n"})
+}
+
+func TestMapFlagsEachParallelFlowFamilyAsATypicalFeature(t *testing.T) {
+	root := featureMapRepo(t)
+
+	code, stdout, stderr := run("map", "--format", "json", root)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr)
+	}
+	var r featureOutput
+	decodeInto(t, stdout, &r)
+	if len(r.Maps) != 1 || len(r.Maps[0].Features) != 1 {
+		t.Fatalf("features = %+v, want one family", r.Maps)
+	}
+	f := r.Maps[0].Features[0]
+	if f.Concern != "feature-pipelines" || f.Flagged != "parallel-flow" || f.Pattern != "generic-pipeline" {
+		t.Errorf("feature = %+v, want the feature-pipelines concern flagged as parallel-flow, generic-pipeline the way forward", f)
+	}
+	if f.Shape != "svc/src/lib.rs:2 Service::create" || !reflect.DeepEqual(f.Members, []string{"svc/src/lib.rs:8 Service::update"}) {
+		t.Errorf("shape = %q, members = %v; want create, with update the other member", f.Shape, f.Members)
+	}
+	var steps []string
+	for _, s := range f.Steps {
+		steps = append(steps, s.Function)
+	}
+	if !slices.Contains(steps, "svc/src/lib.rs:19 validate_create") {
+		t.Errorf("steps = %v, want the shape's validate_create among them", steps)
+	}
+
+	_, text, _ := run("map", "--format", "text", root)
+	for _, want := range []string{"Typical features", "Service::create", "parallel-flow", "extract"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("text map lacks %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestMapLimitCapsAFeaturesSteps(t *testing.T) {
+	root := featureMapRepo(t)
+
+	_, stdout, _ := run("map", "--format", "json", "--limit", "1", root)
+	var r struct {
+		Maps []struct {
+			Features []struct {
+				Steps     []any `json:"steps"`
+				StepsMore int   `json:"steps_more"`
+			} `json:"features"`
+		} `json:"maps"`
+	}
+	decodeInto(t, stdout, &r)
+	if len(r.Maps) != 1 || len(r.Maps[0].Features) != 1 {
+		t.Fatalf("maps = %+v, want one feature", r.Maps)
+	}
+	if f := r.Maps[0].Features[0]; len(f.Steps) != 1 || f.StepsMore < 1 {
+		t.Errorf("steps = %d, steps_more = %d; want 1 step listed and the rest counted", len(f.Steps), f.StepsMore)
 	}
 }
