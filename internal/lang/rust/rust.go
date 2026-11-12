@@ -85,7 +85,7 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 	switch n.Kind() {
 	case "tuple_struct_pattern":
 		typ := n.ChildByFieldName("type")
-		if typ != nil && typ.Utf8Text(src) == "Err" && n.NamedChildCount() > 1 && isVariantPath(n.NamedChild(1).Utf8Text(src)) {
+		if typ != nil && lastSegment(typ.Utf8Text(src)) == "Err" && n.NamedChildCount() > 1 && isVariantPath(n.NamedChild(1).Utf8Text(src)) {
 			form.Concern, form.Form = unit.ErrorChecks, "variant"
 		}
 	case "macro_invocation":

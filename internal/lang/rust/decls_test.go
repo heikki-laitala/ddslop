@@ -578,3 +578,21 @@ fn real(r: Result<u8, Fault>) -> bool {
 		t.Errorf("forms = %v, want only %s", got, want)
 	}
 }
+
+func TestQualifiedErrPatternsAreVariantChecks(t *testing.T) {
+	src := `fn gone(r: Result<u8, Fault>) -> bool {
+    match r {
+        Result::Err(Fault::Gone) => true,
+        core::result::Result::Err(Fault::Busy) => true,
+        _ => false,
+    }
+}
+`
+	var got []string
+	for _, f := range byName(t, mustUnits(t, src), "gone").Forms {
+		got = append(got, fmt.Sprintf("%d %s", f.Line, f.Form))
+	}
+	if want := "3 variant\n4 variant"; strings.Join(got, "\n") != want {
+		t.Errorf("forms = %v, want variant checks on lines 3 and 4", got)
+	}
+}
