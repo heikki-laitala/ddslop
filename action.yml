@@ -7,7 +7,7 @@ branding:
 
 inputs:
   version:
-    description: ddslop release to install, such as v2026.11.11_1. Defaults to the tag this action is pinned to, else the latest release.
+    description: ddslop release to install, such as v1.2.0. Defaults to the tag this action is pinned to (v1 means the release it points to), else the latest release.
     default: ""
   path:
     description: Repository to analyse.
@@ -47,7 +47,22 @@ runs:
         INSTALLER: ${{ github.action_path }}/install.sh
       run: |
         version="${VERSION:-${ACTION_REF}}"
-        case "$version" in v20*) ;; *) version=latest ;; esac
+        case "$version" in
+          v[0-9]*.*.*) ;;
+          v[0-9]*)
+            # A major tag such as v1 moves with each release: install the
+            # vX.Y.Z release at the same commit (peeled for annotated tags).
+            major="$version"
+            version=$(git ls-remote --tags https://github.com/heikki-laitala/ddslop "$major" "$major.*" | awk -v major="$major" '
+              { name = $2; sub("refs/tags/", "", name)
+                if (sub(/\^\{\}$/, "", name)) { sha[name] = $1; peeled[name] = 1 }
+                else if (!peeled[name]) sha[name] = $1 }
+              END { for (n in sha) if (n != major && n ~ "^" major "\\.[0-9]+\\.[0-9]+$" && sha[n] == sha[major]) print n }' |
+              sort -V | tail -n 1)
+            if [ -z "$version" ]; then echo "::error::no ddslop release matches $major"; exit 2; fi
+            ;;
+          *) version=latest ;;
+        esac
         bash "$INSTALLER" --no-interactive --version "$version" --dir "$RUNNER_TEMP/ddslop-bin"
 
     - name: Check

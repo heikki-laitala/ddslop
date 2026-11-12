@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*.*.*"]
 
 permissions:
   contents: write
@@ -104,3 +104,33 @@ jobs:
     uses: ./.github/workflows/verify-release.yml
     with:
       tag: ${{ github.ref_name }}
+
+  major-tag:
+    name: Move the major tag
+    needs: verify
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Point vMAJOR at this release
+        # Workflows only trigger on vX.Y.Z tags, and pushes made with
+        # GITHUB_TOKEN trigger none, so this starts no release.
+        run: |
+          major="${GITHUB_REF_NAME%%.*}"
+          git tag -f "$major" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$major"
+
+  action:
+    name: Verify the action at the major tag
+    needs: major-tag
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Update the major here when releasing v2.
+      - uses: heikki-laitala/ddslop@v1
+        with:
+          baseline: .ddslop-baseline.json
+          upload-sarif: "false"
+      - name: The action installed this release
+        run: |
+          got="$("$RUNNER_TEMP/ddslop-bin/ddslop" version)"
+          test "$got" = "ddslop $GITHUB_REF_NAME" || { echo "installed '$got', want 'ddslop $GITHUB_REF_NAME'" >&2; exit 1; }
