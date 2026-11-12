@@ -8,8 +8,18 @@ permissions:
   contents: write
 
 jobs:
+  tag:
+    name: Check the tag
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Only vMAJOR.MINOR.PATCH is a release
+        # The trigger is a glob, which also matches v1.2.3-rc.1.
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$GITHUB_REF_NAME is not a vMAJOR.MINOR.PATCH tag" >&2; exit 1; }
+
   build:
     name: Build (${{ matrix.binary }})
+    needs: tag
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -105,9 +115,26 @@ jobs:
     with:
       tag: ${{ github.ref_name }}
 
+  action:
+    name: Verify the action
+    needs: verify
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The action at this tag, before the major tag moves to it.
+      - uses: ./
+        with:
+          version: ${{ github.ref_name }}
+          baseline: .ddslop-baseline.json
+          upload-sarif: "false"
+      - name: The action installed this release
+        run: |
+          got="$("$RUNNER_TEMP/ddslop-bin/ddslop" version)"
+          test "$got" = "ddslop $GITHUB_REF_NAME" || { echo "installed '$got', want 'ddslop $GITHUB_REF_NAME'" >&2; exit 1; }
+
   major-tag:
     name: Move the major tag
-    needs: verify
+    needs: action
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -119,7 +146,7 @@ jobs:
           git tag -f "$major" "$GITHUB_SHA"
           git push -f origin "refs/tags/$major"
 
-  action:
+  action-major:
     name: Verify the action at the major tag
     needs: major-tag
     runs-on: ubuntu-26.04
