@@ -85,7 +85,10 @@ func Load(path string) (Baseline, error) {
 // Filter drops the candidates the baseline already knows: those whose
 // occurrences all appear together in one entry. Matching on occurrences
 // rather than fingerprints keeps a shrinking family known while it is
-// cleaned up, and reports a new copy of known duplication.
+// cleaned up, and reports a new copy of known duplication. A convention
+// drift has one occurrence, a function that other candidates and other
+// drifts can share, so it is known only by its fingerprint (the concern,
+// the form and the function) together with its occurrence.
 func Filter(r report.Report, b Baseline) report.Report {
 	known := make([]map[string]bool, len(b.Candidates))
 	for i, e := range b.Candidates {
@@ -96,7 +99,10 @@ func Filter(r report.Report, b Baseline) report.Report {
 	}
 	suppressed := 0
 	r = report.Keep(r, func(c *report.Candidate) bool {
-		for _, entry := range known {
+		for i, entry := range known {
+			if c.Kind == report.ConventionDrift && b.Candidates[i].Fingerprint != c.Fingerprint {
+				continue
+			}
 			if all(c.Occurrences, entry) {
 				suppressed++
 				return false

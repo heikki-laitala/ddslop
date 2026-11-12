@@ -15,12 +15,12 @@ import (
 // errors.Is/As, %w) were at 99% and above.
 const minDriftShare = 0.9
 
-// Drift is an occurrence of another form where a convention exists: the
-// unit and line, and the convention's occurrence to follow (Target and
-// TargetLine), the closest one.
+// Drift is another form where a convention exists, in one unit: the lines
+// of its occurrences there, and the convention's occurrence to follow
+// (Target and TargetLine), the one closest to the first.
 type Drift struct {
 	Concern, Form, Convention string
-	Unit, Line                int
+	Unit, StartLine, EndLine  int
 	Target, TargetLine        int
 }
 
@@ -30,12 +30,14 @@ type occurrence struct {
 	unit, line int
 }
 
-// concernOccurrences collects the forms the non-test, non-ignored units in
-// the grouping use, by concern, in unit order.
+// concernOccurrences collects the forms the non-ignored units in the
+// grouping use, by concern, in unit order. Whether test code counts is
+// the caller's choice of units: the map's call graph has none, and check
+// has it only with --tests.
 func concernOccurrences(g *flow.Graph, group Grouping) map[string][]occurrence {
 	out := map[string][]occurrence{}
 	for i, u := range g.Units {
-		if u.Test || u.Ignored || len(u.Forms) == 0 || group(u) == "" {
+		if u.Ignored || len(u.Forms) == 0 || group(u) == "" {
 			continue
 		}
 		for _, f := range u.Forms {
@@ -49,7 +51,8 @@ func concernOccurrences(g *flow.Graph, group Grouping) map[string][]occurrence {
 // of other forms when the convention holds at least minDriftShare of at
 // least minIdiomOccurrences. Each drift's target is the convention's
 // occurrence in the same file nearest to it, else the first in the same
-// module (by module), else the first anywhere. Drifts come in unit order.
+// module (by module), else the first anywhere. The occurrences of one form
+// in one unit are one drift. Drifts come in unit order.
 func Drifts(g *flow.Graph, group, module Grouping) []Drift {
 	var out []Drift
 	for concern, occs := range concernOccurrences(g, group) {
@@ -75,16 +78,24 @@ func Drifts(g *flow.Graph, group, module Grouping) []Drift {
 		slices.SortFunc(conventional, func(a, b occurrence) int {
 			return cmp.Or(cmp.Compare(g.Units[a.unit].File, g.Units[b.unit].File), cmp.Compare(a.line, b.line))
 		})
+		merged := map[[2]any]int{} // (unit, form) -> index in out
 		for _, o := range occs {
 			if o.form == convention {
 				continue
 			}
+			if k, ok := merged[[2]any{o.unit, o.form}]; ok {
+				out[k].StartLine, out[k].EndLine = min(out[k].StartLine, o.line), max(out[k].EndLine, o.line)
+				continue
+			}
 			t := closest(g, module, o, conventional)
-			out = append(out, Drift{Concern: concern, Form: o.form, Convention: convention, Unit: o.unit, Line: o.line,
-				Target: t.unit, TargetLine: t.line})
+			merged[[2]any{o.unit, o.form}] = len(out)
+			out = append(out, Drift{Concern: concern, Form: o.form, Convention: convention, Unit: o.unit,
+				StartLine: o.line, EndLine: o.line, Target: t.unit, TargetLine: t.line})
 		}
 	}
-	slices.SortFunc(out, func(a, b Drift) int { return cmp.Or(cmp.Compare(a.Unit, b.Unit), cmp.Compare(a.Line, b.Line)) })
+	slices.SortFunc(out, func(a, b Drift) int {
+		return cmp.Or(cmp.Compare(a.Unit, b.Unit), cmp.Compare(a.StartLine, b.StartLine))
+	})
 	return out
 }
 
