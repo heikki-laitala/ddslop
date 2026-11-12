@@ -415,7 +415,7 @@ func binding(stmt *sitter.Node, src []byte) (name, opens string) {
 	if pat == nil || pat.Kind() != "identifier" || value == nil || value.Kind() != "call_expression" {
 		return "", ""
 	}
-	callee := value.ChildByFieldName("function")
+	callee := calleeOf(value)
 	switch {
 	case callee == nil:
 		return "", ""
@@ -445,7 +445,7 @@ func producer(value *sitter.Node, src []byte) *sitter.Node {
 			value = value.NamedChild(0)
 			continue
 		case "call_expression":
-			callee := value.ChildByFieldName("function")
+			callee := calleeOf(value)
 			if callee != nil && callee.Kind() == "field_expression" {
 				if f := callee.ChildByFieldName("field"); f != nil && resultAdapters[f.Utf8Text(src)] {
 					value = callee.ChildByFieldName("value")
@@ -456,6 +456,16 @@ func producer(value *sitter.Node, src []byte) *sitter.Node {
 		return value
 	}
 	return nil
+}
+
+// calleeOf returns what a call expression calls, without its type
+// arguments: pool.acquire::<Lease>() calls pool.acquire.
+func calleeOf(call *sitter.Node) *sitter.Node {
+	callee := call.ChildByFieldName("function")
+	if callee != nil && callee.Kind() == "generic_function" {
+		return callee.ChildByFieldName("function")
+	}
+	return callee
 }
 
 // closing returns the closing method a statement calls on name, or "drop"
