@@ -31,12 +31,16 @@ type mapReport struct {
 }
 
 type mapJSON struct {
-	Lang          string       `json:"lang"`
-	Calls         int          `json:"calls"`
-	ResolvedCalls int          `json:"resolved_calls"`
-	Layers        []layerJSON  `json:"layers"`
-	Breaks        []breakJSON  `json:"breaks"`
-	Helpers       []helperJSON `json:"helpers"`
+	Lang          string      `json:"lang"`
+	Calls         int         `json:"calls"`
+	ResolvedCalls int         `json:"resolved_calls"`
+	Layers        []layerJSON `json:"layers"`
+	Breaks        []breakJSON `json:"breaks"`
+	// Unplaced are modules no counted call goes to or comes from, and
+	// UnplacedMore counts those left out by --limit.
+	Unplaced     []string     `json:"unplaced"`
+	UnplacedMore int          `json:"unplaced_more"`
+	Helpers      []helperJSON `json:"helpers"`
 }
 
 type layerJSON struct {
@@ -118,7 +122,7 @@ func buildMap(root, lang string, files []index.File, limit int) mapJSON {
 	g, traits := callGraph(root, files)
 	crates := graphInputs(root, files).Crates
 	m := mapJSON{Lang: lang, Calls: g.Calls, ResolvedCalls: g.Resolved,
-		Layers: []layerJSON{}, Breaks: []breakJSON{}, Helpers: []helperJSON{}}
+		Layers: []layerJSON{}, Breaks: []breakJSON{}, Unplaced: []string{}, Helpers: []helperJSON{}}
 
 	layers := codemap.Layers(g, crates)
 	for d, modules := range layers.Layers {
@@ -128,6 +132,8 @@ func buildMap(root, lang string, files []index.File, limit int) mapJSON {
 		}
 		m.Layers = append(m.Layers, l)
 	}
+	m.Unplaced = append(m.Unplaced, layers.Unplaced[:min(limit, len(layers.Unplaced))]...)
+	m.UnplacedMore = len(layers.Unplaced) - len(m.Unplaced)
 	for _, b := range layers.Breaks[:min(limit, len(layers.Breaks))] {
 		bj := breakJSON{Kind: string(b.Kind), From: b.From, To: b.To, Via: b.Via, Calls: b.Calls, UsualCalls: b.UsualCalls}
 		for _, c := range b.Callers[:min(limit, len(b.Callers))] {
@@ -184,6 +190,13 @@ func writeMapText(w io.Writer, r mapReport) error {
 				more = fmt.Sprintf(" and %d more", l.More)
 			}
 			fmt.Fprintf(&b, "  %d  %s%s\n", l.Depth, strings.Join(l.Modules, ", "), more)
+		}
+		if n := len(m.Unplaced) + m.UnplacedMore; n > 0 {
+			fmt.Fprintf(&b, "\nUnplaced (no counted calls to or from other modules): %d\n  %s", n, strings.Join(m.Unplaced, ", "))
+			if m.UnplacedMore > 0 {
+				fmt.Fprintf(&b, " and %d more", m.UnplacedMore)
+			}
+			b.WriteString("\n")
 		}
 		if len(m.Breaks) > 0 {
 			b.WriteString("\nCalls breaking the layers:\n")
