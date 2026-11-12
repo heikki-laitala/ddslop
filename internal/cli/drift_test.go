@@ -86,8 +86,12 @@ func driftCandidates(t *testing.T, stdout string) []string {
 	var out []string
 	for _, c := range r.Candidates {
 		if c.Kind == "convention-drift" {
+			var lines []string
+			for _, o := range c.Occurrences {
+				lines = append(lines, fmt.Sprintf("%d-%d", o.StartLine, o.EndLine))
+			}
 			o := c.Occurrences[0]
-			out = append(out, fmt.Sprintf("%s:%d-%d %s", o.File, o.StartLine, o.EndLine, o.Name))
+			out = append(out, fmt.Sprintf("%s:%s %s", o.File, strings.Join(lines, ","), o.Name))
 		}
 	}
 	return out
@@ -113,7 +117,7 @@ func TestDriftsOfOneFormInOneFunctionAreOneCandidate(t *testing.T) {
 		"store/t.go", "package store\n\nimport \"strings\"\n\nfunc Twice(err error) bool {\n\treturn strings.Contains(err.Error(), \"a\") ||\n\t\tstrings.Contains(err.Error(), \"b\")\n}\n")
 
 	_, stdout, _ := run("check", "--format", "json", root)
-	if got := driftCandidates(t, stdout); strings.Join(got, ", ") != "store/s.go:40-40 ByMessage, store/t.go:6-7 Twice" {
-		t.Errorf("drifts = %v, want Twice's two checks as one candidate over lines 6-7", got)
+	if got := driftCandidates(t, stdout); strings.Join(got, ", ") != "store/s.go:40-40 ByMessage, store/t.go:6-6,7-7 Twice" {
+		t.Errorf("drifts = %v, want Twice's two checks as one candidate with an occurrence on each line", got)
 	}
 }

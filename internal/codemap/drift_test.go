@@ -22,8 +22,8 @@ func TestDriftIsAnotherFormWhereAStrongConventionExists(t *testing.T) {
 
 	got := Drifts(g, ByModule(nil), ByModule(nil))
 	want := []Drift{
-		{Concern: "error-checks", Form: "message", Convention: "variant", Unit: 20, StartLine: 205, EndLine: 205, Target: 19, TargetLine: 200},
-		{Concern: "error-checks", Form: "message", Convention: "variant", Unit: 21, StartLine: 5, EndLine: 5, Target: 1, TargetLine: 20},
+		{Concern: "error-checks", Form: "message", Convention: "variant", Unit: 20, Lines: []int{205}, Target: 19, TargetLine: 200},
+		{Concern: "error-checks", Form: "message", Convention: "variant", Unit: 21, Lines: []int{5}, Target: 1, TargetLine: 20},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Drifts =\n%+v\nwant\n%+v", got, want)
