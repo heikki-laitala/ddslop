@@ -28,6 +28,8 @@ type Graph struct {
 	// only by its method name: x.m() resolved because one method is named
 	// m. Such a call may well reach a library's method of the same name.
 	ByName [][]bool
+	// ResolvedOf counts, per unit, its call sites that resolved.
+	ResolvedOf []int
 	// Calls and Resolved count all call sites and the resolved ones.
 	Calls, Resolved int
 }
@@ -85,7 +87,8 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		}
 	}
 
-	g := &Graph{Units: units, Callees: make([][]int, len(units)), ByName: make([][]bool, len(units))}
+	g := &Graph{Units: units, Callees: make([][]int, len(units)), ByName: make([][]bool, len(units)),
+		ResolvedOf: make([]int, len(units))}
 	for i, u := range units {
 		owner, _ := split(u.Name)
 		for _, c := range u.Calls {
@@ -95,6 +98,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 				continue
 			}
 			g.Resolved++
+			g.ResolvedOf[i]++
 			byName := c.Kind == unit.MethodCall && c.Qualifier != "self"
 			if k := slices.Index(g.Callees[i], callee); k >= 0 {
 				g.ByName[i][k] = g.ByName[i][k] && byName

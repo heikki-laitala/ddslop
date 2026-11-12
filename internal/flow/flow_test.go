@@ -355,3 +355,14 @@ func TestCalleesFoundOnlyByMethodNameAreMarked(t *testing.T) {
 		}
 	}
 }
+
+func TestResolvedCallsAreCountedPerUnit(t *testing.T) {
+	g := Build(Inputs{}, []unit.Unit{
+		fn("a/src/x.rs", "helper"),
+		fn("a/src/y.rs", "two", free("helper"), free("helper"), free("missing")),
+		fn("a/src/y.rs", "none", free("missing")),
+	})
+	if fmt.Sprint(g.ResolvedOf) != "[0 2 0]" || g.Resolved != 2 {
+		t.Errorf("ResolvedOf = %v, Resolved = %d; want [0 2 0] and 2", g.ResolvedOf, g.Resolved)
+	}
+}
