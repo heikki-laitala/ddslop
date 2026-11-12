@@ -1009,7 +1009,8 @@ text and under half a second on top of a warm index.
 
 Each language gets a map of its own, as each is analysed on its own
 elsewhere: a repository with a Rust service and a Go tool gets a Rust
-map and a Go map (`--lang` picks one). Most of a map is specific to the
+map and a Go map (`--lang` picks one). The JSON output is a list of
+maps, each labelled with its language, even when there is only one. Most of a map is specific to the
 codebase rather than the language, since its layers, helpers and features
 come from the code itself. What depends on the language comes from its
 adapter: what a module is, what counts as an interface, and the idioms in
@@ -1076,13 +1077,14 @@ In the order they are built; each ships only once measured (below).
    | Error values | error enum (`thiserror`), `anyhow` | sentinel errors, custom error types |
    | Error wrapping | `?` with `From`, `map_err` to a helper | `fmt.Errorf` with `%w`, with `%v`, unwrapped |
    | Error checks | match on the variant, compare the message | `errors.Is` and `errors.As`, `==`, compare the message |
-   | Scopes (transactions, leases) | closure helper, RAII guard, manual `commit` | `defer tx.Rollback()`, closure helper, manual `Commit` |
+   | Scopes (transactions, leases) | closure helper, RAII guard (rolls back on drop, `commit` at the end), `commit` and `rollback` on each path | closure helper, `defer tx.Rollback()` with `Commit` at the end, `Commit` and `Rollback` on each path |
    | Authentication in handlers | extractor, middleware layer, inline check | middleware `func(http.Handler) http.Handler`, inline check |
    | Kinds and states | `enum` with `FromStr`, strings | typed constants with `iota` and `String()`, strings |
    | Parameter groups | struct | options struct, functional options |
 
    The forms within one concern are alternatives: a codebase uses one or
-   another for the same job. Practices that work together (a sentinel
+   another for the same job. A form is the whole pattern, so a deferred
+   `Rollback` with a `Commit` on success is one form, counted once. Practices that work together (a sentinel
    error, wrapped with `%w`, checked with `errors.Is`) belong to separate
    concerns, so following all of them is never a deviation; a form that
    turns out to combine with another in measurement moves to its own
@@ -1113,10 +1115,11 @@ In the order they are built; each ships only once measured (below).
    every new kind. `shared-preamble`, `string-kinds` and `parameter-group`
    already do this for one idiom each; this generalises it.
 
-A JSON map, shortened:
+The JSON output for one language, shortened:
 
 ```json
-{
+{"maps": [{
+  "lang": "rust",
   "resolved_calls": 0.84,
   "layers": [
     {"depth": 0, "modules": ["api::handlers"]},
@@ -1142,7 +1145,7 @@ A JSON map, shortened:
      "example": "ledger/src/store.rs:31 with_tx", "others": 6},
     {"concern": "kinds", "convention": null}
   ]
-}
+}]}
 ```
 
 ### How agents use it
