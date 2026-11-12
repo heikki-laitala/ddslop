@@ -391,3 +391,28 @@ func TestGoPackagesUnderSrcStayApart(t *testing.T) {
 		}
 	}
 }
+
+func TestAMemberNamedSrcIsItsOwnCrate(t *testing.T) {
+	if got := CrateOf("src/src/lib.rs"); got != "src" {
+		t.Errorf("CrateOf(src/src/lib.rs) = %s, want src", got)
+	}
+}
+
+func TestCallsStayInTheirLanguage(t *testing.T) {
+	g := Build(Inputs{}, []unit.Unit{
+		fn("helper.go", "helper"),
+		fn("tool.go", "Tool.Name"),
+		fn("src/lib.rs", "run", free("helper"), method("t", "Name")),
+		fn("src/util.rs", "only_rust"),
+		fn("main.go", "start", free("only_rust")),
+	})
+
+	for caller, want := range map[string]string{
+		"src/lib.rs run": "[]",
+		"main.go start":  "[]",
+	} {
+		if got := callees(g, caller); got != want {
+			t.Errorf("%s calls %s, want %s", caller, got, want)
+		}
+	}
+}

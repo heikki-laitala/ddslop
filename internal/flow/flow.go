@@ -54,11 +54,20 @@ type Inputs struct {
 	Crates map[string]string
 }
 
-// Build resolves every unit's calls.
+// Build resolves every unit's calls. A call finds only functions of its
+// own language: each language, told by file extension, has its own index.
 func Build(in Inputs, units []unit.Unit) *Graph {
-	ix := index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{},
-		crates: map[string]string{}, imports: in.Imports}
+	langs := map[string]*index{}
+	indexOf := func(file string) *index {
+		ext := filepath.Ext(file)
+		if langs[ext] == nil {
+			langs[ext] = &index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{},
+				crates: map[string]string{}, imports: in.Imports, deps: map[string]map[string]bool{}}
+		}
+		return langs[ext]
+	}
 	for i, u := range units {
+		ix := indexOf(u.File)
 		dir := CrateOf(u.File)
 		name, ok := in.Crates[dir]
 		if !ok {
@@ -74,9 +83,8 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		ix.owned[owner+"::"+name] = append(ix.owned[owner+"::"+name], i)
 	}
 
-	ix.deps = map[string]map[string]bool{}
 	for file, imported := range in.Imports {
-		crate := CrateOf(file)
+		ix, crate := indexOf(file), CrateOf(file)
 		for _, path := range imported {
 			if dir, ok := ix.crates[firstSegment(path)]; ok && dir != crate {
 				if ix.deps[crate] == nil {
@@ -93,7 +101,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		owner, _ := split(u.Name)
 		for _, c := range u.Calls {
 			g.Calls++
-			callee := ix.resolve(units, u, owner, c)
+			callee := indexOf(u.File).resolve(units, u, owner, c)
 			if callee < 0 {
 				continue
 			}
@@ -244,11 +252,11 @@ func CrateOf(file string) string {
 	if !strings.HasSuffix(file, ".rs") {
 		return filepath.Dir(file)
 	}
-	if strings.HasPrefix(file, "src/") {
-		return "."
-	}
 	if i := strings.Index(file, "/src/"); i >= 0 {
 		return file[:i]
+	}
+	if strings.HasPrefix(file, "src/") {
+		return "."
 	}
 	return filepath.Dir(file)
 }
