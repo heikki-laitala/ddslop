@@ -236,10 +236,17 @@ func isModule(segment string) bool {
 	return segment != "" && !unicode.IsUpper(rune(segment[0]))
 }
 
-// CrateOf returns the crate directory of a file: the path before /src/,
-// or the file's directory.
+// CrateOf returns the crate directory of a file: for Rust the path before
+// /src/ ("." for a crate at the root), otherwise the file's directory (a Go
+// package).
 func CrateOf(file string) string {
 	file = filepath.ToSlash(file)
+	if !strings.HasSuffix(file, ".rs") {
+		return filepath.Dir(file)
+	}
+	if strings.HasPrefix(file, "src/") {
+		return "."
+	}
 	if i := strings.Index(file, "/src/"); i >= 0 {
 		return file[:i]
 	}

@@ -366,3 +366,28 @@ func TestResolvedCallsAreCountedPerUnit(t *testing.T) {
 		t.Errorf("ResolvedOf = %v, Resolved = %d; want [0 2 0] and 2", g.ResolvedOf, g.Resolved)
 	}
 }
+
+func TestFilesUnderARootCrateShareOneCrate(t *testing.T) {
+	g := Build(Inputs{}, []unit.Unit{
+		fn("src/util.rs", "helper"),
+		fn("other/src/lib.rs", "helper"),
+		fn("src/store/pg.rs", "save", free("helper")),
+	})
+
+	if got, want := callees(g, "src/store/pg.rs save"), "[src/util.rs helper]"; got != want {
+		t.Errorf("save calls %s, want %s", got, want)
+	}
+}
+
+func TestGoPackagesUnderSrcStayApart(t *testing.T) {
+	for file, want := range map[string]string{
+		"src/a/x.go":      "src/a",
+		"svc/src/b/y.go":  "svc/src/b",
+		"src/store/pg.rs": ".",
+		"svc/src/lib.rs":  "svc",
+	} {
+		if got := CrateOf(file); got != want {
+			t.Errorf("CrateOf(%s) = %s, want %s", file, got, want)
+		}
+	}
+}
