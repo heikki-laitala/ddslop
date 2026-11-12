@@ -386,3 +386,39 @@ func load(path string) error {
 		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestErrorFormsFollowImportPathsAndFormatDirectives(t *testing.T) {
+	src := `package store
+
+import (
+	stderrors "errors"
+	format "fmt"
+)
+
+func load(err error) error {
+	if stderrors.Is(err, ErrMissing) {
+		return nil
+	}
+	if err != nil {
+		return format.Errorf("literal %%w: %v", err)
+	}
+	if err != nil {
+		return format.Errorf("load: %[1]w", err)
+	}
+	return format.Errorf("load: %+v", err)
+}
+`
+	var got []string
+	for _, f := range byName(t, mustUnits(t, "store/s.go", src), "load").Forms {
+		got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
+	}
+	want := []string{
+		"9 error-checks errors.Is/As",
+		"13 error-wrapping %v",
+		"16 error-wrapping %w",
+		"18 error-wrapping %v",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
