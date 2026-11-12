@@ -989,8 +989,10 @@ comparison adds about 0.35 s to a warm check there.
 ## Map layer
 
 Sections 1 and 2 are built (`internal/codemap`, `ddslop map` with text
-and JSON output; see As built below); sections 3 to 5, Markdown output
-and `--lang` are planned.
+and JSON output; see As built below), and section 3 in part: the
+flagged `parallel-flow` families, as measurement left the other two
+rules nothing real to report yet. Sections 4 and 5, Markdown output and
+`--lang` are planned.
 
 The fragment and flow layers find copies after they are written. Most of
 them were written because the agent did not know how the codebase already
@@ -1247,10 +1249,11 @@ The JSON output for one language, shortened:
 
 The skill has a step before starting a feature: run `ddslop map --format
 json .`, put new code in the layer its neighbours use, reuse the listed
-helpers, and treat breaks as hints, not errors (2 of the 4 measured were
-arguable). Once sections 3 and 4 are built, the step will also say to
-follow the typical feature of the same kind and use the codebase's form
-for each concern (the language's idiom where it has none). Like the
+helpers, treat breaks as hints, not errors (2 of the 4 measured were
+arguable), and, for a feature of the same kind as a flagged family,
+extract its pipeline rather than copy a member. Once section 4 is built,
+the step will also say to use the codebase's form for each concern (the
+language's idiom where it has none). Like the
 rest of ddslop, it runs when the agent decides to, never from a hook.
 `--format md`, once built, will let a team commit the map as notes for
 agents; ddslop never writes that file unasked.
@@ -1374,6 +1377,43 @@ loads the same index and builds the same call graph, against 1.8 s for
 `check`; `--crate lns_ledger` takes 0.89 s. Naming a file's crate and
 module once per grouping rather than once per function took the crate
 view from 1.7 s to 0.94 s.
+
+Section 3 is built for its flagged families only (`codemap.Features`,
+`features` in JSON). Each `parallel-flow` family `check` reports, found
+by the same options (`min-nodes` from `.ddslop.yaml` included) and
+filtered to the scope's modules under `--crate`, gives its anchor as the
+`shape`, its aligned steps with the shared helpers each calls by name,
+the other members, the concern (`feature-pipelines`), the candidate kind
+(`flagged`) and the pattern that extracts it (`generic-pipeline`, from
+`report.PipelinePattern`). The anchor is the member with the most
+verified pairs to the others, and the steps are already aligned to it,
+so it serves as the medoid the design asks for without a second
+similarity pass. `--limit` caps the families and, per family, the steps
+and other members.
+
+The other two rules of section 3 were measured first and wait:
+
+- **A shared pipeline.** On `lns-inference-router` (193 entry points in
+  24 traits) no trait group's entry points call one shared helper
+  directly; the most common, `Origin::current`, is called by 7 of the 20
+  `RealtimeApi` entry points and reads the request origin. Within the
+  slice depth, the helpers most members reach are `StoreFault::of_command`
+  (an error conversion, 17 of 40 `ManagementApi` entry points) and
+  `caller` (the sign-in check, which belongs to the opening-checks
+  concern of sections 4 and 5). Neither is a pipeline to follow.
+- **An example per trait group.** The member reaching the most shared
+  helpers was the largest feature of its group rather than a typical one
+  (`reverse_credit`, 84 functions in its slice; `create_message`, 274),
+  and 2 of the 16 examples were members of a flagged family, which must
+  never be shown as an example.
+
+`lens-artifact-hub` and ddslop have no entry points from generated
+traits, and the 37 of `searchbox` form no family, so only
+`lns-inference-router` has families: six, the six `parallel-flow` candidates of `check`, with
+shapes whose steps read as the pipeline (`authorize`, `admissible`,
+`attempt`, `interpret`, `refusal`). The workspace map grew to 125 lines
+of text, and computing the families takes about 0.27 s warm (0.97 s to
+1.24 s for the map).
 
 ### Measurement before shipping
 
@@ -1951,9 +1991,9 @@ seconds, 713 candidates (60 exact, 166 renamed, 189 near-miss families,
 41 inlined constants, 6 dead functions, 15 wrappers, 3 single-implementation
 traits).
 
-Next: the map layer (see Map layer). Layers and shared helpers are
-built; typical features, idioms and deviations follow once they are
-measured on the Rust codebases.
+Next: the map layer (see Map layer). Layers, shared helpers and the
+flagged pipeline families are built; idioms and deviations follow once
+they are measured on the Rust codebases.
 
 1. **v1, fragment layer as a linter:** tree-sitter adapters for all three
    languages, canonicalisation, exact hashing, suffix-array repeats with
