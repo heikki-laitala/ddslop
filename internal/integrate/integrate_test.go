@@ -41,7 +41,10 @@ func TestInstalledGuidanceReadsTheMapBeforeAFeature(t *testing.T) {
 	install(t, root, Claude)
 
 	skill := read(t, root, ".claude/skills/ddslop/SKILL.md")
-	description := skill[:strings.Index(skill, "\n---")]
+	description, _, ok := strings.Cut(strings.TrimPrefix(skill, "---\n"), "\n---")
+	if !ok {
+		t.Fatalf("skill has no front matter:\n%s", skill[:min(300, len(skill))])
+	}
 	for _, want := range []string{"## Before you write", "ddslop map --format json .", "hints, not errors"} {
 		if !strings.Contains(skill, want) {
 			t.Errorf("skill lacks %q", want)
