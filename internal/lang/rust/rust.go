@@ -92,8 +92,11 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 		// A macro's arguments are an opaque token tree: read matches!'s
 		// pattern from its text.
 		if m := n.ChildByFieldName("macro"); m != nil && m.Utf8Text(src) == "matches" {
-			if p := errPattern.FindStringSubmatch(n.Utf8Text(src)); p != nil && isVariantPath(p[1]) {
+			text := n.Utf8Text(src)
+			if p := errPattern.FindStringSubmatch(text); p != nil && isVariantPath(p[1]) {
 				form.Concern, form.Form = unit.ErrorChecks, "variant"
+			} else if messageCheck.MatchString(text) {
+				form.Concern, form.Form = unit.ErrorChecks, "message" // in a guard
 			}
 		}
 	case "binary_expression":
@@ -130,6 +133,10 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 
 // errPattern finds an Err(Path ..) pattern in a macro's text.
 var errPattern = regexp.MustCompile(`\bErr\s*\(\s*([A-Za-z_][\w:]*)`)
+
+// messageCheck finds a comparison of an error's message in a macro's
+// text, as isErrorMessage does in parsed code.
+var messageCheck = regexp.MustCompile(`\b(e|err|error|\w+_err|\w+_error)\.to_string\(\)\s*(==|!=|\.(contains|starts_with|ends_with)\()`)
 
 // isVariantPath reports whether a pattern names an enum variant by path:
 // its last segment is upper case (Fault::Gone, crate::errors::Fault::Gone,

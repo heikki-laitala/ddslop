@@ -542,3 +542,17 @@ func TestErrorFormsInMacrosQualifiedPathsAndAnyhowContext(t *testing.T) {
 		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestAMessageCheckInAMatchesGuardIsRecorded(t *testing.T) {
+	src := `fn busy(r: Result<u8, Fault>) -> bool {
+    matches!(r, Err(e) if e.to_string().contains("busy"))
+}
+`
+	var got []string
+	for _, f := range byName(t, mustUnits(t, src), "busy").Forms {
+		got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
+	}
+	if want := "2 error-checks message"; strings.Join(got, "\n") != want {
+		t.Errorf("forms = %v, want %s", got, want)
+	}
+}
