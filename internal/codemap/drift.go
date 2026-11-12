@@ -15,12 +15,14 @@ import (
 // errors.Is/As, %w) were at 99% and above.
 const minDriftShare = 0.9
 
-// Drift is another form where a convention exists, in one unit: the lines
-// of its occurrences there, and the convention's occurrence to follow
-// (Target and TargetLine), the one closest to the first.
+// Drift is another form where a convention exists, in one unit: the line
+// of each of its occurrences there, in order, and the convention's
+// occurrence to follow (Target and TargetLine), the one closest to the
+// first.
 type Drift struct {
 	Concern, Form, Convention string
-	Unit, StartLine, EndLine  int
+	Unit                      int
+	Lines                     []int
 	Target, TargetLine        int
 }
 
@@ -84,17 +86,17 @@ func Drifts(g *flow.Graph, group, module Grouping) []Drift {
 				continue
 			}
 			if k, ok := merged[[2]any{o.unit, o.form}]; ok {
-				out[k].StartLine, out[k].EndLine = min(out[k].StartLine, o.line), max(out[k].EndLine, o.line)
+				out[k].Lines = append(out[k].Lines, o.line)
 				continue
 			}
 			t := closest(g, module, o, conventional)
 			merged[[2]any{o.unit, o.form}] = len(out)
 			out = append(out, Drift{Concern: concern, Form: o.form, Convention: convention, Unit: o.unit,
-				StartLine: o.line, EndLine: o.line, Target: t.unit, TargetLine: t.line})
+				Lines: []int{o.line}, Target: t.unit, TargetLine: t.line})
 		}
 	}
 	slices.SortFunc(out, func(a, b Drift) int {
-		return cmp.Or(cmp.Compare(a.Unit, b.Unit), cmp.Compare(a.StartLine, b.StartLine))
+		return cmp.Or(cmp.Compare(a.Unit, b.Unit), cmp.Compare(a.Lines[0], b.Lines[0]))
 	})
 	return out
 }

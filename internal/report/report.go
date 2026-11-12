@@ -219,12 +219,12 @@ type Findings struct {
 }
 
 // Drift is another form for a concern where the code has a convention, in
-// one unit: the lines of its occurrences there, and the convention's
-// occurrence to follow, the closest one.
+// one unit: the line of each of its occurrences there, and the
+// convention's occurrence to follow, the closest one.
 type Drift struct {
 	Concern, Form, Convention string
 	Unit                      unit.Unit
-	StartLine, EndLine        int
+	Lines                     []int
 	Target                    unit.Unit
 	TargetLine                int
 }
@@ -701,8 +701,12 @@ func driftCandidate(language string, d Drift) Candidate {
 	c := newCandidate(language, ConventionDrift, ConventionDrift,
 		strings.Join([]string{d.Concern, d.Form, d.Unit.File, d.Unit.Name}, "\x00"),
 		Suggestion{Action: followConvention, Pattern: d.Convention},
-		Score{Nodes: 1, Lines: d.EndLine - d.StartLine + 1, Occurrences: 1},
-		[]Occurrence{{File: d.Unit.File, Name: d.Unit.Name, StartLine: d.StartLine, EndLine: d.EndLine}})
+		Score{Nodes: len(d.Lines), Lines: len(d.Lines), Occurrences: len(d.Lines)}, nil)
+	for _, line := range d.Lines {
+		// One occurrence per line, so diff mode and SARIF see only these
+		// lines, not the code between them.
+		c.Occurrences = append(c.Occurrences, Occurrence{File: d.Unit.File, Name: d.Unit.Name, StartLine: line, EndLine: line})
+	}
 	c.Target = &Occurrence{File: d.Target.File, Name: d.Target.Name, StartLine: d.TargetLine, EndLine: d.TargetLine}
 	c.Values = []string{d.Form}
 	c.Concern = d.Concern

@@ -88,7 +88,8 @@ func Load(path string) (Baseline, error) {
 // cleaned up, and reports a new copy of known duplication. A convention
 // drift has one occurrence, a function that other candidates and other
 // drifts can share, so it is known only by its fingerprint (the concern,
-// the form and the function) together with its occurrence.
+// the form and the function) together with its occurrence, and a drift's
+// entry knows no candidate of another kind.
 func Filter(r report.Report, b Baseline) report.Report {
 	known := make([]map[string]bool, len(b.Candidates))
 	for i, e := range b.Candidates {
@@ -100,7 +101,8 @@ func Filter(r report.Report, b Baseline) report.Report {
 	suppressed := 0
 	r = report.Keep(r, func(c *report.Candidate) bool {
 		for i, entry := range known {
-			if c.Kind == report.ConventionDrift && b.Candidates[i].Fingerprint != c.Fingerprint {
+			drift := c.Kind == report.ConventionDrift || b.Candidates[i].Kind == report.ConventionDrift
+			if drift && b.Candidates[i].Fingerprint != c.Fingerprint {
 				continue
 			}
 			if all(c.Occurrences, entry) {

@@ -118,9 +118,11 @@ func TestADriftIsKnownOnlyByItsOwnFingerprint(t *testing.T) {
 		cand("go:convention-drift:==", "convention-drift", occ("s.go", "load", 8)),
 		// A drift in a function known for another kind: new.
 		cand("go:convention-drift:save", "convention-drift", occ("s.go", "save", 3)),
+		// Another kind in a function known for a drift: new.
+		cand("go:dead:load", "dead-code", occ("s.go", "load", 1)),
 	)
 
-	if got, want := ids(Filter(now, base)), "[c1:go:convention-drift:== c2:go:convention-drift:save]"; got != want {
+	if got, want := ids(Filter(now, base)), "[c1:go:convention-drift:== c2:go:convention-drift:save c3:go:dead:load]"; got != want {
 		t.Errorf("kept = %s, want %s", got, want)
 	}
 }

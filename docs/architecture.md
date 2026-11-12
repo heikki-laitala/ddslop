@@ -1490,11 +1490,13 @@ convention's closest occurrence: in the same file the nearest, else the
 first in the same module, else the first anywhere. Drift reads the code
 `check` analyses: no generated files, and test code only with
 `--tests`. The occurrences of one form in one function are one
-candidate over their lines. Its fingerprint holds the concern, the form
-and the function, not the line, and a baseline knows a drift only by
-that fingerprint: matching on its one occurrence (`file#function`), as
-other kinds are matched, would let another kind's entry, or a drift of
-another form in the same function, hide a new one. No other candidate covers an
+candidate with an occurrence per line, so diff mode and SARIF see those
+lines and not the code between them. Its fingerprint holds the concern,
+the form and the function, not the line, and a baseline matches a drift
+only by that fingerprint, in both directions: matching on
+`file#function`, as other kinds are matched, would let another kind's
+entry, or a drift of another form in the same function, hide a new
+drift, and a drift's entry hide a new candidate of another kind. No other candidate covers an
 error concern, so rule 3 of the concerns model (one candidate per
 occurrence and concern) has nothing to suppress yet.
 
