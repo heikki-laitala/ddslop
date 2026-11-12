@@ -307,3 +307,16 @@ func TestMapOfOnePackageWithExamplesIsOneCrate(t *testing.T) {
 		t.Errorf("maps = %+v, want one crate: examples/ belongs to the package", r.Maps)
 	}
 }
+
+func TestMapLeavesOutRustFilesInNoPackage(t *testing.T) {
+	r := mapOf(t, repo(t, map[string]string{
+		"Cargo.toml":              "[workspace]\nmembers = [\"crates/app\"]\n",
+		"crates/app/Cargo.toml":   "[package]\nname = \"app\"\n",
+		"crates/app/src/lib.rs":   "pub fn run() { store::save(); }\n",
+		"crates/app/src/store.rs": "pub fn save() {}\n",
+		"scripts/release.rs":      "fn main() { bump(); }\nfn bump() {}\n",
+	}))
+	if len(r.Maps) != 1 || r.Maps[0].Scope != "crate" || r.Maps[0].Crate != "app" {
+		t.Errorf("maps = %+v, want app's modules: scripts/ is in no package", r.Maps)
+	}
+}
