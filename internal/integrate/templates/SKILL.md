@@ -74,6 +74,12 @@ ddslop map --format json --crate <name> .
   and the other `members`. They show what not to do again: when your
   feature is of the same kind, extract the pipeline (the `pattern`)
   rather than copy a member, or ask whether to.
+- `idioms`: how the code does each concern, such as checking and
+  wrapping errors: the `convention` (the form most occurrences use, with
+  its `share`), or none and the language's `idiomatic` form, and every
+  form with an example. Write new code in the convention's form, or the
+  idiomatic one where there is none, even where a nearby function uses
+  another. Go only so far.
 - `unplaced`: modules or crates with no counted calls to or from the
   others (often types-only crates, or test fakes run as their own
   binaries): nothing says which layer they belong to.
