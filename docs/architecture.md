@@ -763,7 +763,9 @@ pattern detector is a fixed rule over evidence ddslop already has
 match names the idiom in `suggestion.pattern`, the Rust form first, and
 its Gang of Four counterpart in `suggestion.gof`. No model is involved:
 the same code always gives the same proposal, and the agent judges
-whether it fits.
+whether it fits. Pattern proposals are `check`'s side of the map's
+concerns (see Map layer, Concerns): the map describes the same evidence,
+and its fallback idiom for a concern is the proposal's pattern.
 
 - **Shared preamble** (`shared-preamble`, `extract-preamble`, pattern
   `extractor`, GoF Chain of Responsibility): a copied block that holds
@@ -1070,8 +1072,10 @@ In the order they are built; each ships only once measured (below).
    other members. "To add another operation like these, follow
    `create_order`." Entry points outside any family are grouped by the
    trait or interface that made them entry points, with the member
-   reaching the most shared helpers as the example. Such a group only
-   gives an example: one generated interface can hold unrelated
+   reaching the most shared helpers as the example. A family that is a
+   `parallel-flow` candidate is shown flagged, with the extracted pipeline
+   as the way forward, never as an example to copy (see Concerns). Such
+   a group only gives an example: one generated interface can hold unrelated
    operations (health and sign-in routes next to authenticated ones), so
    its members are not peers for section 5.
 4. **Idioms.** For each concern the language adapter knows, which form
@@ -1104,12 +1108,13 @@ In the order they are built; each ships only once measured (below).
    concern. A form is the convention when most occurrences of the
    concern use it (the share comes from measurement). The codebase's convention wins
    even when it is not the textbook idiom, because consistency is what
-   prevents the next copy. Where a concern has no convention (too few
-   occurrences, or no form in the majority), the map says so, and the
-   skill's guidance for that language names the idiomatic form; ddslop
-   never guesses one. Pattern proposals already name the Rust form first
-   (`extractor`, `closure-helper`); this section gives Go, and later
-   TypeScript, the same treatment.
+   prevents the next copy, unless that form is itself repeated code (see
+   Concerns). Where a concern has no convention (too few occurrences, no
+   form in the majority, or a majority form that is duplicated), the map
+   says so and names the idiomatic form from the pattern proposals
+   (`suggestion.pattern`), which gain Go forms (middleware for
+   `extractor`, `defer` for `closure-helper`, typed constants for
+   `enum`) and later TypeScript ones; ddslop never guesses one.
 5. **Deviations.** A `check` candidate, `convention-drift` with suggestion
    `follow-convention`, for code that breaks a convention most of its
    peers follow: the bypasses from section 1, entry points of one
@@ -1120,13 +1125,68 @@ In the order they are built; each ships only once measured (below).
    always exists: for a bypass, the function in the middle module that
    the source module's other calls into the target go through most; for
    a skipped helper, the helper; for an idiom, the occurrence of the
-   convention's form closest to the code (same module first). When the code belongs to a typical
+   convention's form closest to the code (same module first). Only an
+   occurrence in no other candidate drifts (see Concerns). When the code
+   belongs to a typical
    feature from section 3, that feature is named as the example. As
    a candidate kind it works with baselines and diff mode unchanged;
    SARIF needs the kind registered as a rule in `internal/report/sarif.go`
    (the `rules` list, which `ruleShort` is built from), with its test, like
-   every new kind. `shared-preamble`, `string-kinds` and `parameter-group`
-   already do this for one idiom each; this generalises it.
+   every new kind. With the pattern proposals it forms one model (see
+   Concerns).
+
+### Concerns: one model for map and check
+
+The map and `check`'s pattern proposals look at the same code: an
+opening sign-in check, a transaction scope, a match on strings. Built
+apart they would give an agent opposite advice ("follow the convention"
+and "replace it") and report the same lines twice. So they share one
+model. A concern is a job the code does in many places; its evidence is
+gathered once, by the detectors that exist; `map` describes it and
+`check` reports candidates on it:
+
+| Concern | Evidence | `map` shows | `check` reports |
+| --- | --- | --- | --- |
+| Feature pipelines | entry points, `parallel-flow` families | the typical feature, or the family flagged | `parallel-flow` |
+| Opening checks (sign-in, permission) | `shared-preamble` copies, entry points calling one shared helper first | the extractor or middleware most entry points call, or the copied check flagged | `shared-preamble`; `convention-drift` for an entry point skipping the extractor |
+| Scopes | `setup-teardown`'s scopes (`Unit.Scope`), per producing call | the closure helper or guard for each resource, or manual copies flagged | `setup-teardown`; `convention-drift` |
+| Kinds and states | `string-kinds` matches, enums | the enum, or the strings flagged | `string-kinds`; `convention-drift` for strings matched where the enum exists |
+| Parameter groups | `parameter-group` | the struct, or the group flagged | `parameter-group` |
+| Errors | per-adapter error forms (section 4) | the form of each error concern | `convention-drift` |
+| Layers | the module graph | the layers | `convention-drift` (upward calls, bypasses) |
+| Helpers | the call graph, clone groups | the shared helpers, a helper with copies flagged | the clone candidate |
+
+Every occurrence of a concern is exactly one of:
+
+- **conventional:** the majority form, and not itself repeated code;
+- **duplicated:** part of a clone, pattern proposal or `parallel-flow`
+  candidate, whose suggestion is the fix;
+- **drift:** another form where a convention exists, in no other
+  candidate: a `convention-drift` candidate.
+
+Three rules follow:
+
+1. **One home.** Each concern's evidence comes from one detector: the
+   map's idioms read `setup-teardown`'s scopes and `string-kinds`'
+   matches rather than recognising them again, and the idiomatic form
+   for each language lives in the pattern proposal's
+   `suggestion.pattern`, which the map's fallback reuses.
+2. **Duplication first.** Repeated code is never a convention to follow.
+   When the majority form is duplicated (an inline sign-in check copied
+   into 7 handlers), the map reports the concern without a convention,
+   the current form flagged with its candidate, and the candidate's
+   pattern as the way forward. A typical feature whose family is a
+   `parallel-flow` candidate is shown the same way, never as "follow
+   `create_order`".
+3. **One candidate per occurrence.** Clone kinds come first, then pattern
+   proposals, then `convention-drift`, as a block clone that is a
+   preamble is already reported once: an agent fixing the candidate it
+   is given never meets the same lines again.
+
+Map entries and candidates carry the concern's name (`concern` in JSON),
+so an agent reading "kinds: no convention, 7 string matches flagged" in
+the map finds the `string-kinds` candidates in `check`, and one reading a
+`convention-drift` candidate finds the convention it drifts from.
 
 The JSON output for one language, shortened:
 
@@ -1157,7 +1217,8 @@ The JSON output for one language, shortened:
   "idioms": [
     {"concern": "scopes", "convention": "closure-helper", "share": 0.9,
      "example": "ledger/src/store.rs:31 with_tx", "others": 6},
-    {"concern": "kinds", "convention": null}
+    {"concern": "kinds", "convention": null, "flagged": "string-kinds",
+     "pattern": "enum", "candidates": 3}
   ]
 }]}
 ```
