@@ -30,6 +30,32 @@ func ByModule(crates map[string]string) Grouping {
 	return func(u unit.Unit) string { return Module(u.File, crates) }
 }
 
+// ByCrate groups Rust units by their crate (see Crate).
+func ByCrate(crates map[string]string) Grouping {
+	return func(u unit.Unit) string { return Crate(u.File, crates) }
+}
+
+// InCrate groups the units of one Rust crate by module, leaving out the
+// rest.
+func InCrate(name string, crates map[string]string) Grouping {
+	return func(u unit.Unit) string {
+		if Crate(u.File, crates) != name {
+			return ""
+		}
+		return Module(u.File, crates)
+	}
+}
+
+// Crate returns the Rust crate a file belongs to, "." for a crate at the
+// repository root, or "" for a file of another language.
+func Crate(file string, crates map[string]string) string {
+	if strings.HasSuffix(file, ".go") {
+		return ""
+	}
+	name, _ := rustModule(filepath.ToSlash(file), crates)
+	return name
+}
+
 // Module returns the module a file belongs to: a Go file's package
 // directory, or a Rust file's crate with the module directly under it
 // ("acme_ledger::store"). crates maps a crate directory to the name code
@@ -40,6 +66,19 @@ func Module(file string, crates map[string]string) string {
 	if strings.HasSuffix(file, ".go") {
 		return path.Dir(file)
 	}
+	name, top := rustModule(file, crates)
+	switch {
+	case top == "":
+		return name
+	case name == ".":
+		return top
+	}
+	return name + "::" + top
+}
+
+// rustModule returns a Rust file's crate name and the module directly
+// under the crate's src/ ("" for the crate's root module).
+func rustModule(file string, crates map[string]string) (name, top string) {
 	// The crate directory is the one call resolution uses; a file outside
 	// src/ (build.rs) belongs to its crate's root module.
 	dir, rel := flow.CrateOf(file), ""
@@ -50,7 +89,8 @@ func Module(file string, crates map[string]string) string {
 	}
 	// The root crate stays unnamed: whether the crates map names it
 	// depends on incidental files such as a root build.rs.
-	name, ok := crates[dir]
+	var ok bool
+	name, ok = crates[dir]
 	if !ok || dir == "." {
 		name = strings.ReplaceAll(path.Base(dir), "-", "_")
 	}
@@ -61,11 +101,5 @@ func Module(file string, crates map[string]string) string {
 			top = ""
 		}
 	}
-	switch {
-	case top == "":
-		return name
-	case name == ".":
-		return top
-	}
-	return name + "::" + top
+	return name, top
 }
