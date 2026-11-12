@@ -1111,10 +1111,12 @@ In the order they are built; each ships only once measured (below).
    prevents the next copy, unless that form is itself repeated code (see
    Concerns). Where a concern has no convention (too few occurrences, no
    form in the majority, or a majority form that is duplicated), the map
-   says so and names the idiomatic form from the pattern proposals
-   (`suggestion.pattern`), which gain Go forms (middleware for
-   `extractor`, `defer` for `closure-helper`, typed constants for
-   `enum`) and later TypeScript ones; ddslop never guesses one.
+   says so and names the idiomatic form: the pattern proposal's
+   (`suggestion.pattern`) for a concern that has one, which gain Go forms
+   (middleware for `extractor`, `defer` for `closure-helper`, typed
+   constants for `enum`) and later TypeScript ones; otherwise, as for the
+   error concerns, the form the adapter marks idiomatic in its table of
+   forms. ddslop never guesses one.
 5. **Deviations.** A `check` candidate, `convention-drift` with suggestion
    `follow-convention`, for code that breaks a convention most of its
    peers follow: the bypasses from section 1, entry points of one
@@ -1162,15 +1164,21 @@ Every occurrence of a concern is exactly one of:
 - **duplicated:** part of a clone, pattern proposal or `parallel-flow`
   candidate, whose suggestion is the fix;
 - **drift:** another form where a convention exists, in no other
-  candidate: a `convention-drift` candidate.
+  candidate: a `convention-drift` candidate;
+- **open:** the concern has no convention (too few occurrences, or no
+  form in the majority) and the occurrence is in no candidate: the map
+  lists the forms and names the idiomatic one, and `check` reports
+  nothing, since there is nothing to drift from.
 
 Three rules follow:
 
 1. **One home.** Each concern's evidence comes from one detector: the
    map's idioms read `setup-teardown`'s scopes and `string-kinds`'
-   matches rather than recognising them again, and the idiomatic form
-   for each language lives in the pattern proposal's
-   `suggestion.pattern`, which the map's fallback reuses.
+   matches rather than recognising them again. The idiomatic form for
+   each language lives in the pattern proposal's `suggestion.pattern`
+   where the concern has a proposal, else in the adapter's table of
+   forms (the error concerns), and the map's fallback reads it from
+   there.
 2. **Duplication first.** Repeated code is never a convention to follow.
    When the majority form is duplicated (an inline sign-in check copied
    into 7 handlers), the map reports the concern without a convention,
