@@ -52,6 +52,11 @@ These are requirements, not suggestions.
    No `Co-Authored-By` trailer; no "Generated with Claude Code" footer in PRs.
 7. **Layout.** Keep `main.go` thin; logic lives in packages under
    `internal/`. `CLAUDE.md` is a symlink: edit `AGENTS.md` only.
+8. **Codex review.** After opening a PR, comment `@codex review` on it.
+   When its review comments arrive, fix them, push, and reply in each
+   comment's own thread with what you changed, why, and the commit. If a
+   comment is wrong or out of scope, change nothing and reply why. Then
+   comment `@codex review` again to review the fixes.
 
 ## Engineering principles
 
