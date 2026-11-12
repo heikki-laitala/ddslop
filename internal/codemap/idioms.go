@@ -35,7 +35,7 @@ type FormCount struct {
 func Idioms(g *flow.Graph, group Grouping, idiomatic map[string]string) []Idiom {
 	byConcern := map[string]map[string]*FormCount{}
 	for i, u := range g.Units {
-		if u.Test || len(u.Forms) == 0 || group(u) == "" {
+		if u.Test || u.Ignored || len(u.Forms) == 0 || group(u) == "" {
 			continue
 		}
 		for _, f := range u.Forms {
