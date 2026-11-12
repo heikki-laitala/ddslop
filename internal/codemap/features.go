@@ -1,6 +1,10 @@
 package codemap
 
-import "github.com/heikki-laitala/ddslop/internal/flow"
+import (
+	"slices"
+
+	"github.com/heikki-laitala/ddslop/internal/flow"
+)
 
 // Feature is a parallel-flow family: features running one pipeline
 // through copied functions. Shape is the family's anchor, the member with
@@ -20,8 +24,10 @@ type FeatureStep struct {
 	Helpers []int
 }
 
-// Features describes the parallel-flow families whose shape belongs to
-// the grouping (one crate's under --crate), in the order given.
+// Features describes the parallel-flow families with an entry point in
+// the grouping (one crate's under --crate), in the order given. A family
+// is shown whole, members and steps in other crates included: it is one
+// check candidate, and extracting its pipeline takes every copy.
 func Features(g *flow.Graph, flows []flow.ParallelFlow, group Grouping, helpers []Helper) []Feature {
 	isHelper := map[int]bool{}
 	for _, h := range helpers {
@@ -29,7 +35,7 @@ func Features(g *flow.Graph, flows []flow.ParallelFlow, group Grouping, helpers 
 	}
 	var out []Feature
 	for _, pf := range flows {
-		if group(g.Units[pf.Entries[0]]) == "" {
+		if !slices.ContainsFunc(pf.Entries, func(e int) bool { return group(g.Units[e]) != "" }) {
 			continue
 		}
 		f := Feature{Shape: pf.Entries[0], Members: pf.Entries[1:]}

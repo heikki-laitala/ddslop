@@ -42,3 +42,22 @@ func TestFeaturesShowEachFamilysShapeWithTheHelpersItsStepsCall(t *testing.T) {
 		t.Errorf("Features = %+v, want %+v", got, want)
 	}
 }
+
+func TestAFamilyWithAMemberInScopeIsShownWhole(t *testing.T) {
+	g, at := helperGraph([]string{"tool.run", "api.rerun"}, nil)
+	onlyAPI := Grouping(func(u unit.Unit) string {
+		if u.File == "api/f.go" {
+			return "api"
+		}
+		return "" // another crate under --crate
+	})
+	flows := []flow.ParallelFlow{{Entries: []int{at["tool.run"], at["api.rerun"]}, Steps: []flow.AlignedStep{
+		{Units: []int{at["tool.run"], at["api.rerun"]}},
+	}}}
+
+	got := Features(g, flows, onlyAPI, nil)
+	want := []Feature{{Shape: at["tool.run"], Members: []int{at["api.rerun"]}, Steps: []FeatureStep{{Unit: at["tool.run"]}}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Features = %+v, want the whole family, its anchor outside the crate", got)
+	}
+}

@@ -1380,8 +1380,10 @@ view from 1.7 s to 0.94 s.
 
 Section 3 is built for its flagged families only (`codemap.Features`,
 `features` in JSON). Each `parallel-flow` family `check` reports, found
-by the same options (`min-nodes` from `.ddslop.yaml` included) and
-filtered to the scope's modules under `--crate`, gives its anchor as the
+by the same options (`min-nodes` from `.ddslop.yaml` included) and,
+under `--crate`, shown whole when any of its entry points is in the
+crate (it is one candidate, and extracting it takes every copy), gives
+its anchor as the
 `shape`, its aligned steps with the shared helpers each calls by name,
 the other members, the concern (`feature-pipelines`), the candidate kind
 (`flagged`) and the pattern that extracts it (`generic-pipeline`, from
