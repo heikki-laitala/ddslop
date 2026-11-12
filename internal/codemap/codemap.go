@@ -26,13 +26,14 @@ func named(g *flow.Graph, caller, k int) bool {
 type Grouping func(u unit.Unit) string
 
 // ByModule groups units by their module (see Module).
-func ByModule(crates map[string]string) Grouping {
-	return func(u unit.Unit) string { return Module(u.File, crates) }
-}
+func ByModule(crates map[string]string) Grouping { return byFile(Module, crates) }
 
 // ByCrate groups Rust units by their crate (see Crate).
-func ByCrate(crates map[string]string) Grouping {
-	return func(u unit.Unit) string { return Crate(u.File, crates) }
+func ByCrate(crates map[string]string) Grouping { return byFile(Crate, crates) }
+
+// byFile groups units by a name given to their file.
+func byFile(name func(file string, crates map[string]string) string, crates map[string]string) Grouping {
+	return func(u unit.Unit) string { return name(u.File, crates) }
 }
 
 // InCrate groups the units of one Rust crate by module, leaving out the

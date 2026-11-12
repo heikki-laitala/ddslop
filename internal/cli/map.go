@@ -7,10 +7,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/codemap"
+	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/index"
+	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
 const mapUsage = `usage: ddslop map [flags] [path]
@@ -19,8 +22,10 @@ Describes the conventions of the code under path (default "."), for an
 agent to read before writing code: the layers its modules form, the calls
 breaking them, and the helpers other modules share. Each language gets a
 map of its own. A module is a Go package, or a Rust module directly under
-its crate. Calls are resolved by name, as in flows; only resolved calls
-count, and test code is left out.
+its crate. A Rust workspace is described as crates, each with how many
+modules and layers it holds; --crate describes one crate's modules, as a
+single crate is by default. Calls are resolved by name, as in flows; only
+calls that name their target count, and test code is left out.
 
 Flags:
 `
@@ -31,7 +36,12 @@ type mapReport struct {
 }
 
 type mapJSON struct {
-	Lang          string      `json:"lang"`
+	Lang string `json:"lang"`
+	// Scope says what the layers hold: "packages" (Go), "crates" (a Rust
+	// workspace) or "crate" (the modules of Crate).
+	Scope         string      `json:"scope"`
+	Crate         string      `json:"crate,omitempty"`
+	Crates        []crateJSON `json:"crates,omitempty"`
 	Calls         int         `json:"calls"`
 	ResolvedCalls int         `json:"resolved_calls"`
 	Layers        []layerJSON `json:"layers"`
@@ -41,6 +51,14 @@ type mapJSON struct {
 	Unplaced     []string     `json:"unplaced"`
 	UnplacedMore int          `json:"unplaced_more"`
 	Helpers      []helperJSON `json:"helpers"`
+}
+
+// crateJSON summarises a crate in a workspace map: how many modules it
+// holds and how many layers they form (see --crate).
+type crateJSON struct {
+	Name    string `json:"name"`
+	Modules int    `json:"modules"`
+	Layers  int    `json:"layers"`
 }
 
 type layerJSON struct {
@@ -73,6 +91,7 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 	fs := newFlags("map", mapUsage, stderr)
 	format := fs.String("format", "", `output format, "text" or "json" (default: text on a terminal, json otherwise)`)
 	limit := fs.Int("limit", 10, "list at most this many modules per layer, breaks, functions per break and helpers")
+	crate := fs.String("crate", "", "describe the modules of this Rust crate (default: a workspace's crates)")
 	root, code, ok := parseRoot(fs, args, stderr)
 	if !ok {
 		return code
@@ -93,15 +112,26 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 
 	r := mapReport{Maps: []mapJSON{}}
 	for _, lang := range []string{"go", "rust"} {
+		if *crate != "" && lang != "rust" {
+			continue
+		}
 		var langFiles []index.File
 		for _, f := range files {
 			if languageOf(f.Path) == lang {
 				langFiles = append(langFiles, f)
 			}
 		}
-		if len(langFiles) > 0 {
-			r.Maps = append(r.Maps, buildMap(root, lang, langFiles, *limit))
+		if len(langFiles) == 0 {
+			continue
 		}
+		m, err := buildMap(root, lang, langFiles, *limit, *crate)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		r.Maps = append(r.Maps, m)
+	}
+	if *crate != "" && len(r.Maps) == 0 {
+		return fail(stderr, fmt.Errorf("no Rust code under %s for --crate %s", root, *crate))
 	}
 
 	if resolved == "json" {
@@ -117,14 +147,36 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 	return exitClean
 }
 
-// buildMap describes one language's files.
-func buildMap(root, lang string, files []index.File, limit int) mapJSON {
+// buildMap describes one language's files: Go by package, a Rust
+// workspace by crate, and one Rust crate (want, or the only one) by module.
+func buildMap(root, lang string, files []index.File, limit int, want string) (mapJSON, error) {
 	g, traits := callGraph(root, files)
 	crates := graphInputs(root, files).Crates
-	m := mapJSON{Lang: lang, Calls: g.Calls, ResolvedCalls: g.Resolved,
+	m := mapJSON{Lang: lang, Scope: "packages", Calls: g.Calls, ResolvedCalls: g.Resolved,
 		Layers: []layerJSON{}, Breaks: []breakJSON{}, Unplaced: []string{}, Helpers: []helperJSON{}}
+	layerGroup, helperGroup := codemap.ByModule(crates), codemap.ByModule(crates)
+	if lang == "rust" {
+		names := crateNames(g.Units, crates)
+		switch {
+		case want != "" && !slices.Contains(names, want):
+			return m, fmt.Errorf("no crate %q; the crates are %s", want, strings.Join(names, ", "))
+		case want != "":
+			m.Scope, m.Crate = "crate", want
+		case len(names) == 1:
+			m.Scope, m.Crate = "crate", names[0]
+		default:
+			m.Scope = "crates"
+			layerGroup = codemap.ByCrate(crates)
+			for _, name := range names {
+				m.Crates = append(m.Crates, crateSummary(g, crates, name))
+			}
+		}
+		if m.Scope == "crate" {
+			layerGroup, helperGroup = codemap.InCrate(m.Crate, crates), codemap.InCrate(m.Crate, crates)
+		}
+	}
 
-	layers := codemap.Layers(g, codemap.ByModule(crates))
+	layers := codemap.Layers(g, layerGroup)
 	for d, modules := range layers.Layers {
 		l := layerJSON{Depth: d, Modules: modules}
 		if len(modules) > limit {
@@ -142,13 +194,38 @@ func buildMap(root, lang string, files []index.File, limit int) mapJSON {
 		}
 		m.Breaks = append(m.Breaks, bj)
 	}
-	helpers := codemap.Helpers(g, codemap.ByModule(crates), g.Entries(traits))
+	helpers := codemap.Helpers(g, helperGroup, g.Entries(traits))
 	for _, h := range helpers[:min(limit, len(helpers))] {
 		u := g.Units[h.Unit]
 		m.Helpers = append(m.Helpers, helperJSON{Name: shortName(u.Name), File: u.File, Line: u.StartLine,
 			Signature: sourceLine(root, u.File, u.StartLine), Modules: h.Modules})
 	}
-	return m
+	return m, nil
+}
+
+// crateNames returns the Rust crates of the units, sorted.
+func crateNames(units []unit.Unit, crates map[string]string) []string {
+	var names []string
+	for _, u := range units {
+		if c := codemap.Crate(u.File, crates); c != "" {
+			names = append(names, c)
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// crateSummary counts a crate's modules and the layers they form.
+func crateSummary(g *flow.Graph, crates map[string]string, name string) crateJSON {
+	in := codemap.InCrate(name, crates)
+	var modules []string
+	for _, u := range g.Units {
+		if m := in(u); m != "" {
+			modules = append(modules, m)
+		}
+	}
+	slices.Sort(modules)
+	return crateJSON{Name: name, Modules: len(slices.Compact(modules)), Layers: len(codemap.Layers(g, in).Layers)}
 }
 
 // shortName drops a method's owner: helpers are listed by the name code
@@ -183,7 +260,18 @@ func writeMapText(w io.Writer, r mapReport) error {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		fmt.Fprintf(&b, "%s: %d of %d calls resolved by name\n\nLayers, top first:\n", m.Lang, m.ResolvedCalls, m.Calls)
+		scope := m.Scope
+		if m.Scope == "crate" {
+			scope = "crate " + m.Crate
+		}
+		fmt.Fprintf(&b, "%s, %s: %d of %d calls resolved by name\n", m.Lang, scope, m.ResolvedCalls, m.Calls)
+		if len(m.Crates) > 0 {
+			b.WriteString("\nCrates (--crate NAME for one crate's modules):\n")
+			for _, c := range m.Crates {
+				fmt.Fprintf(&b, "  %s  %d module(s), %d layer(s)\n", c.Name, c.Modules, c.Layers)
+			}
+		}
+		b.WriteString("\nLayers, top first:\n")
 		for _, l := range m.Layers {
 			more := ""
 			if l.More > 0 {

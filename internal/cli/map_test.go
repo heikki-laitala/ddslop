@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -129,7 +130,7 @@ func TestMapTextNamesTheSections(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("map: exit %d, stderr %s", code, stderr)
 	}
-	for _, want := range []string{"go: ", "Layers", "handlers", "bypass", "Shared helpers", "Respond"} {
+	for _, want := range []string{"go, packages: ", "Layers", "handlers", "bypass", "Shared helpers", "Respond"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("text output lacks %q:\n%s", want, stdout)
 		}
@@ -146,5 +147,123 @@ func TestMapLimitCapsEachSection(t *testing.T) {
 	last := r.Maps[0].Layers[len(r.Maps[0].Layers)-1]
 	if len(last.Modules) != 1 || last.More != 1 {
 		t.Errorf("last layer = %+v, want one module and 1 more", last)
+	}
+}
+
+// A Rust workspace: api calls service, service calls store, and service
+// has a module of its own.
+var workspace = map[string]string{
+	"crates/api/src/lib.rs":          "pub fn handle() { service::create(); }\n",
+	"crates/service/src/lib.rs":      "pub fn create() { validate::check(); store::save(); }\n",
+	"crates/service/src/validate.rs": "pub fn check() { store::load(); }\n",
+	"crates/store/src/lib.rs":        "pub fn save() {}\npub fn load() {}\n",
+}
+
+type scopedMap struct {
+	Maps []struct {
+		Lang   string `json:"lang"`
+		Scope  string `json:"scope"`
+		Crate  string `json:"crate"`
+		Layers []struct {
+			Modules []string `json:"modules"`
+		} `json:"layers"`
+		Crates []struct {
+			Name    string `json:"name"`
+			Modules int    `json:"modules"`
+			Layers  int    `json:"layers"`
+		} `json:"crates"`
+	} `json:"maps"`
+}
+
+func mapOf(t *testing.T, args ...string) scopedMap {
+	t.Helper()
+	code, stdout, stderr := run(append([]string{"map", "--format", "json"}, args...)...)
+	if code != 0 {
+		t.Fatalf("map %v: exit %d, stderr %s", args, code, stderr)
+	}
+	var r scopedMap
+	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, stdout)
+	}
+	return r
+}
+
+func layerNames(layers []struct {
+	Modules []string `json:"modules"`
+}) [][]string {
+	var out [][]string
+	for _, l := range layers {
+		out = append(out, l.Modules)
+	}
+	return out
+}
+
+func TestMapOfAWorkspaceLayersItsCrates(t *testing.T) {
+	r := mapOf(t, repo(t, workspace))
+	if len(r.Maps) != 1 || r.Maps[0].Scope != "crates" {
+		t.Fatalf("maps = %+v, want one map of crates", r.Maps)
+	}
+	m := r.Maps[0]
+	if want := [][]string{{"api"}, {"service"}, {"store"}}; !reflect.DeepEqual(layerNames(m.Layers), want) {
+		t.Errorf("crate layers = %v, want %v", layerNames(m.Layers), want)
+	}
+	var summary []string
+	for _, c := range m.Crates {
+		summary = append(summary, fmt.Sprintf("%s:%d/%d", c.Name, c.Modules, c.Layers))
+	}
+	// A one-module crate has no calls between its modules, so no layers.
+	if want := "api:1/0 service:2/2 store:1/0"; strings.Join(summary, " ") != want {
+		t.Errorf("crates = %v, want %s (modules/layers)", summary, want)
+	}
+}
+
+func TestMapOfOneCrateLayersItsModules(t *testing.T) {
+	r := mapOf(t, "--crate", "service", repo(t, workspace))
+	if len(r.Maps) != 1 || r.Maps[0].Scope != "crate" || r.Maps[0].Crate != "service" {
+		t.Fatalf("maps = %+v, want one map of crate service", r.Maps)
+	}
+	if want := [][]string{{"service"}, {"service::validate"}}; !reflect.DeepEqual(layerNames(r.Maps[0].Layers), want) {
+		t.Errorf("layers = %v, want %v", layerNames(r.Maps[0].Layers), want)
+	}
+}
+
+func TestMapOfASingleCrateShowsItsModules(t *testing.T) {
+	r := mapOf(t, repo(t, map[string]string{
+		"src/lib.rs":   "pub fn run() { store::save(); }\n",
+		"src/store.rs": "pub fn save() {}\n",
+	}))
+	if len(r.Maps) != 1 || r.Maps[0].Scope != "crate" || r.Maps[0].Crate != "." {
+		t.Fatalf("maps = %+v, want the root crate's modules", r.Maps)
+	}
+	if want := [][]string{{"."}, {"store"}}; !reflect.DeepEqual(layerNames(r.Maps[0].Layers), want) {
+		t.Errorf("layers = %v, want %v", layerNames(r.Maps[0].Layers), want)
+	}
+}
+
+func TestMapOfGoKeepsPackages(t *testing.T) {
+	r := mapOf(t, repo(t, layeredService))
+	if len(r.Maps) != 1 || r.Maps[0].Scope != "packages" {
+		t.Errorf("maps = %+v, want Go's map of packages", r.Maps)
+	}
+}
+
+func TestMapOfAnUnknownCrateFails(t *testing.T) {
+	code, _, stderr := run("map", "--crate", "nope", repo(t, workspace))
+	if code != 2 || !strings.Contains(stderr, "api, service, store") {
+		t.Errorf("exit %d, stderr %q; want 2 and the crates there are", code, stderr)
+	}
+}
+
+func TestMapTextNamesTheScopeAndSummarisesCrates(t *testing.T) {
+	root := repo(t, workspace)
+	_, stdout, _ := run("map", "--format", "text", root)
+	for _, want := range []string{"rust, crates:", "Crates (--crate NAME for one crate's modules):", "service  2 module(s), 2 layer(s)"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("text lacks %q:\n%s", want, stdout)
+		}
+	}
+	_, stdout, _ = run("map", "--format", "text", "--crate", "service", root)
+	if !strings.Contains(stdout, "rust, crate service:") {
+		t.Errorf("text lacks the crate scope:\n%s", stdout)
 	}
 }
