@@ -36,6 +36,25 @@ func install(t *testing.T, root string, agents ...Agent) []string {
 	return changes
 }
 
+func TestInstalledGuidanceReadsTheMapBeforeAFeature(t *testing.T) {
+	root := t.TempDir()
+	install(t, root, Claude)
+
+	skill := read(t, root, ".claude/skills/ddslop/SKILL.md")
+	description := skill[:strings.Index(skill, "\n---")]
+	for _, want := range []string{"## Before you write", "ddslop map --format json .", "hints, not errors"} {
+		if !strings.Contains(skill, want) {
+			t.Errorf("skill lacks %q", want)
+		}
+	}
+	if !strings.Contains(description, "before starting a feature") {
+		t.Errorf("skill description does not say to use it before starting a feature:\n%s", description)
+	}
+	if section := read(t, root, "CLAUDE.md"); !strings.Contains(section, "Before starting a feature, run `ddslop map") {
+		t.Errorf("CLAUDE.md section does not say to run map before a feature:\n%s", section)
+	}
+}
+
 func TestInstallClaude(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "CLAUDE.md", "# Project\n\nExisting rules.\n")
