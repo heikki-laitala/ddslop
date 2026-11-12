@@ -19,6 +19,9 @@ Goals:
 - Find duplicated *flows* (for example, every endpoint re-implementing the same
   decode, validate, query, respond pipeline), not only duplicated fragments.
 - Be fast enough to run on every agent change (diff mode).
+- Show agents the conventions a codebase already has (its layers, shared
+  helpers and typical features) before they write code, so they do not
+  reinvent them (`ddslop map`, planned; see Map layer).
 
 Non-goals:
 
@@ -238,7 +241,9 @@ ddslop works in two complementary layers:
   slices to find duplicated pipelines.
 
 Fragment matches feed the flow layer: an aligned step between two slices is
-usually backed by a fragment clone.
+usually backed by a fragment clone. A third layer, the map layer
+(planned), summarises what the other two know about the codebase as a
+whole, so agents can follow its conventions before writing code.
 
 ```mermaid
 flowchart LR
@@ -979,6 +984,151 @@ comparison adds about 0.35 s to a warm check there.
 - Choosing the canonical occurrence for `reuse-existing` (most callers).
 - Placement: the deepest module shared by all callers.
 
+## Map layer
+
+Planned; nothing in this section is built yet.
+
+The fragment and flow layers find copies after they are written. Most of
+them were written because the agent did not know how the codebase already
+does the thing: which helper wraps errors or opens a transaction, which
+layer a new endpoint goes through, what an existing endpoint of the same
+kind looks like. `ddslop map` answers that before the agent writes: a
+compact description of the codebase's conventions, derived from evidence
+ddslop already has (the call graph, entry points, `parallel-flow` families
+and detector results). Like pattern proposals, it is a fixed set of rules
+with no model: the same code always gives the same map, and the agent
+judges what applies to its change.
+
+### The command
+
+`ddslop map [path]` prints the map as text, JSON or Markdown. It reads
+the index like `check` and never changes source files. Every section is
+capped (`--limit`, default 10 entries) so the whole map fits in an
+agent's context; on the 735k-line codebase the aim is under 300 lines of
+text and under half a second on top of a warm index.
+
+### Sections
+
+In the order they are built; each ships only once measured (below).
+
+1. **Layers.** A module is a Go package or a Rust module directly under
+   its crate. Resolved calls outside test code give a module graph,
+   weighted by the number of calls. Cycles are collapsed (strongly
+   connected components), and each module's layer is its depth from the
+   modules holding entry points. The map lists the layers with their
+   modules, then the calls that break them: a call from a lower layer up
+   to a higher one, and a bypass, where most calls from a module into a
+   lower layer go through a middle module and a few skip it ("3 functions
+   in `handlers` call `store` directly; 40 calls go through `service`").
+   Only resolved calls count, so the map states the share of calls that
+   resolved, and a flat codebase with no layering gets no layers rather
+   than invented ones.
+2. **Shared helpers.** The functions called from the most other modules
+   (callers counted per module, so one busy module does not dominate),
+   leaving out entry points, test code and pass-through wrappers (already
+   reported by `check`). Each entry gives the name, file and line, the
+   first line of the signature, and the modules calling it. This is
+   `ddslop similar` turned around: the agent sees what to reuse before
+   drafting anything.
+3. **Typical features.** For each `parallel-flow` family, the member most
+   similar to the others (the medoid of its step similarities): its entry
+   point, its steps in order with the shared helpers each calls, and the
+   other members. "To add another operation like these, follow
+   `create_order`." Entry points outside any family are grouped by the
+   trait or interface that made them entry points, with the member
+   reaching the most shared helpers as the example.
+4. **Deviations.** A `check` candidate, `convention-drift` with suggestion
+   `follow-convention`, for code that breaks a convention most of its
+   peers follow: the bypasses from section 1, and entry points of one
+   group that skip a shared helper (such as a sign-in extractor) that most
+   of the group call. The target is the typical feature from section 3. As
+   a candidate kind it works with baselines, diff mode and SARIF without
+   changes. `shared-preamble`, `string-kinds` and `parameter-group`
+   already do this for one idiom each; this generalises it.
+
+A JSON map, shortened:
+
+```json
+{
+  "resolved_calls": 0.84,
+  "layers": [
+    {"depth": 0, "modules": ["api::handlers"]},
+    {"depth": 1, "modules": ["ledger::service"]},
+    {"depth": 2, "modules": ["ledger::store"]}
+  ],
+  "breaks": [
+    {"kind": "bypass", "from": "api::handlers", "to": "ledger::store",
+     "via": "ledger::service", "calls": 3, "usual_calls": 40,
+     "functions": ["api/src/handlers.rs:212 refund_status"]}
+  ],
+  "helpers": [
+    {"name": "with_tx", "file": "ledger/src/store.rs", "line": 31,
+     "signature": "pub async fn with_tx<T, F>(pool: &Pool, f: F) -> Result<T>",
+     "modules": 9}
+  ],
+  "features": [
+    {"example": "create_order", "members": 11,
+     "steps": ["authorise", "fingerprint", "read_receipt", "build_event"]}
+  ]
+}
+```
+
+### How agents use it
+
+The skill gains a step before starting a feature: run `ddslop map
+--format json .`, put new code in the layer its neighbours use, reuse the
+listed helpers, and follow the typical feature of the same kind. Like the
+rest of ddslop, it runs when the agent decides to, never from a hook.
+`--format md` lets a team commit the map as notes for agents; ddslop never
+writes that file unasked.
+
+`check` does not print the map. The two answer different questions at
+different moments: `map` before writing (what are the conventions?),
+`check` after (did this change break one, or copy something?). `check`
+shares the map's analysis only to report `convention-drift` candidates,
+so a full check, diff mode and CI enforce the conventions without anyone
+reading the map:
+
+```mermaid
+sequenceDiagram
+    actor Dev as Developer
+    participant Agent as Coding agent
+    participant D as ddslop
+
+    Dev->>Agent: Implement feature
+    Agent->>D: ddslop map
+    D-->>Agent: Layers, shared helpers, typical features
+    Agent->>Agent: Write code following them
+    Agent->>D: ddslop check --diff main
+    D-->>Agent: Copies and convention-drift candidates
+    Agent->>Agent: Fix them
+    Agent->>Dev: Open PR
+```
+
+### Measurement before shipping
+
+Each section is measured like the detectors: on the 735k-line and
+188k-line Rust codebases and the 100-file Go service, read every reported
+layer break and the top helpers and typical features, and keep a rule only
+when what it reports is real. Thresholds (what "most calls" means for a
+bypass, how many peers make a convention) come from that measurement,
+not from guesses. Sections 1 and 2 come first; section 4 waits for 1 to
+3, since a wrong convention would make every deviation from it a wrong
+candidate.
+
+### Not planned
+
+- Architecture rules a user writes (in the style of ArchUnit or
+  depguard): the map infers conventions from the code and has no
+  configuration of its own.
+- Prose written by a model: the map is data, and the agent explains it.
+- Conventions across languages, as for the other layers.
+
+Open questions: whether a Rust module directly under its crate is the
+right granularity, or the crate itself in workspaces with many small
+crates; and whether name-based resolution resolves enough method calls
+for the layers to hold without SCIP.
+
 ## Modes
 
 - **Full scan:** analyse the whole repository.
@@ -1130,6 +1280,7 @@ ddslop baseline [path]       record current duplication in .ddslop-baseline.json
 ddslop similar FILE:LINE     list existing functions like the one at that line
 ddslop explain ID            show one candidate in full, with its code
 ddslop upgrade               replace ddslop with the latest release
+ddslop map [path]            describe the codebase's conventions (planned)
 ```
 
 `ddslop similar FILE:LINE` answers the question an agent should ask
@@ -1530,6 +1681,8 @@ seconds, 713 candidates (60 exact, 166 renamed, 189 near-miss families,
 131 block clones, 8 parallel flows, 31 duplicate types, 63 duplicate and
 41 inlined constants, 6 dead functions, 15 wrappers, 3 single-implementation
 traits).
+
+Next: the map layer (see Map layer), layers and shared helpers first.
 
 1. **v1, fragment layer as a linter:** tree-sitter adapters for all three
    languages, canonicalisation, exact hashing, suffix-array repeats with
