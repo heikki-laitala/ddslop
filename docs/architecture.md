@@ -1441,7 +1441,7 @@ Built, following pruner's release setup:
 - **CI** (`.github/workflows/ci.yml`): golangci-lint and markdownlint;
   tests with the race detector and the coverage gate on Linux and macOS;
   an end-to-end smoke test of the built binary (`scripts/smoke-test.sh`).
-- **Releases** (`.github/workflows/release.yml`, on `v*` tags): Linux and
+- **Releases** (`.github/workflows/release.yml`, on `vX.Y.Z` tags): Linux and
   macOS binaries for x86_64 and aarch64, built with cgo and each
   platform's C compiler on GitHub runners. aarch64 Linux is cross-compiled
   with `gcc-aarch64-linux-gnu` and x86_64 macOS with `clang -arch x86_64`;
