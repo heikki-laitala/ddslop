@@ -1053,9 +1053,9 @@ In the order they are built; each ships only once measured (below).
      `handlers` call `store` directly; 40 calls go through `service`").
      Longest-path depth keeps `store` below `service` despite the direct
      edge, so the skipped layer stays visible. Only a module otherwise
-     reached from the skipped layer or below can be bypassed: one that
-     modules above it call directly too (shared types, utilities) is used
-     by everyone, not layered.
+     reached from the skipped layer alone can be bypassed: one that other
+     layers call too (shared types, utilities) is a foundation everyone
+     uses, not a layer to go through.
    Only resolved calls count, so the map states the share of calls that
    resolved, and a flat codebase with no layering gets no layers rather
    than invented ones.
@@ -1282,8 +1282,9 @@ sequenceDiagram
 `internal/codemap` computes sections 1 and 2 from the call graph `flows`
 uses, and `ddslop map` prints them per language (`{"maps": [...]}`, each
 map with `lang`, `calls` and `resolved_calls` counts as in `flows`,
-`layers`, `breaks` and `helpers`), each list capped by `--limit`
-(default 10; a layer's left-out modules are counted in `more`).
+`layers`, `unplaced`, `breaks` and `helpers`), each list capped by
+`--limit` (default 10; left-out modules are counted in `more` and
+`unplaced_more`).
 
 - A Go module is the package directory; a Rust module is the crate's
   name (as `flows` reads it from `Cargo.toml`) with the module directly
@@ -1293,6 +1294,18 @@ map with `lang`, `calls` and `resolved_calls` counts as in `flows`,
   `build.rs` renames nothing. Modules are those with functions: a module
   of only types or constants takes part in no call, so it has no place
   in the layers, and placing it on top as a source would be wrong.
+- Only calls that name their callee count: `f()`, `Type::f()`,
+  `module::f()` and calls on `self`. A call `x.m()` that the call graph
+  resolved because one repository method is named `m` (marked in
+  `Graph.ByName`) is left out: on `lens-artifact-hub` such guesses made
+  `Option::or`, `bool::then`, a query builder's `.name()`, a middleware
+  chain's `next.run()` and reqwest's `.build()` look like shared helpers.
+  The price is real methods reached the same way (`to_hex`, `is_open`),
+  and in Go most calls between packages, which go through methods on
+  struct fields, so Go layers are shallow until the call graph has types.
+- A module no counted call goes to or comes from is unplaced (listed
+  apart): nothing says where it belongs, and as a source it would land
+  on top. Types-only crates are most of them.
 - An edge's weight is its distinct caller and callee function pairs.
 - One threshold, `weak` = 0.2, serves both rules: an edge is set aside
   when it carries less than a fifth of the weakest edge on the strongest
@@ -1313,8 +1326,28 @@ feature packages, `syntax` and `report`, `clone`, then `unit`,
 them calls into `unit` and `similarity`, which nearly every package uses;
 requiring the skipped module to be the target's only way in from above
 left one, `cli` calling `syntax.IsGenerated` past the adapters that wrap
-`syntax`, which is arguable. The Rust codebases are still to measure
-before the skill tells agents to run `map`.
+`syntax`, which is arguable.
+
+Then on the reference codebases, warm (`map` adds about 0.37 s to the
+0.86 s index refresh on the largest):
+
+| Codebase | Layers | Unplaced | Breaks | Helpers |
+| --- | --- | --- | --- | --- |
+| `lns-inference-router` (739k lines of Rust) | 19 | 31 | 3: 2 real cycles, 1 arguable | 25 listed, all real |
+| `lens-artifact-hub` (188k lines of Rust) | 9 | 18 | 0 | 25 listed, all real |
+| `searchbox` (103 Go files) | 4 | 0 | 0 | 1, real |
+
+The breaks judged real are two dependency cycles between modules
+(`realtime` reaching into `hosting::plan` while `hosting` calls
+`realtime`; `generator` calling `client_generator`, which uses
+`generator::CodeGenerator`); the arguable one is `startup`, the
+composition root, constructing a `batch` value directly. Before calls
+by method name were left out, 6 of the 25 helpers listed on
+`lens-artifact-hub` were such guesses, and before the bypass target had
+to be reached from the skipped layer alone, ddslop reported `rust`
+calling `unit` past `syntax`. 19 layers in one crate with many modules is
+the granularity question below: a crate-level summary may serve agents
+better.
 
 ### Measurement before shipping
 
