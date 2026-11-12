@@ -428,3 +428,27 @@ func TestUnitsRecordTheirParameters(t *testing.T) {
 		t.Errorf("params = %v, want %s", got, want)
 	}
 }
+
+func TestAScopeOpensWithTheCallBeforeItsErrorConversion(t *testing.T) {
+	src := `async fn attempt(&mut self) -> Result<(), Attempt> {
+    let transaction = self.client.transaction().await.map_err(retry)?;
+    write(&transaction).await?;
+    transaction.commit().await.map_err(retry)
+}
+fn leased(pool: &Pool) -> anyhow::Result<()> {
+    let lease = pool.acquire().context("no lease")?;
+    use_it(&lease);
+    lease.release();
+    Ok(())
+}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		if s := u.Scope; s != nil {
+			got = append(got, u.Name+" "+s.Opens+".."+s.Closes)
+		}
+	}
+	if want := "attempt transaction..commit\nleased acquire..release"; strings.Join(got, "\n") != want {
+		t.Errorf("scopes:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}

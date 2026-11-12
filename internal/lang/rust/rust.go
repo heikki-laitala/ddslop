@@ -411,9 +411,7 @@ func binding(stmt *sitter.Node, src []byte) (name, opens string) {
 	if pat != nil && pat.Kind() == "mut_pattern" {
 		pat = pat.NamedChild(0)
 	}
-	for value != nil && (value.Kind() == "try_expression" || value.Kind() == "await_expression") {
-		value = value.NamedChild(0)
-	}
+	value = producer(value, src)
 	if pat == nil || pat.Kind() != "identifier" || value == nil || value.Kind() != "call_expression" {
 		return "", ""
 	}
@@ -429,6 +427,35 @@ func binding(stmt *sitter.Node, src []byte) (name, opens string) {
 		return pat.Utf8Text(src), lastSegment(callee.Utf8Text(src))
 	}
 	return "", ""
+}
+
+// resultAdapters convert a call's error or unwrap its result: the value
+// comes from the call before them.
+var resultAdapters = map[string]bool{
+	"map_err": true, "context": true, "with_context": true, "unwrap": true, "expect": true,
+}
+
+// producer returns the call that produced a bound value, looking through
+// ?, .await and resultAdapters (db.transaction().await.map_err(retry)? is
+// produced by transaction).
+func producer(value *sitter.Node, src []byte) *sitter.Node {
+	for value != nil {
+		switch value.Kind() {
+		case "try_expression", "await_expression":
+			value = value.NamedChild(0)
+			continue
+		case "call_expression":
+			callee := value.ChildByFieldName("function")
+			if callee != nil && callee.Kind() == "field_expression" {
+				if f := callee.ChildByFieldName("field"); f != nil && resultAdapters[f.Utf8Text(src)] {
+					value = callee.ChildByFieldName("value")
+					continue
+				}
+			}
+		}
+		return value
+	}
+	return nil
 }
 
 // closing returns the closing method a statement calls on name, or "drop"
