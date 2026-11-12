@@ -25,6 +25,7 @@ var rules = []sarifRule{
 	{ID: setupTeardown, Short: "Same setup and teardown around different work", Full: "Several functions open the same kind of value at their start (a transaction, a lease) and close it at their end. Write one helper that opens the value, runs the work passed in as a closure and closes it, so no copy can forget the teardown; or an RAII guard that closes on drop."},
 	{ID: stringKinds, Short: "Strings used as kinds", Full: "Several functions match on the same set of string literals: kinds, outcomes or states passed around as strings. Introduce an enum, parse the string into it once at the boundary (FromStr or TryFrom) and give it an as_str for the way back, then match on the enum."},
 	{ID: paramGroup, Short: "Parameters passed together through many functions", Full: "Several functions take the same parameters (names and types). Group them in one struct and pass that instead; when one of them is a connection or context, consider a type holding it with the functions as methods."},
+	{ID: conventionDrift, Short: "Code breaking a convention its peers follow", Full: "The code does a job, such as checking an error, in another form than most of the codebase (the convention, in the suggestion's pattern). Write it the way the target does, unless this place needs the other form; then say why in a ddslop:ignore comment."},
 }
 
 // ruleShort maps a candidate kind to its rule's short description.

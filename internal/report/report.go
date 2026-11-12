@@ -94,8 +94,12 @@ type Candidate struct {
 	// function a wrapper calls.
 	Target *Occurrence `json:"target,omitempty"`
 	// Values are what the occurrences share, when that is not code: the
-	// parameters of a parameter group, the strings of a string kind.
+	// parameters of a parameter group, the strings of a string kind, the
+	// form a convention drift uses.
 	Values []string `json:"values,omitempty"`
+	// Concern is the job the code does that a convention covers, such as
+	// error-checks, for a convention drift: the map's idioms name it too.
+	Concern string `json:"concern,omitempty"`
 }
 
 // Step is one aligned step of a parallel flow: the function playing that
@@ -150,34 +154,36 @@ type Score struct {
 
 // Kinds and actions.
 const (
-	exactClone     = "exact-clone"
-	renamedClone   = "renamed-clone"
-	nearMiss       = "near-miss"
-	blockClone     = "block-clone"
-	parallelFlow   = "parallel-flow"
-	duplicateType  = "duplicate-type"
-	duplicateConst = "duplicate-constant"
-	inlinedConst   = "inlined-constant"
-	deadCode       = "dead-code"
-	deleteDead     = "delete-dead"
-	passThrough    = "pass-through"
-	inlineWrapper  = "inline-wrapper"
-	singleImpl     = "single-impl-trait"
-	sharedPreamble = "shared-preamble"
-	setupTeardown  = "setup-teardown"
-	extractScope   = "extract-scope"
-	stringKinds    = "string-kinds"
-	introduceEnum  = "introduce-enum"
-	paramGroup     = "parameter-group"
-	introduceParam = "introduce-parameter-object"
-	extractPre     = "extract-preamble"
-	removeTrait    = "remove-trait"
-	extractFlow    = "extract-pipeline"
-	reuseExisting  = "reuse-existing"
-	extractCommon  = "extract-common"
-	kindIdentifier = "identifier"
-	kindType       = "type"
-	kindLiteral    = "literal"
+	exactClone       = "exact-clone"
+	renamedClone     = "renamed-clone"
+	nearMiss         = "near-miss"
+	blockClone       = "block-clone"
+	parallelFlow     = "parallel-flow"
+	duplicateType    = "duplicate-type"
+	duplicateConst   = "duplicate-constant"
+	inlinedConst     = "inlined-constant"
+	deadCode         = "dead-code"
+	deleteDead       = "delete-dead"
+	passThrough      = "pass-through"
+	inlineWrapper    = "inline-wrapper"
+	singleImpl       = "single-impl-trait"
+	sharedPreamble   = "shared-preamble"
+	setupTeardown    = "setup-teardown"
+	extractScope     = "extract-scope"
+	stringKinds      = "string-kinds"
+	introduceEnum    = "introduce-enum"
+	paramGroup       = "parameter-group"
+	introduceParam   = "introduce-parameter-object"
+	extractPre       = "extract-preamble"
+	removeTrait      = "remove-trait"
+	extractFlow      = "extract-pipeline"
+	reuseExisting    = "reuse-existing"
+	extractCommon    = "extract-common"
+	conventionDrift  = "convention-drift"
+	followConvention = "follow-convention"
+	kindIdentifier   = "identifier"
+	kindType         = "type"
+	kindLiteral      = "literal"
 )
 
 // PipelinePattern is the way forward for a parallel-flow family: extract
@@ -206,6 +212,18 @@ type Findings struct {
 	Scopes     []pattern.ScopeGroup
 	Kinds      []pattern.StringKind
 	Params     []pattern.ParamGroup
+	Drifts     []Drift
+}
+
+// Drift is an occurrence of another form for a concern where the code has
+// a convention: the unit and line, and the convention's occurrence to
+// follow, the closest one.
+type Drift struct {
+	Concern, Form, Convention string
+	Unit                      unit.Unit
+	Line                      int
+	Target                    unit.Unit
+	TargetLine                int
 }
 
 // Flow is a family of features running the same pipeline through
@@ -228,7 +246,8 @@ type FlowStep struct {
 // Build turns findings into a report. Candidates are ranked by duplicated
 // nodes, largest first; on ties, they keep this order: groups, near misses,
 // block clones, flows, structs, constants, dead code, wrappers, traits,
-// scopes, string kinds, parameter groups. The summary's candidate count is filled in.
+// scopes, string kinds, parameter groups, drifts. The summary's candidate
+// count is filled in.
 // Each candidate's language is languageOf its first file.
 func Build(languageOf func(file string) string, f Findings, summary Summary) Report {
 	candidates := make([]Candidate, 0, len(f.Groups)+len(f.NearMisses)+len(f.Blocks)+len(f.Flows))
@@ -276,6 +295,9 @@ func Build(languageOf func(file string) string, f Findings, summary Summary) Rep
 	}
 	for _, g := range f.Params {
 		candidates = append(candidates, paramCandidate(languageOf(g.Units[0].File), g))
+	}
+	for _, d := range f.Drifts {
+		candidates = append(candidates, driftCandidate(languageOf(d.Unit.File), d))
 	}
 	candidates = slices.DeleteFunc(candidates, mostlyParameters)
 	slices.SortStableFunc(candidates, func(a, b Candidate) int {
@@ -665,6 +687,22 @@ func paramCandidate(language string, g pattern.ParamGroup) Candidate {
 		Suggestion{Action: introduceParam, Pattern: "parameter-object"},
 		Score{Nodes: len(g.Params), Lines: 1, Occurrences: len(g.Units), DuplicatedNodes: g.Size()}, occurrences(g.Units))
 	c.Values = values
+	return c
+}
+
+// driftCandidate proposes writing a concern in the convention's form, as
+// the target does. It copies nothing, so it duplicates no nodes; its
+// fingerprint holds the function and the form, not the line, so it
+// survives edits around it.
+func driftCandidate(language string, d Drift) Candidate {
+	c := newCandidate(language, conventionDrift, conventionDrift,
+		strings.Join([]string{d.Concern, d.Form, d.Unit.File, d.Unit.Name}, "\x00"),
+		Suggestion{Action: followConvention, Pattern: d.Convention},
+		Score{Nodes: 1, Lines: 1, Occurrences: 1},
+		[]Occurrence{{File: d.Unit.File, Name: d.Unit.Name, StartLine: d.Line, EndLine: d.Line}})
+	c.Target = &Occurrence{File: d.Target.File, Name: d.Target.Name, StartLine: d.TargetLine, EndLine: d.TargetLine}
+	c.Values = []string{d.Form}
+	c.Concern = d.Concern
 	return c
 }
 
