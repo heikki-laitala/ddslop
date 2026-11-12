@@ -210,10 +210,11 @@ measurements are in [docs/architecture.md](docs/architecture.md).
 ## Coding agents
 
 `ddslop init` installs a skill that tells the agent when to run ddslop
-(`map` before starting a feature, to follow the codebase's layers and
-reuse its shared helpers; `check` before finishing a change, when asked
-to clean up and before writing a new helper), how to act on each kind of
-candidate, and to leave copies that are meant to diverge alone:
+(`map` before starting a feature, to follow the codebase's layers, reuse
+its shared helpers and not copy a duplicated pipeline again; `check`
+before finishing a change, when asked to clean up and before writing a
+new helper), how to act on each kind of candidate, and to leave copies
+that are meant to diverge alone:
 
 | Flag | Skill | Instructions |
 | --- | --- | --- |
@@ -236,7 +237,7 @@ together to install for several agents.
 | `ddslop explain ID [path]` | show one candidate in full, with each occurrence's code and its differences marked |
 | `ddslop similar FILE:LINE [path]` | list existing functions like the one at that line, most similar first: ask before keeping a new helper |
 | `ddslop flows [path]` | list feature entry points (methods implementing generated API traits) and the functions each reaches |
-| `ddslop map [path]` | describe the layers the code forms (Go packages, a Rust workspace's crates, or one crate's modules with `--crate`), the calls breaking them and the helpers other modules share |
+| `ddslop map [path]` | describe the layers the code forms (Go packages, a Rust workspace's crates, or one crate's modules with `--crate`), the calls breaking them, the helpers other modules share, and the features copying one pipeline |
 | `ddslop index [path]` | build or refresh the index at `.ddslop/index.db` |
 | `ddslop init [path]` | set ddslop up for coding agents |
 | `ddslop stats [path]` | describe the index, and the duplication trend over past checks |
