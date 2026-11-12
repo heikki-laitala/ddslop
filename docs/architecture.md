@@ -986,7 +986,9 @@ comparison adds about 0.35 s to a warm check there.
 
 ## Map layer
 
-Planned; nothing in this section is built yet.
+Sections 1 and 2 are built (`internal/codemap`, `ddslop map` with text
+and JSON output; see As built below); sections 3 to 5, Markdown output
+and `--lang` are planned.
 
 The fragment and flow layers find copies after they are written. Most of
 them were written because the agent did not know how the codebase already
@@ -1048,7 +1050,10 @@ In the order they are built; each ships only once measured (below).
      that target mostly go through a module in between ("3 functions in
      `handlers` call `store` directly; 40 calls go through `service`").
      Longest-path depth keeps `store` below `service` despite the direct
-     edge, so the skipped layer stays visible.
+     edge, so the skipped layer stays visible. Only a module otherwise
+     reached from the skipped layer or below can be bypassed: one that
+     modules above it call directly too (shared types, utilities) is used
+     by everyone, not layered.
    Only resolved calls count, so the map states the share of calls that
    resolved, and a flat codebase with no layering gets no layers rather
    than invented ones.
@@ -1128,7 +1133,8 @@ The JSON output for one language, shortened:
 ```json
 {"maps": [{
   "lang": "rust",
-  "resolved_calls": 0.84,
+  "calls": 52140,
+  "resolved_calls": 43800,
   "layers": [
     {"depth": 0, "modules": ["api::handlers"]},
     {"depth": 1, "modules": ["ledger::service"]},
@@ -1142,7 +1148,7 @@ The JSON output for one language, shortened:
   "helpers": [
     {"name": "with_tx", "file": "ledger/src/store.rs", "line": 31,
      "signature": "pub async fn with_tx<T, F>(pool: &Pool, f: F) -> Result<T>",
-     "modules": 9}
+     "modules": ["api::handlers", "billing::service", "ledger::service"]}
   ],
   "features": [
     {"example": "create_order", "members": 11,
@@ -1189,6 +1195,42 @@ sequenceDiagram
     Agent->>Agent: Fix them
     Agent->>Dev: Open PR
 ```
+
+### As built
+
+`internal/codemap` computes sections 1 and 2 from the call graph `flows`
+uses, and `ddslop map` prints them per language (`{"maps": [...]}`, each
+map with `lang`, `calls` and `resolved_calls` counts as in `flows`,
+`layers`, `breaks` and `helpers`), each list capped by `--limit`
+(default 10; a layer's left-out modules are counted in `more`).
+
+- A Go module is the package directory; a Rust module is the crate's
+  name (as `flows` reads it from `Cargo.toml`) with the module directly
+  under `src/` (`acme_ledger::store`), `lib.rs` and `main.rs` being the
+  crate itself, and a crate at the repository root (`src/` at the top)
+  unnamed (`store`).
+- An edge's weight is its distinct caller and callee function pairs.
+- One threshold, `weak` = 0.2, serves both rules: an edge is set aside
+  when it carries less than a fifth of the weakest edge on the strongest
+  cycle back (the widest path, Dijkstra with min in place of +), and a
+  direct call is a bypass when it carries less than a fifth of the
+  caller's calls into the skipped module. The cycle test is local, so a
+  balanced ring of any size keeps all its edges and becomes one layer.
+- A helper is called from at least 2 modules other than its own, ranked
+  by how many; entry points and pass-through wrappers are left out, and
+  the signature is the first line of the function as written.
+
+Measured on ddslop itself (120 Go files, 602 of 2485 calls resolved,
+0.27 s): six layers that match the design (the root package, `cli`, the
+feature packages, `syntax` and `report`, `clone`, then `unit`,
+`similarity` and `group`), and ten helpers, all real reuse targets (the
+`syntax` functions both language adapters share, `similarity`'s hashing,
+`group.Collect`). The first bypass rule reported three breaks, two of
+them calls into `unit` and `similarity`, which nearly every package uses;
+requiring the skipped module to be the target's only way in from above
+left one, `cli` calling `syntax.IsGenerated` past the adapters that wrap
+`syntax`, which is arguable. The Rust codebases are still to measure
+before the skill tells agents to run `map`.
 
 ### Measurement before shipping
 
@@ -1365,7 +1407,7 @@ ddslop baseline [path]       record current duplication in .ddslop-baseline.json
 ddslop similar FILE:LINE     list existing functions like the one at that line
 ddslop explain ID            show one candidate in full, with its code
 ddslop upgrade               replace ddslop with the latest release
-ddslop map [path]            describe the codebase's conventions (planned)
+ddslop map [path]            describe the layers and shared helpers
 ```
 
 `ddslop similar FILE:LINE` answers the question an agent should ask
@@ -1767,7 +1809,9 @@ seconds, 713 candidates (60 exact, 166 renamed, 189 near-miss families,
 41 inlined constants, 6 dead functions, 15 wrappers, 3 single-implementation
 traits).
 
-Next: the map layer (see Map layer), layers and shared helpers first.
+Next: the map layer (see Map layer). Layers and shared helpers are
+built; typical features, idioms and deviations follow once they are
+measured on the Rust codebases.
 
 1. **v1, fragment layer as a linter:** tree-sitter adapters for all three
    languages, canonicalisation, exact hashing, suffix-array repeats with
