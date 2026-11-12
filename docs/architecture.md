@@ -1019,7 +1019,10 @@ In the order they are built; each ships only once measured (below).
    set aside, and a longer cycle loses its lightest edge, one at a time,
    until none is left (a greedy feedback arc set; module graphs are
    small). What remains is acyclic, and each module's layer is its
-   longest-path depth from the modules holding entry points. The map
+   longest-path depth from the graph's sources, the modules no other
+   module calls. Entry-point modules are sources, but so are the tops of
+   parts no entry point reaches (a background worker, a library-only
+   subsystem), so every module gets a layer. The map
    lists the layers with their modules, then the calls that break them:
    - an upward call: a set-aside edge carrying a small share of the calls
      between its two modules (when the two directions are closer, the
@@ -1050,7 +1053,11 @@ In the order they are built; each ships only once measured (below).
    `follow-convention`, for code that breaks a convention most of its
    peers follow: the bypasses from section 1, and entry points of one
    group that skip a shared helper (such as a sign-in extractor) that most
-   of the group call. The target is the typical feature from section 3. As
+   of the group call. The target is what the peers do instead, which
+   always exists: for a bypass, the function in the middle module that
+   the source module's other calls into the target go through most; for
+   a skipped helper, the helper. When the code belongs to a typical
+   feature from section 3, that feature is named as the example. As
    a candidate kind it works with baselines and diff mode unchanged;
    SARIF needs the kind registered as a rule in `internal/report/sarif.go`
    (the `rules` list, which `ruleShort` is built from), with its test, like
