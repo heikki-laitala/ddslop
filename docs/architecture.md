@@ -1248,9 +1248,9 @@ The JSON output for one language, shortened:
 The skill has a step before starting a feature (built for sections 1 and
 2, with breaks presented as hints, not errors, since 2 of the 4 measured
 were arguable): run `ddslop map --format json .`, put new code in the
-layer its neighbours use, reuse the listed helpers, follow the typical feature of the same kind, and use
-the codebase's form for each concern (the language's idiom where it has
-none). Like the
+layer its neighbours use, reuse the listed helpers, follow the typical
+feature of the same kind, and use the codebase's form for each concern
+(the language's idiom where it has none). Like the
 rest of ddslop, it runs when the agent decides to, never from a hook.
 `--format md` lets a team commit the map as notes for agents; ddslop never
 writes that file unasked.
