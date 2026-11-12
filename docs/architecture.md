@@ -1208,7 +1208,10 @@ map with `lang`, `calls` and `resolved_calls` counts as in `flows`,
   name (as `flows` reads it from `Cargo.toml`) with the module directly
   under `src/` (`acme_ledger::store`), `lib.rs` and `main.rs` being the
   crate itself, and a crate at the repository root (`src/` at the top)
-  unnamed (`store`).
+  unnamed (`store`), whatever its manifest says, so adding a root
+  `build.rs` renames nothing. Modules are those with functions: a module
+  of only types or constants takes part in no call, so it has no place
+  in the layers, and placing it on top as a source would be wrong.
 - An edge's weight is its distinct caller and callee function pairs.
 - One threshold, `weak` = 0.2, serves both rules: an edge is set aside
   when it carries less than a fifth of the weakest edge on the strongest

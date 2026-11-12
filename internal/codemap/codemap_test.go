@@ -25,3 +25,14 @@ func TestModuleNamesGoPackagesAndRustTopModules(t *testing.T) {
 		}
 	}
 }
+
+func TestTheRootCrateStaysUnnamedWhateverItsManifestSays(t *testing.T) {
+	// A root build.rs makes the crates map name ".", but the root crate's
+	// modules must not be renamed by it.
+	crates := map[string]string{".": "acme"}
+	for file, want := range map[string]string{"src/lib.rs": ".", "src/store.rs": "store", "build.rs": "."} {
+		if got := Module(file, crates); got != want {
+			t.Errorf("Module(%q) = %q, want %q", file, got, want)
+		}
+	}
+}

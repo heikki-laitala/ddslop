@@ -29,8 +29,10 @@ func Module(file string, crates map[string]string) string {
 	} else if after, ok := strings.CutPrefix(file, "src/"); ok {
 		dir, rel = ".", after // a crate at the root
 	}
+	// The root crate stays unnamed: whether the crates map names it
+	// depends on incidental files such as a root build.rs.
 	name, ok := crates[dir]
-	if !ok {
+	if !ok || dir == "." {
 		name = strings.ReplaceAll(path.Base(dir), "-", "_")
 	}
 	top, _, nested := strings.Cut(rel, "/")
