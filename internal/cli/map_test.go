@@ -267,3 +267,25 @@ func TestMapTextNamesTheScopeAndSummarisesCrates(t *testing.T) {
 		t.Errorf("text lacks the crate scope:\n%s", stdout)
 	}
 }
+
+func TestMapCountsCratesWithoutFunctions(t *testing.T) {
+	files := map[string]string{
+		"crates/app/src/lib.rs":   "pub fn run() { app_helper(); }\nfn app_helper() {}\n",
+		"crates/types/src/lib.rs": "pub struct Order { pub id: u64 }\n",
+		"crates/app/tests/it.rs":  "#[test]\nfn works() {}\n",
+	}
+	r := mapOf(t, repo(t, files))
+	if len(r.Maps) != 1 || r.Maps[0].Scope != "crates" {
+		t.Fatalf("maps = %+v, want a workspace of crates: types has no functions but is a crate", r.Maps)
+	}
+	var names []string
+	for _, c := range r.Maps[0].Crates {
+		names = append(names, c.Name)
+	}
+	if want := []string{"app", "types"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("crates = %v, want %v (tests/ is no crate)", names, want)
+	}
+	if r := mapOf(t, "--crate", "types", repo(t, files)); r.Maps[0].Crate != "types" {
+		t.Errorf("--crate types = %+v, want the types crate", r.Maps)
+	}
+}
