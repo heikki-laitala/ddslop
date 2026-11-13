@@ -2009,7 +2009,9 @@ Built, following pruner's release setup:
 
 - **CI** (`.github/workflows/ci.yml`): golangci-lint and markdownlint;
   tests with the race detector and the coverage gate on Linux and macOS;
-  an end-to-end smoke test of the built binary (`scripts/smoke-test.sh`).
+  an end-to-end smoke test of the built binary (`scripts/smoke-test.sh`);
+  ddslop on its own code with no baseline, both the built binary and the
+  latest release through the action, failing on any candidate.
 - **Releases** (`.github/workflows/release.yml`, on `vX.Y.Z` tags): Linux and
   macOS binaries for x86_64 and aarch64, built with cgo and each
   platform's C compiler on GitHub runners. aarch64 Linux is cross-compiled
