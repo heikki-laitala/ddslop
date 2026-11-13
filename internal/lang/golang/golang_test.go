@@ -767,3 +767,43 @@ func (s *Server) Run() {
 		t.Errorf("method calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestVariablesShadowImportsAndNamedResultsAreTyped(t *testing.T) {
+	src := `package api
+
+import "encoding/json"
+
+func run(json *Codec) (db *DB) {
+	json.Marshal()
+	db.Save()
+	return
+}
+
+func plain() {
+	json.Marshal()
+	{
+		json := &Codec{}
+		json.Marshal()
+	}
+}
+`
+	units, _, err := Parse("api/run.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, u := range units {
+		for _, c := range u.Calls {
+			got = append(got, fmt.Sprintf("%d kind=%d qualifier=%q type=%q", c.Line, c.Kind, c.Qualifier, c.Type))
+		}
+	}
+	want := []string{
+		fmt.Sprintf(`6 kind=%d qualifier="" type="Codec"`, unit.MethodCall),
+		fmt.Sprintf(`7 kind=%d qualifier="" type="DB"`, unit.MethodCall),
+		fmt.Sprintf(`12 kind=%d qualifier="json" type=""`, unit.PathCall),
+		fmt.Sprintf(`15 kind=%d qualifier="" type="Codec"`, unit.MethodCall),
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
