@@ -199,7 +199,7 @@ func TestGraphInputsLeaveOutTestFieldTypes(t *testing.T) {
 		{Path: "api/server.go", Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "store", Type: "Store"}}}}},
 		{Path: "api/server_test.go", Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "store", Type: "Fake", Test: true}}}}},
 	}
-	if got := graphInputs(t.TempDir(), files).Fields["api"]["Server.store"]; got != "Store" {
+	if got := graphInputs(t.TempDir(), files).Fields["api"]["Server.store"].Type; got != "Store" {
 		t.Errorf("Server.store = %q, want the production type Store", got)
 	}
 }
@@ -214,10 +214,10 @@ func TestGraphInputsLeaveFieldsOfCollidingStructsUntyped(t *testing.T) {
 		fields("a/src/one.rs", "Database"), fields("a/src/two.rs", "Cache"),
 		fields("b/src/one.rs", "Database"), fields("b/src/two.rs", "Database"),
 	})
-	if got, ok := in.Fields["a"]["Server.db"]; !ok || got != "" {
+	if got, ok := in.Fields["a"]["Server.db"]; !ok || got.Type != "" {
 		t.Errorf("a's Server.db = %q (present %v), want \"\": two structs type it differently", got, ok)
 	}
-	if got := in.Fields["b"]["Server.db"]; got != "Database" {
+	if got := in.Fields["b"]["Server.db"].Type; got != "Database" {
 		t.Errorf("b's Server.db = %q, want Database: both agree", got)
 	}
 }

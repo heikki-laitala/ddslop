@@ -827,7 +827,7 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 		return
 	case "struct_item":
 		e.addTypeName(n)
-		e.addStruct(n, test, own)
+		e.addStruct(n, sc, test, own)
 		return
 	case "enum_item":
 		e.addTypeName(n)
@@ -1332,7 +1332,7 @@ func (e *extractor) addImpl(n *sitter.Node, sc scope, test bool) {
 
 // addStruct records a struct with named fields; unit and tuple structs are
 // left out.
-func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
+func (e *extractor) addStruct(n *sitter.Node, sc scope, test bool, attrs []string) {
 	test = test || slices.ContainsFunc(attrs, isCfgTest) // #[cfg(test)] struct
 	name, body := n.ChildByFieldName("name"), n.ChildByFieldName("body")
 	if name == nil || body == nil || body.Kind() != "field_declaration_list" || n.HasError() {
@@ -1358,7 +1358,8 @@ func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
 			// A field of no type is recorded too, as unknown (""), so that a
 			// struct of the same name in another module cannot type it.
 			typ := rustType(ftype.Utf8Text(e.src), ty.Name, generic, e.visibleImports(n))
-			e.decls.FieldTypes = append(e.decls.FieldTypes, unit.FieldType{Struct: ty.Name, Field: fname.Utf8Text(e.src), Type: typ, Test: test})
+			e.decls.FieldTypes = append(e.decls.FieldTypes, unit.FieldType{Struct: ty.Name, Field: fname.Utf8Text(e.src), Type: typ,
+				File: e.path, Module: sc.module, Test: test})
 		}
 	})
 	e.decls.Structs = append(e.decls.Structs, ty)

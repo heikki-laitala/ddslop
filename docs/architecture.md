@@ -964,7 +964,9 @@ that crosses it.
   Store`, `Self`), a typed `let` or one bound to a struct literal, a
   field chain from the impl, a typed variable or a call's result
   (`self.ctx.db.query()`, `req.store.get()`, `make().inner.run()`, each
-  field typed by its struct's declaration in that struct's crate), or
+  field's type read where its struct is declared, in its file and inline
+  module, and of two types of one name in a crate the one in the module
+  the path names), or
   a value built by a call (`let s = Store::new()`, `Db::connect().await?`,
   a chained `Store::open()?.get()`, also through `map_err`, `context`,
   `unwrap` or `expect`, the last two unwrapping as `?` does, when the
@@ -1036,8 +1038,9 @@ as a break depends on the weights of both, so one of them came and went
 as review fixes changed which calls resolve. `check` reported the same
 candidates. Typing values built by calls then resolved 14,524 calls
 (14,322); the layers, breaks, helpers and `check` stayed the same.
-Following field chains past the impl's own fields resolved 101 more on
-the workspace (14,891 to 14,992) and showed two more real cycles, each
+Following field chains past the impl's own fields, each type read where
+its struct is declared, resolved 129 more on the workspace (14,891 to
+15,020) and 45 on the service, and showed two more real cycles, each
 reached through a field of a typed variable.
 
 ### Entry points

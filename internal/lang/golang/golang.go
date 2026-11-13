@@ -570,7 +570,7 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 					decls.Structs = append(decls.Structs, st)
 					for _, f := range st.Fields {
 						if typ := typeOf(f.Type, packages, generic[st.Name]); typ != "" {
-							decls.FieldTypes = append(decls.FieldTypes, unit.FieldType{Struct: st.Name, Field: f.Name, Type: typ, Test: test})
+							decls.FieldTypes = append(decls.FieldTypes, unit.FieldType{Struct: st.Name, Field: f.Name, Type: typ, File: path, Test: test})
 						}
 					}
 				}

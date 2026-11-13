@@ -447,8 +447,8 @@ func TestGoMethodCallsResolveByTheOperandsType(t *testing.T) {
 		fn("config.go", "Config.Read"),
 		fn("internal/store/db.go", "DB.Close"),
 	}
-	in := Inputs{Fields: map[string]map[string]string{
-		"api": {"Server.store": "example.com/app/internal/store.Store"},
+	in := Inputs{Fields: map[string]map[string]FieldType{
+		"api": {"Server.store": {Type: "example.com/app/internal/store.Store"}},
 	}, Modules: map[string]string{".": "example.com/app"}}
 	g := Build(in, units)
 	want := "[internal/store/db.go DB.Load api/cache.go Cache.Fill internal/store/store.go Store.Save api/file.go File.Flush config.go Config.Read]"
@@ -533,7 +533,7 @@ func TestRustMethodCallsResolveByTheOperandsType(t *testing.T) {
 		fn("a/src/other.rs", "Other::query"),
 		fn("a/src/thing.rs", "Thing::frobnicate"),
 	}
-	g := Build(Inputs{Fields: map[string]map[string]string{"a": {"Server.db": "Database"}}}, units)
+	g := Build(Inputs{Fields: map[string]map[string]FieldType{"a": {"Server.db": {Type: "Database", File: "a/src/server.rs"}}}}, units)
 	want := "[a/src/store.rs Store::save a/src/db.rs Database::query a/src/thing.rs Thing::frobnicate]"
 	if got := callees(g, "a/src/server.rs Server::run"); got != want {
 		t.Errorf("Server::run calls %s,\nwant %s", got, want)
@@ -959,13 +959,55 @@ func TestRustFieldChainsResolve(t *testing.T) {
 	in := Inputs{
 		Crates:    map[string]string{"a": "a"},
 		RustFiles: []string{"a/src/server.rs"},
-		Fields: map[string]map[string]string{"a": {
-			"Server.ctx": "crate::context::Context", "Context.db": "Db",
-			"Request.store": "Store", "Made.inner": "Inner",
+		Fields: map[string]map[string]FieldType{"a": {
+			"Server.ctx":    {Type: "crate::context::Context", File: "a/src/server.rs"},
+			"Context.db":    {Type: "Db", File: "a/src/context.rs"},
+			"Request.store": {Type: "Store", File: "a/src/request.rs"},
+			"Made.inner":    {Type: "Inner", File: "a/src/made.rs"},
 		}},
 	}
 	want := "[a/src/db.rs Db::query a/src/store.rs Store::get a/src/made.rs Made::make a/src/inner.rs Inner::run]"
 	if got := callees(Build(in, units), "a/src/server.rs Server::run"); got != want {
 		t.Errorf("Server::run calls %s,\nwant %s", got, want)
+	}
+}
+
+// A field's type is read where its struct is declared: db::Db written in
+// server.rs is server::db's Db, not a root db module's.
+func TestRustFieldTypesKeepTheirDeclaringModule(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run", unit.Call{Kind: unit.MethodCall, Field: "db", Name: "query"}),
+		fn("a/src/server/db.rs", "Db::query"),
+		fn("a/src/db.rs", "Db::query"), // a root db module's Db: not this one
+	}
+	in := Inputs{
+		Crates:    map[string]string{"a": "a"},
+		RustFiles: []string{"a/src/server.rs", "a/src/server/db.rs", "a/src/db.rs"},
+		Fields:    map[string]map[string]FieldType{"a": {"Server.db": {Type: "db::Db", File: "a/src/server.rs"}}},
+	}
+	if got, want := callees(Build(in, units), "a/src/server.rs Server::run"), "[a/src/server/db.rs Db::query]"; got != want {
+		t.Errorf("Server::run calls %s, want %s", got, want)
+	}
+}
+
+// Looking through a result adapter keeps the fields before it:
+// make().inner.unwrap().run() runs on inner's type, never on make()'s.
+func TestRustAdaptersKeepTheFieldPathBeforeThem(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/run.rs", "go",
+			unit.Call{Kind: unit.PathCall, Qualifier: "Made", Name: "make"},
+			unit.Call{Kind: unit.MethodCall, From: 1, Field: "inner", Name: "unwrap", Adapts: 2},
+			unit.Call{Kind: unit.MethodCall, From: 2, Name: "run"}),
+		{File: "a/src/made.rs", Name: "Made::make", Results: []string{"Made", "Made"}},
+		fn("a/src/made.rs", "Made::run"), // make()'s own run: never this
+		fn("a/src/inner.rs", "Inner::run"),
+	}
+	in := Inputs{
+		Crates:    map[string]string{"a": "a"},
+		RustFiles: []string{"a/src/run.rs"},
+		Fields:    map[string]map[string]FieldType{"a": {"Made.inner": {Type: "Inner", File: "a/src/made.rs"}}},
+	}
+	if got, want := callees(Build(in, units), "a/src/run.rs go"), "[a/src/made.rs Made::make a/src/inner.rs Inner::run]"; got != want {
+		t.Errorf("go calls %s, want %s", got, want)
 	}
 }

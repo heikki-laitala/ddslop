@@ -255,7 +255,10 @@ type Decls struct {
 // "example.com/app/store.Store".
 type FieldType struct {
 	Struct, Field, Type string
-	Test                bool
+	// File and Module are where the struct is declared: its file and, in
+	// Rust, the inline module within it, where a relative type is read.
+	File, Module string
+	Test         bool
 }
 
 // FuncType is a function type declaration: type command func(args
