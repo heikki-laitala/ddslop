@@ -88,14 +88,24 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		return restore
 	case "block":
 		// A for's pattern is in scope in its body alone, after the
-		// iterator.
+		// iterator. A block's use declarations hold throughout it.
 		restore := g.scope()
 		if p := n.Parent(); p != nil && p.Kind() == "for_expression" && sameNode(p.ChildByFieldName("body"), n) {
 			if pattern := p.ChildByFieldName("pattern"); pattern != nil {
 				g.forget(pattern, s.Src)
 			}
 		}
-		return restore
+		local := usesIn(n, s.Src)
+		if len(local) == 0 {
+			return restore
+		}
+		outer := maps.Clone(g.imports)
+		maps.Copy(g.imports, local)
+		return func() {
+			restore()
+			clear(g.imports)
+			maps.Copy(g.imports, outer)
+		}
 	case "if_expression", "while_expression":
 		// An if let's or while let's bindings hold from right after their
 		// value, through the chain's later operands and the body, until
@@ -811,9 +821,9 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 	if owner != "" {
 		name = owner + "::" + name
 	}
-	// The signature sees its module's imports; the body also those its
-	// own use declarations add.
-	g := grammar{self: unit.SimpleName(owner), generic: typeParameters(n, e.src), imports: e.visibleImports(n),
+	// The signature sees its module's imports; each block of the body also
+	// those its own use declarations add (see Visit).
+	g := grammar{self: unit.SimpleName(owner), generic: typeParameters(n, e.src), imports: maps.Clone(e.visibleImports(n)),
 		vars: map[string]string{}, entries: &map[[2]uint]map[string]string{}}
 	if impl := enclosingImpl(n); impl != nil {
 		maps.Copy(g.generic, typeParameters(impl, e.src))
@@ -830,11 +840,8 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 			}
 		}
 	}
-	if body := n.ChildByFieldName("body"); body != nil {
-		if local := usesIn(body, e.src); len(local) > 0 {
-			g.imports = maps.Clone(g.imports)
-			maps.Copy(g.imports, local)
-		}
+	if g.imports == nil {
+		g.imports = map[string]string{}
 	}
 	s := syntax.Flatten(n, e.src, g)
 	e.units = append(e.units, unit.Unit{
@@ -1218,9 +1225,10 @@ func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
 				Type: syntax.Compact(ftype.Utf8Text(e.src)),
 				Line: syntax.Line(f.StartPosition()),
 			})
-			if typ := rustType(ftype.Utf8Text(e.src), ty.Name, generic, e.visibleImports(n)); typ != "" {
-				e.decls.FieldTypes = append(e.decls.FieldTypes, unit.FieldType{Struct: ty.Name, Field: fname.Utf8Text(e.src), Type: typ, Test: test})
-			}
+			// A field of no type is recorded too, as unknown (""), so that a
+			// struct of the same name in another module cannot type it.
+			typ := rustType(ftype.Utf8Text(e.src), ty.Name, generic, e.visibleImports(n))
+			e.decls.FieldTypes = append(e.decls.FieldTypes, unit.FieldType{Struct: ty.Name, Field: fname.Utf8Text(e.src), Type: typ, Test: test})
 		}
 	})
 	e.decls.Structs = append(e.decls.Structs, ty)

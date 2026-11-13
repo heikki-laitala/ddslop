@@ -628,3 +628,17 @@ func TestRustQualifiedTypesStayInTheirCrate(t *testing.T) {
 		t.Errorf("Server::run calls %s,\nwant %s", got, want)
 	}
 }
+
+// model::Client may name a child module of the caller's crate: a root
+// that is one of the crate's modules stays in it; any other root is an
+// outside crate.
+func TestRustRelativeModulePathsStayInTheCallersCrate(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run", typed("model::Client", "send"), typed("reqwest::Client", "close")),
+		fn("a/src/model/client.rs", "Client::send"),
+		fn("a/src/model/client.rs", "Client::close"),
+	}
+	if got, want := callees(Build(Inputs{Crates: map[string]string{"a": "a"}}, units), "a/src/server.rs Server::run"), "[a/src/model/client.rs Client::send]"; got != want {
+		t.Errorf("Server::run calls %s, want %s", got, want)
+	}
+}
