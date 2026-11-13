@@ -1497,7 +1497,10 @@ on one, `String::from`) is `string`; anyhow's `bail!` and `anyhow!` are
 (`Fault::new(..)`) is no form, nor is an error made inside another
 macro, whose arguments the parser leaves as tokens. Binaries
 (`src/main.rs` and files under `src/bin/`) record no error values: their
-errors are printed, not matched by callers. Like wrapping, the concern
+errors are printed, not matched by callers. The adapter knows a binary
+by its path alone, so a module that only `main.rs` declares (`mod cli;`
+in `src/cli.rs`) or a `[[bin]]` at another path counts as library code;
+none of the measured codebases has one with string errors. Like wrapping, the concern
 has no idiomatic form, as variants and anyhow are both idiomatic, so a
 map without a convention names none.
 
