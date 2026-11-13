@@ -349,9 +349,11 @@ field (`s.store.Save()`, `unit.Call.Field`), whose type comes from the
 struct's declaration (`Decls.FieldTypes`), qualified by its own file's
 imports; a test file's fields are left out. Variables keep to their
 lexical scope: a block, statement or function literal that declares one
-restores the outer one when it ends. Such a call resolves to that type's
+restores the outer one when it ends, and a declaration takes effect
+after its value, so `x = x.Reset()` calls `Reset` on the old `x`. Such a call resolves to that type's
 method in its package: the directory its import path names under the
-`go.mod` whose module path starts it (the longest, for nested modules).
+`go.mod` whose module path starts it (the longest, for nested modules),
+or the `go.mod` above the analysed directory when it is inside a module.
 It counts as named, not guessed. A type from outside the repository's
 modules (`*sql.DB`, `strings.Builder`) resolves to nothing rather than
 to a repository method of the same name; a repository type without the
@@ -367,8 +369,8 @@ through fields, moved from the second layer to the bottom, and the map's
 shared helpers went from 1 to 7, all store methods both callers use. It
 also let `check` see two parallel flows: ingesting, updating and pushing
 a memory run one pipeline (real), and getting and deleting a document
-share only a thin handler's shape (arguable). On ddslop, 735 of 2986
-(725): `pattern` moved under `codemap`, which calls it.
+share only a thin handler's shape (arguable). On ddslop, 737 of 2997
+(727): `pattern` moved under `codemap`, which calls it.
 
 Setup-teardown is not built for Go: `defer x.Close()` is Go's own idiom
 for it (18 times in that service, 2 in ddslop), and transactions, the

@@ -131,6 +131,29 @@ func manifest(root, dir string) []byte {
 	return toml
 }
 
+// moduleAbove returns the import path of the directory root, from the
+// go.mod of a module root lies inside ("example.com/app/internal" for
+// root internal under example.com/app), or "".
+func moduleAbove(root string) string {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return ""
+	}
+	for dir := filepath.Dir(abs); ; dir = filepath.Dir(dir) {
+		gomod, err := os.ReadFile(filepath.Join(dir, "go.mod")) //nolint:gosec // a go.mod above the analysed root
+		if path := golang.ModulePath(gomod); err == nil && path != "" {
+			rel, err := filepath.Rel(dir, abs)
+			if err != nil {
+				return ""
+			}
+			return path + "/" + filepath.ToSlash(rel)
+		}
+		if dir == filepath.Dir(dir) {
+			return ""
+		}
+	}
+}
+
 // treeOrder orders a breadth-first slice depth first, each function right
 // after the function that called it, so indentation by depth reads as a
 // call tree. Callees keep their call order.
@@ -170,6 +193,11 @@ func graphInputs(root string, files []index.File) flow.Inputs {
 					break
 				}
 			}
+		}
+	}
+	if _, ok := in.Modules["."]; len(seen) > 0 && !ok {
+		if path := moduleAbove(root); path != "" {
+			in.Modules["."] = path
 		}
 	}
 	for _, f := range files {

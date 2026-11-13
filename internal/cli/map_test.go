@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -627,5 +628,19 @@ func TestMapLayersGoCallsThroughFieldsAndParameters(t *testing.T) {
 	}
 	if want := [][]string{{"api"}, {"internal/service"}, {"internal/store"}}; !reflect.DeepEqual(layers, want) {
 		t.Errorf("layers = %v, want api over service over store", layers)
+	}
+}
+
+// Mapping a subdirectory of a Go module still reads the module's go.mod
+// above it, so typed calls between its packages resolve.
+func TestMapOfASubdirectoryUsesTheModuleAboveIt(t *testing.T) {
+	root := repo(t, fieldService)
+	m := mapOf(t, filepath.Join(root, "internal")).Maps[0]
+	var layers [][]string
+	for _, l := range m.Layers {
+		layers = append(layers, l.Modules)
+	}
+	if want := [][]string{{"service"}, {"store"}}; !reflect.DeepEqual(layers, want) {
+		t.Errorf("layers = %v, want service over store", layers)
 	}
 }
