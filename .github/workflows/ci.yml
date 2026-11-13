@@ -49,15 +49,20 @@ jobs:
   latest-release:
     name: Latest release
     runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The latest published ddslop on this code, with no baseline: a
       # candidate it finds fails the job until it is fixed or marked
-      # ddslop:ignore with a reason.
+      # ddslop:ignore with a reason, and annotates the pull request as it
+      # does for users. A fork's token cannot upload, so its pull requests
+      # only fail the job.
       - uses: ./
         with:
           version: latest
-          upload-sarif: "false"
+          upload-sarif: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
 
   action:
     name: Action
