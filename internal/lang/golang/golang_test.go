@@ -988,6 +988,7 @@ func TestSave(t *testing.T) { fixture() }
 func BenchmarkSave(b *testing.B) {}
 func fixture() *Store { return nil }
 func Testify() {}
+func Testé() {}
 `
 	units, _, err := Parse("store/store_test.go", []byte(src))
 	if err != nil {
@@ -997,7 +998,7 @@ func Testify() {}
 	for _, u := range units {
 		got = append(got, fmt.Sprintf("%s case=%v", u.Name, u.TestCase))
 	}
-	if want := "TestSave case=true\nBenchmarkSave case=true\nfixture case=false\nTestify case=false"; strings.Join(got, "\n") != want {
+	if want := "TestSave case=true\nBenchmarkSave case=true\nfixture case=false\nTestify case=false\nTesté case=false"; strings.Join(got, "\n") != want {
 		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }

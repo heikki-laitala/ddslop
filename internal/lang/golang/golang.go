@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	gogrammar "github.com/tree-sitter/tree-sitter-go/bindings/go"
@@ -1028,7 +1029,8 @@ func ModulePath(gomod []byte) string {
 func isTestCase(name string) bool {
 	for _, prefix := range []string{"Test", "Benchmark", "Fuzz", "Example"} {
 		if rest, ok := strings.CutPrefix(name, prefix); ok {
-			return rest == "" || !unicode.IsLower(rune(rest[0]))
+			first, _ := utf8.DecodeRuneInString(rest)
+			return rest == "" || !unicode.IsLower(first)
 		}
 	}
 	return false

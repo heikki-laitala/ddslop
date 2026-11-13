@@ -77,3 +77,24 @@ func TestHelpersCountInTheAnalysedLines(t *testing.T) {
 		t.Errorf("health = %+v, want the two helpers' lines among the analysed ones", h)
 	}
 }
+
+// Go's testdata holds fixture programs, not helpers: copies there are not
+// reported. Helpers compared count as analysed units, test cases as
+// skipped.
+func TestTestdataIsNoHelperAndHelpersCountAsAnalysed(t *testing.T) {
+	fixture := "package fixture\n\nfunc build() []int {\n\tvar out []int\n\tfor i := 0; i < 10; i++ {\n\t\tif i%2 == 0 {\n\t\t\tout = append(out, i*i)\n\t\t} else {\n\t\t\tout = append(out, i+1)\n\t\t}\n\t}\n\tfor j := range out {\n\t\tout[j] += len(out)\n\t}\n\treturn out\n}\n"
+	files := testHelperCrate()
+	files["go.mod"] = "module example.com/app\n"
+	files["fix/testdata/a/a.go"] = fixture
+	files["fix/testdata/b/b.go"] = fixture
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	r := decode(t, stdout)
+	if len(r.Candidates) != 1 || r.Candidates[0].Occurrences[0].Name != "fixture" {
+		t.Errorf("candidates = %+v, want the Rust helpers alone, not the testdata fixtures", r.Candidates)
+	}
+	// Production: open, place. Helpers compared: fixture, seeded. Skipped
+	// test code: the two saves and the two testdata fixtures.
+	if r.Summary.Units != 4 || r.Summary.TestUnits != 4 {
+		t.Errorf("summary = %+v, want 4 units analysed (2 production, 2 helpers) and 4 test units skipped", r.Summary)
+	}
+}
