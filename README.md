@@ -267,9 +267,9 @@ steps:
 Pin an exact [release](https://github.com/heikki-laitala/ddslop/releases)
 such as `@v1.0.0` to stay on one. Other inputs: `path`, `fail-over`
 (fail only above this duplication percentage), `args` and `upload-sarif`.
-A pull request from a fork cannot upload to code scanning, so there, and
-with `upload-sarif: "false"`, candidates show as workflow annotations
-instead. Elsewhere, use `ddslop check --format sarif`.
+A pull request from a fork or Dependabot cannot upload to code scanning,
+so there, and with `upload-sarif: "false"`, candidates show as workflow
+annotations instead. Elsewhere, use `ddslop check --format sarif`.
 
 Mark intended duplication in the code, with a reason:
 
