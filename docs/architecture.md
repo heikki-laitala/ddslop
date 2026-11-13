@@ -934,10 +934,13 @@ that crosses it.
   type parameters, trait objects and primitives no type, and drops a
   variable's type where a `let`, a pattern (`match`, `if let`, `for`) or a
   closure parameter shadows it, until its block ends; a `let` takes effect
-  after its value. A field whose struct name two modules of a crate
-  declare with different types is unknown. A type with no methods in the
-  repository (`Vec`, `Option`, serde's `Value`) is from outside it: calls
-  on it resolve to nothing. An untyped `x.m()`, or one on a repository
+  after its value, and a `for` pattern or an `if let`'s binding in its
+  body alone. A field whose struct name two modules of a crate
+  declare with different types is unknown. A type keeps its path,
+  qualified by the file's `use` imports (`Client` imported from reqwest
+  is `reqwest::Client`): one rooted in a crate outside the workspace, or
+  with no methods in the repository (`Vec`, `Option`, serde's `Value`),
+  is from outside it, and calls on it resolve to nothing. An untyped `x.m()`, or one on a repository
   type without that method (a trait's default, perhaps), resolves only
   when one method of that name exists, and never for common
   standard-library method names (`as_ref`, `len`, `push`, `find`,
@@ -960,17 +963,19 @@ On a large Rust codebase, 84% of free calls to repository functions
 resolve; most unresolved method and path calls are standard-library calls
 whose names the repository also defines.
 
-Typing method calls, measured on `lns-inference-router`: of the method
-calls with a stated operand type, 4,525 are on types with no methods in
-the repository (`Vec` 1,009, `Option` 849, serde's `Value`, maps,
-`Formatter`), which no longer get guessed, and 1,657 reach a method of
-the type. Resolved calls went from 13,770 to 14,348 of 73,038. In
-`lns_ledger` (138 modules) the layers went from 15 to 12, the shared
-helpers gained methods reached through fields (`observe`, `is_open`,
-`actions`), and three upward calls appeared, each real: `records` reads
-a credit lot's `arguments()` while `credit` builds on `records`, `schema`
-calls `missing()` on a `reload::Decided` it is given, and `monitor`
-reaches `pause` the same way. `check` reported the same candidates.
+Typing method calls, measured on `lns-inference-router`: most method
+calls with a stated operand type are on types from outside the
+repository (`Vec` 1,009, `Option` 849, serde's `Value`, maps,
+`Formatter`), which no longer get guessed. Resolved calls went from
+13,770 to 14,314 of 73,038. In `lns_ledger` (138 modules) the layers
+went from 15 to 12, the shared helpers gained methods reached through
+fields (`observe`, `is_open`, `actions`), and two upward calls appeared,
+both real: `records` reads a credit lot's `arguments()` while `credit`
+builds on `records`, and `schema` calls `missing()` on a
+`reload::Decided` it is given. A third, from `monitor` to `pause`, came
+from a call on an outside type sharing a name with one of `pause`'s,
+and went once types kept their path. `check` reported the same
+candidates.
 
 ### Entry points
 

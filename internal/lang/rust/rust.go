@@ -26,6 +26,7 @@ var language = sitter.NewLanguage(rustgrammar.Language())
 type grammar struct {
 	self    string
 	generic map[string]bool
+	imports map[string]string
 	vars    map[string]string
 }
 
@@ -76,22 +77,52 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 			g.forget(params, s.Src)
 		}
 		return func() { s.Closures--; restore() }
-	case "match_arm", "for_expression":
+	case "match_arm":
 		restore := g.scope()
 		if pattern := n.ChildByFieldName("pattern"); pattern != nil {
 			g.forget(pattern, s.Src)
 		}
 		return restore
-	case "let_condition":
-		// if let and while let: the binding lasts until the if or while
-		// ends, whose scope holds it.
-		if pattern := n.ChildByFieldName("pattern"); pattern != nil {
-			g.forget(pattern, s.Src)
+	case "block":
+		// A for's pattern and an if let's or while let's bindings are in
+		// scope in its body alone, after the iterator or value, and not
+		// in an else.
+		restore := g.scope()
+		switch p := n.Parent(); {
+		case p == nil:
+		case p.Kind() == "for_expression" && sameNode(p.ChildByFieldName("body"), n):
+			if pattern := p.ChildByFieldName("pattern"); pattern != nil {
+				g.forget(pattern, s.Src)
+			}
+		case (p.Kind() == "if_expression" && sameNode(p.ChildByFieldName("consequence"), n)) ||
+			(p.Kind() == "while_expression" && sameNode(p.ChildByFieldName("body"), n)):
+			if condition := p.ChildByFieldName("condition"); condition != nil {
+				g.forgetLets(condition, s.Src)
+			}
 		}
-	case "block", "if_expression", "while_expression":
-		return g.scope()
+		return restore
 	}
 	return nil
+}
+
+// sameNode reports whether a and b are the same syntax node.
+func sameNode(a, b *sitter.Node) bool {
+	return a != nil && b != nil && a.StartByte() == b.StartByte() && a.EndByte() == b.EndByte()
+}
+
+// forgetLets drops the bindings of a condition's let patterns, also in a
+// chain (if let A(x) = a && let B(y) = b).
+func (g grammar) forgetLets(condition *sitter.Node, src []byte) {
+	switch condition.Kind() {
+	case "let_condition":
+		if pattern := condition.ChildByFieldName("pattern"); pattern != nil {
+			g.forget(pattern, src)
+		}
+	case "let_chain":
+		for i := uint(0); i < condition.NamedChildCount(); i++ {
+			g.forgetLets(condition.NamedChild(i), src)
+		}
+	}
 }
 
 // scope opens a lexical scope: the bindings made in it are undone by the
@@ -157,7 +188,7 @@ func (g grammar) forget(pattern *sitter.Node, src []byte) {
 // typeOf returns the type a method call on a value of the written type
 // reaches, as a simple name (see rustType).
 func (g grammar) typeOf(written string) string {
-	return rustType(written, g.self, g.generic)
+	return rustType(written, g.self, g.generic, g.imports)
 }
 
 // wrappers are the smart pointers a method call sees through: x.m() on
@@ -167,12 +198,14 @@ var wrappers = map[string]bool{"Box": true, "Arc": true, "Rc": true}
 // lifetime matches a lifetime at the start of a reference's type.
 var lifetime = regexp.MustCompile(`^'\w+\s*`)
 
-// rustType returns the simple name of the type whose methods a value of
-// the written type has, or "": references and mut are stripped, Box, Arc
-// and Rc looked through, Self is the impl's type (self), and type
-// parameters (generic), trait objects (dyn, impl), tuples, slices,
-// function pointers and lower-case (primitive) types give "".
-func rustType(written, self string, generic map[string]bool) string {
+// rustType returns the path of the type whose methods a value of the
+// written type has, without type arguments, or "": references and mut
+// are stripped, Box, Arc and Rc looked through, Self is the impl's type
+// (self), a name the file imports is its import path (Client from use
+// reqwest::Client is reqwest::Client), and type parameters (generic),
+// trait objects (dyn, impl), tuples, slices, function pointers and
+// lower-case (primitive) types give "".
+func rustType(written, self string, generic map[string]bool, imports map[string]string) string {
 	t := strings.TrimSpace(written)
 	for {
 		switch {
@@ -186,28 +219,33 @@ func rustType(written, self string, generic map[string]bool) string {
 			name := unit.SimpleName(t)
 			open := strings.Index(t, "<")
 			if !wrappers[name] || open < 0 || !strings.HasSuffix(t, ">") {
-				return simpleType(t, self, generic)
+				return typePath(t, self, generic, imports)
 			}
 			t = strings.TrimSpace(firstTypeArgument(t[open+1 : len(t)-1]))
 		}
 	}
 }
 
-// simpleType returns a type path's simple name (see rustType).
-func simpleType(t, self string, generic map[string]bool) string {
+// typePath returns a type's path as rustType writes it.
+func typePath(t, self string, generic map[string]bool, imports map[string]string) string {
 	for _, other := range []string{"dyn ", "impl ", "(", "[", "fn", "*"} {
 		if strings.HasPrefix(t, other) {
 			return ""
 		}
 	}
-	name := unit.SimpleName(t)
-	if name == "Self" {
-		name = self
+	if i := strings.Index(t, "<"); i >= 0 {
+		t = t[:i]
 	}
-	if name == "" || generic[name] || !isUpper(name) {
+	path := strings.ReplaceAll(t, " ", "")
+	switch name := unit.SimpleName(path); {
+	case path == "Self":
+		return self
+	case name == "" || generic[path] || !isUpper(name):
 		return ""
+	case !strings.Contains(path, "::") && imports[path] != "":
+		return imports[path]
 	}
-	return name
+	return path
 }
 
 // firstTypeArgument returns the first of comma-separated type arguments,
@@ -484,7 +522,7 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var decls unit.Decls
 	var marked error
 	err := syntax.Parse(language, src, func(root *sitter.Node) {
-		e := extractor{path: path, src: src}
+		e := extractor{path: path, src: src, imports: importsOf(root, src)}
 		e.walk(root, scope{}, IsTestPath(path), nil)
 		units, decls = e.units, e.decls
 		marked = syntax.MarkIgnored(root, src, units, &decls)
@@ -522,35 +560,40 @@ func Traits(src []byte) []string {
 // refers to: "use a::b::{c, d as e}" gives c -> a::b::c and e -> a::b::d.
 // Wildcard imports and imports inside #[cfg(test)] modules are skipped.
 func Imports(src []byte) map[string]string {
+	var out map[string]string
+	_ = syntax.Parse(language, src, func(root *sitter.Node) { out = importsOf(root, src) })
+	return out
+}
+
+// importsOf is Imports for a parsed file's root.
+func importsOf(root *sitter.Node, src []byte) map[string]string {
 	out := map[string]string{}
-	_ = syntax.Parse(language, src, func(root *sitter.Node) {
-		var walk func(n *sitter.Node)
-		walk = func(n *sitter.Node) {
-			if n.Kind() == "use_declaration" {
-				if arg := n.ChildByFieldName("argument"); arg != nil {
-					collectUse(arg, "", src, out)
-				}
-				return
+	var walk func(n *sitter.Node)
+	walk = func(n *sitter.Node) {
+		if n.Kind() == "use_declaration" {
+			if arg := n.ChildByFieldName("argument"); arg != nil {
+				collectUse(arg, "", src, out)
 			}
-			var attrs []string
-			for i := uint(0); i < n.ChildCount(); i++ {
-				child := n.Child(i)
-				switch {
-				case child.Kind() == "attribute_item":
-					attrs = append(attrs, child.Utf8Text(src))
-					continue
-				case child.IsExtra():
-					continue
-				case child.Kind() == "mod_item" && slices.ContainsFunc(attrs, isCfgTest):
-					// test modules' imports are not dependencies of the code
-				default:
-					walk(child)
-				}
-				attrs = nil
-			}
+			return
 		}
-		walk(root)
-	})
+		var attrs []string
+		for i := uint(0); i < n.ChildCount(); i++ {
+			child := n.Child(i)
+			switch {
+			case child.Kind() == "attribute_item":
+				attrs = append(attrs, child.Utf8Text(src))
+				continue
+			case child.IsExtra():
+				continue
+			case child.Kind() == "mod_item" && slices.ContainsFunc(attrs, isCfgTest):
+				// test modules' imports are not dependencies of the code
+			default:
+				walk(child)
+			}
+			attrs = nil
+		}
+	}
+	walk(root)
 	return out
 }
 
@@ -600,10 +643,11 @@ func lastSegment(path string) string {
 }
 
 type extractor struct {
-	path  string
-	src   []byte
-	units []unit.Unit
-	decls unit.Decls
+	path    string
+	src     []byte
+	imports map[string]string // the file's use imports, as Imports gives them
+	units   []unit.Unit
+	decls   unit.Decls
 }
 
 // walk finds function items, tracking the enclosing impl or trait name and
@@ -714,7 +758,7 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 	if owner != "" {
 		name = owner + "::" + name
 	}
-	g := grammar{self: unit.SimpleName(owner), generic: typeParameters(n, e.src), vars: map[string]string{}}
+	g := grammar{self: unit.SimpleName(owner), generic: typeParameters(n, e.src), imports: e.imports, vars: map[string]string{}}
 	if impl := enclosingImpl(n); impl != nil {
 		maps.Copy(g.generic, typeParameters(impl, e.src))
 	}
@@ -1112,7 +1156,7 @@ func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
 				Type: syntax.Compact(ftype.Utf8Text(e.src)),
 				Line: syntax.Line(f.StartPosition()),
 			})
-			if typ := rustType(ftype.Utf8Text(e.src), ty.Name, generic); typ != "" {
+			if typ := rustType(ftype.Utf8Text(e.src), ty.Name, generic, e.imports); typ != "" {
 				e.decls.FieldTypes = append(e.decls.FieldTypes, unit.FieldType{Struct: ty.Name, Field: fname.Utf8Text(e.src), Type: typ, Test: test})
 			}
 		}
