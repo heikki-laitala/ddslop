@@ -77,7 +77,7 @@ type Inputs struct {
 	// RustFiles are the Rust files analysed, functions or not: their
 	// paths name their crates' modules.
 	RustFiles []string
-	// Impls are the Rust trait implementations of the non-test code.
+	// Impls are the Rust trait implementations of the code in the graph.
 	Impls []unit.Impl
 }
 
@@ -304,7 +304,7 @@ func (ix index) resolveRust(units []unit.Unit, caller, home unit.Unit, typ, meth
 		if !inRepo {
 			return -1, true
 		}
-		return ix.resolveTrait(units, name, dir, method), true
+		return ix.resolveTrait(units, name, dir, method)
 	}
 	if !ix.owners[name] || !inRepo {
 		return -1, true
@@ -347,8 +347,10 @@ func (ix index) resolveRust(units []unit.Unit, caller, home unit.Unit, typ, meth
 // implementation leaves it out. Its implementations are in its crate or
 // in crates importing from it; another crate's trait of the name is
 // another trait. With several implementations, which runs is not known:
-// -1.
-func (ix index) resolveTrait(units []unit.Unit, trait, dir, method string) int {
+// -1. A method neither the trait nor an implementation declares is
+// another trait's, such as a supertrait's: not done, for the caller to
+// guess by name.
+func (ix index) resolveTrait(units []unit.Unit, trait, dir, method string) (int, bool) {
 	sees := func(crate string) bool { return crate == dir || ix.deps[crate][dir] }
 	impls := 0
 	for _, crate := range ix.impls[trait] {
@@ -365,10 +367,13 @@ func (ix index) resolveTrait(units []unit.Unit, trait, dir, method string) int {
 			return units[u].Trait != "" || CrateOf(units[u].File) != dir
 		})...)
 	}
-	if len(cands) != 1 {
-		return -1
+	switch len(cands) {
+	case 0:
+		return -1, false
+	case 1:
+		return cands[0], true
 	}
-	return cands[0]
+	return -1, true
 }
 
 // followFields follows a Rust field path (ctx.db) from a type written

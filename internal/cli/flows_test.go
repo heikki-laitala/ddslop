@@ -199,7 +199,7 @@ func TestGraphInputsLeaveOutTestFieldTypes(t *testing.T) {
 		{Path: "api/server.go", Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "store", Type: "Store"}}}}},
 		{Path: "api/server_test.go", Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "store", Type: "Fake", Test: true}}}}},
 	}
-	if got := graphInputs(t.TempDir(), files).Fields["api"]["Server.store"].Type; got != "Store" {
+	if got := graphInputs(t.TempDir(), false, files).Fields["api"]["Server.store"].Type; got != "Store" {
 		t.Errorf("Server.store = %q, want the production type Store", got)
 	}
 }
@@ -210,7 +210,7 @@ func TestGraphInputsLeaveFieldsOfCollidingStructsUntyped(t *testing.T) {
 	fields := func(path, typ string) index.File {
 		return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "db", Type: typ}}}}}
 	}
-	in := graphInputs(t.TempDir(), []index.File{
+	in := graphInputs(t.TempDir(), false, []index.File{
 		fields("a/src/one.rs", "Database"), fields("a/src/two.rs", "Cache"),
 		fields("b/src/one.rs", "Database"), fields("b/src/two.rs", "Database"),
 	})
@@ -231,7 +231,7 @@ func TestMarkTestMarksFieldTypes(t *testing.T) {
 }
 
 func TestGraphInputsListRustFilesWithoutFunctions(t *testing.T) {
-	in := graphInputs(t.TempDir(), []index.File{{Path: "a/src/model.rs"}, {Path: "a/src/lib.rs"}, {Path: "web/x.go"}})
+	in := graphInputs(t.TempDir(), false, []index.File{{Path: "a/src/model.rs"}, {Path: "a/src/lib.rs"}, {Path: "web/x.go"}})
 	if got := fmt.Sprint(in.RustFiles); got != "[a/src/model.rs a/src/lib.rs]" {
 		t.Errorf("RustFiles = %s, want both Rust files", got)
 	}
@@ -244,7 +244,7 @@ func TestGraphInputsLeaveRelativeFieldTypesOfCollidingStructsUntyped(t *testing.
 	field := func(path, typ string) index.File {
 		return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "db", Type: typ, File: path}}}}}
 	}
-	in := graphInputs(t.TempDir(), []index.File{
+	in := graphInputs(t.TempDir(), false, []index.File{
 		field("a/src/one.rs", "Db"), field("a/src/two.rs", "Db"),
 		field("b/src/one.rs", "crate::db::Db"), field("b/src/two.rs", "crate::db::Db"),
 	})
@@ -262,7 +262,7 @@ func TestGraphInputsKeepGoFieldTypesOfBuildVariants(t *testing.T) {
 	field := func(path string) index.File {
 		return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "db", Type: "Store", File: path}}}}}
 	}
-	in := graphInputs(t.TempDir(), []index.File{field("api/server_linux.go"), field("api/server_windows.go")})
+	in := graphInputs(t.TempDir(), false, []index.File{field("api/server_linux.go"), field("api/server_windows.go")})
 	if got := in.Fields["api"]["Server.db"].Type; got != "Store" {
 		t.Errorf("Server.db = %q, want Store: both build variants agree", got)
 	}
@@ -275,7 +275,7 @@ func TestGraphInputsKeepWhatUnwrappingAFieldLeaves(t *testing.T) {
 		return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{
 			{Struct: "Server", Field: "db", Type: "Option", Unwrapped: unwrapped, File: "x/src/lib.rs"}}}}}
 	}
-	in := graphInputs(t.TempDir(), []index.File{field("a/src/lib.rs", "crate::Db"), field("b/src/one.rs", "crate::Db"), field("b/src/one.rs", "crate::Cache")})
+	in := graphInputs(t.TempDir(), false, []index.File{field("a/src/lib.rs", "crate::Db"), field("b/src/one.rs", "crate::Db"), field("b/src/one.rs", "crate::Cache")})
 	if got := in.Fields["a"]["Server.db"].Unwrapped; got != "crate::Db" {
 		t.Errorf("a's Server.db unwraps to %q, want crate::Db", got)
 	}
@@ -287,11 +287,22 @@ func TestGraphInputsKeepWhatUnwrappingAFieldLeaves(t *testing.T) {
 // A test's fake implementation of a trait is not one the non-test code
 // calls through.
 func TestGraphInputsListNonTestImpls(t *testing.T) {
-	in := graphInputs(t.TempDir(), []index.File{{Path: "a/src/store.rs", Parsed: index.Parsed{Decls: unit.Decls{Impls: []unit.Impl{
+	in := graphInputs(t.TempDir(), false, []index.File{{Path: "a/src/store.rs", Parsed: index.Parsed{Decls: unit.Decls{Impls: []unit.Impl{
 		{File: "a/src/store.rs", Trait: "Store", Type: "PgStore"},
 		{File: "a/src/store.rs", Trait: "Store", Type: "Fake", Test: true},
 	}}}}})
 	if got := fmt.Sprint(in.Impls); got != fmt.Sprint([]unit.Impl{{File: "a/src/store.rs", Trait: "Store", Type: "PgStore"}}) {
 		t.Errorf("Impls = %s, want PgStore's only", got)
+	}
+}
+
+// With --tests the graph holds test code, so it counts the test code's
+// implementations too.
+func TestGraphInputsWithTestsListTestImpls(t *testing.T) {
+	in := graphInputs(t.TempDir(), true, []index.File{{Path: "a/src/store.rs", Parsed: index.Parsed{Decls: unit.Decls{Impls: []unit.Impl{
+		{File: "a/src/store.rs", Trait: "Store", Type: "Fake", Test: true},
+	}}}}})
+	if len(in.Impls) != 1 {
+		t.Errorf("Impls = %v, want the test's Fake", in.Impls)
 	}
 }

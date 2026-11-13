@@ -992,7 +992,9 @@ that crosses it.
   implementation in its crate or a crate importing from it, or the
   trait's default when that implementation leaves it out; with several,
   which one runs is not known, and the call resolves to nothing rather
-  than to a method guessed by its name. It
+  than to a method guessed by its name. A method neither the trait nor
+  an implementation declares (a supertrait's) is guessed by its name, as
+  supertraits are not followed. It
   drops a
   variable's type where a `let`, a pattern (`match`, `if let`, `for`) or a
   closure parameter shadows it, until its block ends, except that `Some(x)`
@@ -1063,7 +1065,7 @@ and binding `Some(x)` and `Ok(x)` to what unwrapping a call leaves
 resolved 109 more calls by type rather than by name alone there
 (13,607 to 13,716) and 13 on the service (2,769 to 2,782); with calls
 on traits of several implementations no longer guessed, all resolved
-calls went from 15,057 to 15,081. `check` reported the same
+calls went from 15,057 to 15,085. `check` reported the same
 candidates.
 
 ### Entry points

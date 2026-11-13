@@ -660,7 +660,7 @@ func cycleGraph(g *flow.Graph, root string, files []index.File, units []unit.Uni
 	if !tests {
 		return g
 	}
-	return flow.Build(graphInputs(root, files), units)
+	return flow.Build(graphInputs(root, true, files), units)
 }
 
 // appendCycle adds a cycle closed by the calls at sites, unless a
@@ -827,7 +827,7 @@ func callGraph(root string, files []index.File) (*flow.Graph, map[string]bool) {
 			}
 		}
 	}
-	return flow.Build(graphInputs(root, files), units), traits
+	return flow.Build(graphInputs(root, false, files), units), traits
 }
 
 // families finds the parallel-flow families among the entry points,
