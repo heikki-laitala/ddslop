@@ -118,3 +118,36 @@ func TestHelperCopiesLeaveNearMissFamiliesAlone(t *testing.T) {
 		t.Errorf("kinds = %s, want the near miss and the helper copies, no block clone repeating the near miss", got)
 	}
 }
+
+// The same shape copied in production and among test helpers gives two
+// candidates, each with a fingerprint of its own.
+func TestHelperCopiesHaveTheirOwnFingerprint(t *testing.T) {
+	root := repo(t, map[string]string{
+		"src/a.rs":    users,
+		"src/b.rs":    users,
+		"tests/h1.rs": users,
+		"tests/h2.rs": users,
+	})
+	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+	r := decode(t, stdout)
+	if len(r.Candidates) != 2 || r.Candidates[0].Fingerprint == r.Candidates[1].Fingerprint {
+		var fps []string
+		for _, c := range r.Candidates {
+			fps = append(fps, c.Fingerprint)
+		}
+		t.Errorf("fingerprints = %v, want two candidates with different fingerprints", fps)
+	}
+}
+
+// Rust reserves no testdata directory: helpers there are helpers.
+func TestRustHelpersUnderTestdataCount(t *testing.T) {
+	root := repo(t, map[string]string{
+		"src/a.rs":                      "pub fn a() {}\n",
+		"tests/testdata/support.rs":     users,
+		"tests/testdata/support_two.rs": users,
+	})
+	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
+	if r := decode(t, stdout); len(r.Candidates) != 1 {
+		t.Errorf("candidates = %+v, want the Rust helpers under tests/testdata reported", r.Candidates)
+	}
+}
