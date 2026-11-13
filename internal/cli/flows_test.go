@@ -202,3 +202,29 @@ func TestGraphInputsLeaveOutTestFieldTypes(t *testing.T) {
 		t.Errorf("Server.store = %q, want the production type Store", got)
 	}
 }
+
+// Two modules of a Rust crate may declare structs of one name: a field
+// they type differently is unknown rather than either's.
+func TestGraphInputsLeaveFieldsOfCollidingStructsUntyped(t *testing.T) {
+	fields := func(path, typ string) index.File {
+		return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "db", Type: typ}}}}}
+	}
+	in := graphInputs(t.TempDir(), []index.File{
+		fields("a/src/one.rs", "Database"), fields("a/src/two.rs", "Cache"),
+		fields("b/src/one.rs", "Database"), fields("b/src/two.rs", "Database"),
+	})
+	if got, ok := in.Fields["a"]["Server.db"]; !ok || got != "" {
+		t.Errorf("a's Server.db = %q (present %v), want \"\": two structs type it differently", got, ok)
+	}
+	if got := in.Fields["b"]["Server.db"]; got != "Database" {
+		t.Errorf("b's Server.db = %q, want Database: both agree", got)
+	}
+}
+
+func TestMarkTestMarksFieldTypes(t *testing.T) {
+	f := index.File{Path: "a/src/tests/helpers.rs", Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Fake", Field: "db", Type: "Database"}}}}}
+	markTest(&f)
+	if !f.Decls.FieldTypes[0].Test {
+		t.Error("field type not marked as test code")
+	}
+}
