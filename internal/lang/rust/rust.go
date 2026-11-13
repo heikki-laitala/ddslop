@@ -871,8 +871,8 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 		childTest := test
 		switch child.Kind() {
 		case "function_item":
-			childTest = test || slices.ContainsFunc(attrs, isTestAttr)
-		case "mod_item":
+			childTest = test || slices.ContainsFunc(attrs, isTestAttr) || slices.ContainsFunc(attrs, isCfgTest)
+		case "mod_item", "impl_item":
 			childTest = test || slices.ContainsFunc(attrs, isCfgTest)
 		}
 		e.walk(child, sc, childTest, attrs)

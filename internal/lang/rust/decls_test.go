@@ -1182,3 +1182,30 @@ fn b() {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+// #[cfg(test)] on a function or an impl block limits it to test builds,
+// as on a module: test code.
+func TestCfgTestFunctionsAndImplsAreTestCode(t *testing.T) {
+	src := `pub fn real() {}
+
+#[cfg(test)]
+pub fn fake_store() {}
+
+#[cfg(test)]
+impl Store {
+    pub fn fake() -> Self { Store }
+}
+
+impl Store {
+    pub fn real_one() {}
+}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		got = append(got, fmt.Sprintf("%s test=%v", u.Name, u.Test))
+	}
+	want := "real test=false\nfake_store test=true\nStore::fake test=true\nStore::real_one test=false"
+	if strings.Join(got, "\n") != want {
+		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
