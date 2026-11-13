@@ -240,13 +240,13 @@ mod tests {
 		traits = append(traits, fmt.Sprintf("%s %d-%d public=%v", tr.Name, tr.StartLine, tr.EndLine, tr.Public))
 	}
 	for _, im := range decls.Impls {
-		impls = append(impls, fmt.Sprintf("%s for %s %d-%d blanket=%v test=%v", im.Trait, im.Type, im.StartLine, im.EndLine, im.Blanket, im.Test))
+		impls = append(impls, fmt.Sprintf("%s (%s) for %s %d-%d blanket=%v test=%v", im.Trait, im.TraitPath, im.Type, im.StartLine, im.EndLine, im.Blanket, im.Test))
 	}
 	wantTraits := "DirectoryStore 1-3 public=true\nIo 4-4 public=false"
-	wantImpls := "DirectoryStore for DirectorySession 11-13 blanket=false test=false\n" +
-		"Io for T 14-14 blanket=true test=false\n" +
-		"Write for Buffer 15-15 blanket=false test=false\n" +
-		"DirectoryStore for Fake 20-20 blanket=false test=true"
+	wantImpls := "DirectoryStore (DirectoryStore) for DirectorySession 11-13 blanket=false test=false\n" +
+		"Io (Io) for T 14-14 blanket=true test=false\n" +
+		"Write (io::Write) for Buffer 15-15 blanket=false test=false\n" +
+		"DirectoryStore (super::DirectoryStore) for Fake 20-20 blanket=false test=true"
 	if got := strings.Join(traits, "\n"); got != wantTraits {
 		t.Errorf("traits:\n%s\nwant:\n%s", got, wantTraits)
 	}
@@ -1393,6 +1393,10 @@ func TestUnwrappingPatternsBindTheCallsUnwrappedResult(t *testing.T) {
             i.save();
         }
     }
+    let value = find();
+    if let Some(value) = value {
+        value.save();
+    }
 }
 `
 	calls := byName(t, mustUnits(t, src), "run").Calls
@@ -1414,9 +1418,10 @@ func TestUnwrappingPatternsBindTheCallsUnwrappedResult(t *testing.T) {
 		"11 from=load result=1",
 		"12 from=- result=0", // the error: not what ? leaves
 		"16 from=find result=1",
-		"19 from=- result=0", // unwrapped twice: no position says
-		"22 from=- result=0", // a tuple inside
-		"27 from=- result=0", // an imported variant named Some
+		"19 from=- result=0",    // unwrapped twice: no position says
+		"22 from=- result=0",    // a tuple inside
+		"27 from=- result=0",    // an imported variant named Some
+		"32 from=find result=1", // the outer value, shadowed only inside
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

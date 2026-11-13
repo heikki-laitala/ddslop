@@ -1147,3 +1147,23 @@ func TestRustTraitCallsToOtherTraitsMethodsAreGuessed(t *testing.T) {
 		t.Errorf("ByName = %s, want %s: found by its name", got, want)
 	}
 }
+
+// An implementation written with the trait's crate path (impl
+// api::Store for Disk, no use) is one of that crate's trait's.
+func TestRustTraitImplsWrittenWithTheCratePathCount(t *testing.T) {
+	units := []unit.Unit{
+		fn("api/src/server.rs", "Server::run", typed("dyn Store", "put")),
+		impl("api/src/mem.rs", "Mem::put", "Store"),
+		impl("disk/src/disk.rs", "Disk::put", "Store"),
+	}
+	in := Inputs{
+		Crates: map[string]string{"api": "api", "disk": "disk"},
+		Impls: []unit.Impl{
+			{File: "api/src/mem.rs", Trait: "Store", TraitPath: "Store", Type: "Mem"},
+			{File: "disk/src/disk.rs", Trait: "Store", TraitPath: "api::Store", Type: "Disk"},
+		},
+	}
+	if got := callees(Build(in, units), "api/src/server.rs Server::run"); got != "[]" {
+		t.Errorf("Server::run calls %s, want nothing: two implementations", got)
+	}
+}

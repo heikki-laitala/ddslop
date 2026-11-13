@@ -240,6 +240,15 @@ func callResult(v *sitter.Node) (produced, bool) {
 // A value unwrapped already (find()?) has no position for unwrapping it
 // again.
 func (g grammar) bind(pattern, value *sitter.Node, src []byte) {
+	// The value is read where the pattern is not yet bound:
+	// if let Some(value) = value.
+	var op syntax.Operand
+	if value != nil {
+		op = g.valueOf(value, src)
+		if value.Kind() == "identifier" {
+			op = g.vars[value.Utf8Text(src)]
+		}
+	}
 	g.forget(pattern, src)
 	if pattern.Kind() == "match_pattern" && pattern.NamedChildCount() > 0 {
 		pattern = pattern.NamedChild(0) // an arm's, before any guard
@@ -252,10 +261,6 @@ func (g grammar) bind(pattern, value *sitter.Node, src []byte) {
 	// another enum's.
 	if variant == nil || inner.Kind() != "identifier" || !unwrapsTo[variant.Utf8Text(src)] || g.imports[variant.Utf8Text(src)] != "" {
 		return
-	}
-	op := g.valueOf(value, src)
-	if value.Kind() == "identifier" {
-		op = g.vars[value.Utf8Text(src)]
 	}
 	if op.From > 0 && op.Result&1 == 0 {
 		g.set(inner.Utf8Text(src), syntax.Operand{From: op.From, Result: op.Result | 1})
@@ -1434,10 +1439,19 @@ func (e *extractor) addImpl(n *sitter.Node, sc scope, test bool) {
 		}
 	}
 	e.decls.Impls = append(e.decls.Impls, unit.Impl{
-		File: e.path, Trait: sc.trait, Type: ty,
+		File: e.path, Trait: sc.trait, TraitPath: traitPathOf(n.ChildByFieldName("trait"), e.src), Type: ty,
 		StartLine: syntax.Line(n.StartPosition()), EndLine: syntax.Line(n.EndPosition()),
 		Blanket: blanket, Test: test,
 	})
+}
+
+// traitPathOf returns a trait's path as written, without type arguments.
+func traitPathOf(trait *sitter.Node, src []byte) string {
+	if trait == nil {
+		return ""
+	}
+	path, _, _ := strings.Cut(syntax.Compact(trait.Utf8Text(src)), "<")
+	return path
 }
 
 // addStruct records a struct with named fields; unit and tuple structs are

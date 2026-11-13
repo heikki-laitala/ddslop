@@ -117,8 +117,15 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 	}
 
 	for _, im := range in.Impls {
-		ix := indexOf(im.File)
-		ix.impls[im.Trait] = append(ix.impls[im.Trait], CrateOf(im.File))
+		ix, crate := indexOf(im.File), CrateOf(im.File)
+		ix.impls[im.Trait] = append(ix.impls[im.Trait], crate)
+		// impl api::Store for Disk, without a use: a dependency all the same.
+		if dir, ok := ix.crates[firstSegment(im.TraitPath)]; ok && dir != crate && strings.Contains(im.TraitPath, "::") {
+			if ix.deps[crate] == nil {
+				ix.deps[crate] = map[string]bool{}
+			}
+			ix.deps[crate][dir] = true
+		}
 	}
 	for _, file := range in.RustFiles {
 		if m, ok := moduleOf(file); ok {
