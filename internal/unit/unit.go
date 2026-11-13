@@ -204,10 +204,17 @@ type Decls struct {
 	// TypeNames are the names of every type the file declares: structs of
 	// any kind, enums, unions and type aliases.
 	TypeNames []string
-	// FuncTypes are the parameter types, in order, of each function type
-	// the file declares (type command func(args []string, out io.Writer)
-	// int), named or not; Go only.
-	FuncTypes [][]string
+	// FuncTypes are the function types the file declares; Go only.
+	FuncTypes []FuncType
+}
+
+// FuncType is a function type declaration: type command func(args
+// []string, out io.Writer) int.
+type FuncType struct {
+	File string
+	// Params are the parameter types in order, named or not.
+	Params []string
+	Test   bool
 }
 
 // Trait is a trait declaration.
