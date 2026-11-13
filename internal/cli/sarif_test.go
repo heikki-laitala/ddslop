@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,11 +46,7 @@ type sarifLocation struct {
 
 func decodeSARIF(t *testing.T, out string) sarifLog {
 	t.Helper()
-	var l sarifLog
-	if err := json.Unmarshal([]byte(out), &l); err != nil {
-		t.Fatalf("output is not valid JSON: %v\n%s", err, out)
-	}
-	return l
+	return decodeJSON[sarifLog](t, out)
 }
 
 func TestCheckSARIF(t *testing.T) {
