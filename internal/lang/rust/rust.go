@@ -3,6 +3,7 @@ package rust
 
 import (
 	"errors"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -18,10 +19,15 @@ import (
 
 var language = sitter.NewLanguage(rustgrammar.Language())
 
-// grammar describes Rust to the shared flattening (see syntax.Grammar).
-type grammar struct{}
-
-var rustGrammar grammar
+// grammar describes Rust to the shared flattening (see syntax.Grammar),
+// for one function: the type its impl is for (Self), the type parameters
+// in scope, and the variables whose type the code states, by name, as
+// their declarations are visited.
+type grammar struct {
+	self    string
+	generic map[string]bool
+	vars    map[string]string
+}
 
 // Prefix is empty for Rust, the first language: its symbols, and so its
 // shapes and fingerprints, predate other languages.
@@ -43,13 +49,13 @@ func (grammar) Statements(kind string) bool { return kind == "block" }
 
 // Visit records calls, matches on strings and early returns (a return or
 // a let-else outside closures).
-func (grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
+func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	if form := errorForm(n, s.Src); form.Form != "" {
 		s.Forms = append(s.Forms, form)
 	}
 	switch n.Kind() {
 	case "call_expression":
-		recordCall(s, n)
+		g.recordCall(s, n)
 	case "match_expression":
 		recordMatch(s, n)
 	case "return_expression":
@@ -60,11 +66,167 @@ func (grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		if s.Closures == 0 && n.ChildByFieldName("alternative") != nil {
 			s.Exits++ // let-else
 		}
+		// The binding takes effect after its value: let x = x.parse()
+		// calls parse on the old x.
+		return func() { g.let(n, s.Src) }
 	case "closure_expression":
 		s.Closures++
-		return func() { s.Closures-- }
+		restore := g.scope()
+		if params := n.ChildByFieldName("parameters"); params != nil {
+			g.forget(params, s.Src)
+		}
+		return func() { s.Closures--; restore() }
+	case "match_arm", "for_expression":
+		restore := g.scope()
+		if pattern := n.ChildByFieldName("pattern"); pattern != nil {
+			g.forget(pattern, s.Src)
+		}
+		return restore
+	case "let_condition":
+		// if let and while let: the binding lasts until the if or while
+		// ends, whose scope holds it.
+		if pattern := n.ChildByFieldName("pattern"); pattern != nil {
+			g.forget(pattern, s.Src)
+		}
+	case "block", "if_expression", "while_expression":
+		return g.scope()
 	}
 	return nil
+}
+
+// scope opens a lexical scope: the bindings made in it are undone by the
+// function it returns. Rust assignments keep a variable's type, so the
+// variables as they were are exactly what holds after it.
+func (g grammar) scope() func() {
+	outer := maps.Clone(g.vars)
+	return func() {
+		clear(g.vars)
+		maps.Copy(g.vars, outer)
+	}
+}
+
+// let records the variable a let declares: its type when stated (let c:
+// Cache) or built by a struct literal (Ledger { .. }). Any other binding
+// shadows the name with a value of unknown type.
+func (g grammar) let(n *sitter.Node, src []byte) {
+	pattern := n.ChildByFieldName("pattern")
+	if pattern == nil {
+		return
+	}
+	if pattern.Kind() != "identifier" {
+		g.forget(pattern, src)
+		return
+	}
+	typ := ""
+	if t := n.ChildByFieldName("type"); t != nil {
+		typ = g.typeOf(t.Utf8Text(src))
+	} else if v := n.ChildByFieldName("value"); v != nil && v.Kind() == "struct_expression" {
+		if name := v.ChildByFieldName("name"); name != nil {
+			typ = g.typeOf(name.Utf8Text(src))
+		}
+	}
+	g.set(pattern.Utf8Text(src), typ)
+}
+
+// set records a variable's type, or forgets it when unknown ("").
+func (g grammar) set(name, typ string) {
+	if typ == "" {
+		delete(g.vars, name)
+		return
+	}
+	g.vars[name] = typ
+}
+
+// forget drops the variables a pattern binds: lower-case names, which
+// are bindings rather than variants or constants (Some(x), Point { y }).
+func (g grammar) forget(pattern *sitter.Node, src []byte) {
+	switch pattern.Kind() {
+	case "identifier", "shorthand_field_identifier":
+		if name := pattern.Utf8Text(src); !isUpper(name) {
+			delete(g.vars, name)
+		}
+		return
+	case "scoped_identifier", "scoped_type_identifier":
+		return // a path, such as Kind::Small, binds nothing
+	}
+	for i := uint(0); i < pattern.NamedChildCount(); i++ {
+		g.forget(pattern.NamedChild(i), src)
+	}
+}
+
+// typeOf returns the type a method call on a value of the written type
+// reaches, as a simple name (see rustType).
+func (g grammar) typeOf(written string) string {
+	return rustType(written, g.self, g.generic)
+}
+
+// wrappers are the smart pointers a method call sees through: x.m() on
+// an Arc<T> calls T's m.
+var wrappers = map[string]bool{"Box": true, "Arc": true, "Rc": true}
+
+// lifetime matches a lifetime at the start of a reference's type.
+var lifetime = regexp.MustCompile(`^'\w+\s*`)
+
+// rustType returns the simple name of the type whose methods a value of
+// the written type has, or "": references and mut are stripped, Box, Arc
+// and Rc looked through, Self is the impl's type (self), and type
+// parameters (generic), trait objects (dyn, impl), tuples, slices,
+// function pointers and lower-case (primitive) types give "".
+func rustType(written, self string, generic map[string]bool) string {
+	t := strings.TrimSpace(written)
+	for {
+		switch {
+		case strings.HasPrefix(t, "&"):
+			t = strings.TrimSpace(t[1:])
+		case strings.HasPrefix(t, "'"):
+			t = lifetime.ReplaceAllString(t, "")
+		case strings.HasPrefix(t, "mut "):
+			t = strings.TrimSpace(t[4:])
+		default:
+			name := unit.SimpleName(t)
+			open := strings.Index(t, "<")
+			if !wrappers[name] || open < 0 || !strings.HasSuffix(t, ">") {
+				return simpleType(t, self, generic)
+			}
+			t = strings.TrimSpace(firstTypeArgument(t[open+1 : len(t)-1]))
+		}
+	}
+}
+
+// simpleType returns a type path's simple name (see rustType).
+func simpleType(t, self string, generic map[string]bool) string {
+	for _, other := range []string{"dyn ", "impl ", "(", "[", "fn", "*"} {
+		if strings.HasPrefix(t, other) {
+			return ""
+		}
+	}
+	name := unit.SimpleName(t)
+	if name == "Self" {
+		name = self
+	}
+	if name == "" || generic[name] || !isUpper(name) {
+		return ""
+	}
+	return name
+}
+
+// firstTypeArgument returns the first of comma-separated type arguments,
+// leaving commas inside nested brackets alone.
+func firstTypeArgument(args string) string {
+	depth := 0
+	for i, r := range args {
+		switch r {
+		case '<', '(', '[':
+			depth++
+		case '>', ')', ']':
+			depth--
+		case ',':
+			if depth == 0 {
+				return args[:i]
+			}
+		}
+	}
+	return args
 }
 
 // IdiomaticForms names the idiomatic form of each concern the adapter
@@ -552,7 +714,23 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 	if owner != "" {
 		name = owner + "::" + name
 	}
-	s := syntax.Flatten(n, e.src, rustGrammar)
+	g := grammar{self: unit.SimpleName(owner), generic: typeParameters(n, e.src), vars: map[string]string{}}
+	if impl := enclosingImpl(n); impl != nil {
+		maps.Copy(g.generic, typeParameters(impl, e.src))
+	}
+	if params := n.ChildByFieldName("parameters"); params != nil {
+		for i := uint(0); i < params.NamedChildCount(); i++ {
+			p := params.NamedChild(i)
+			pattern, typ := p.ChildByFieldName("pattern"), p.ChildByFieldName("type")
+			if pattern != nil && pattern.Kind() == "mut_pattern" && pattern.NamedChildCount() > 0 {
+				pattern = pattern.NamedChild(pattern.NamedChildCount() - 1)
+			}
+			if p.Kind() == "parameter" && pattern != nil && typ != nil && pattern.Kind() == "identifier" {
+				g.set(pattern.Utf8Text(e.src), g.typeOf(typ.Utf8Text(e.src)))
+			}
+		}
+	}
+	s := syntax.Flatten(n, e.src, g)
 	e.units = append(e.units, unit.Unit{
 		File:      e.path,
 		Name:      name,
@@ -926,6 +1104,7 @@ func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
 		Test:      test,
 		Converts:  serdeConversions(attrs),
 	}
+	generic := typeParameters(n, e.src)
 	eachMember(body, "field_declaration", func(f, fname *sitter.Node) {
 		if ftype := f.ChildByFieldName("type"); ftype != nil {
 			ty.Fields = append(ty.Fields, unit.Field{
@@ -933,9 +1112,45 @@ func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
 				Type: syntax.Compact(ftype.Utf8Text(e.src)),
 				Line: syntax.Line(f.StartPosition()),
 			})
+			if typ := rustType(ftype.Utf8Text(e.src), ty.Name, generic); typ != "" {
+				e.decls.FieldTypes = append(e.decls.FieldTypes, unit.FieldType{Struct: ty.Name, Field: fname.Utf8Text(e.src), Type: typ, Test: test})
+			}
 		}
 	})
 	e.decls.Structs = append(e.decls.Structs, ty)
+}
+
+// typeParameters returns the names of the type parameters a function,
+// impl or struct declares (<T: Saver, U>), leaving out lifetimes.
+func typeParameters(n *sitter.Node, src []byte) map[string]bool {
+	out := map[string]bool{}
+	list := n.ChildByFieldName("type_parameters")
+	for i := uint(0); list != nil && i < list.NamedChildCount(); i++ {
+		p := list.NamedChild(i)
+		switch {
+		case p.Kind() == "type_identifier":
+			out[p.Utf8Text(src)] = true
+		case p.ChildByFieldName("name") != nil:
+			out[p.ChildByFieldName("name").Utf8Text(src)] = true
+		case p.ChildByFieldName("left") != nil:
+			out[p.ChildByFieldName("left").Utf8Text(src)] = true
+		}
+	}
+	return out
+}
+
+// enclosingImpl returns the impl block a function item is declared in,
+// or nil.
+func enclosingImpl(fn *sitter.Node) *sitter.Node {
+	for p := fn.Parent(); p != nil; p = p.Parent() {
+		switch p.Kind() {
+		case "impl_item":
+			return p
+		case "function_item", "source_file", "mod_item":
+			return nil
+		}
+	}
+	return nil
 }
 
 // addConst records a constant or static item.
@@ -980,7 +1195,7 @@ func serdeConversions(attrs []string) []string {
 }
 
 // recordCall notes a call expression by the shape of its function.
-func recordCall(s *syntax.Shaper, n *sitter.Node) {
+func (g grammar) recordCall(s *syntax.Shaper, n *sitter.Node) {
 	fn := n.ChildByFieldName("function")
 	for fn != nil && fn.Kind() == "generic_function" {
 		fn = fn.ChildByFieldName("function") // turbofish: f::<T>(...)
@@ -1005,8 +1220,17 @@ func recordCall(s *syntax.Shaper, n *sitter.Node) {
 		if field := fn.ChildByFieldName("field"); field != nil {
 			c.Name = field.Utf8Text(s.Src)
 		}
-		if value := fn.ChildByFieldName("value"); value != nil && value.Kind() == "self" {
+		switch value := fn.ChildByFieldName("value"); {
+		case value == nil:
+		case value.Kind() == "self":
 			c.Qualifier = "self"
+		case value.Kind() == "identifier":
+			c.Type = g.vars[value.Utf8Text(s.Src)]
+		case value.Kind() == "field_expression":
+			// self.db.query(): a method of the impl's field.
+			if v, f := value.ChildByFieldName("value"), value.ChildByFieldName("field"); v != nil && f != nil && v.Kind() == "self" {
+				c.Field = f.Utf8Text(s.Src)
+			}
 		}
 	default:
 		return // closures and other callees are not resolved by name

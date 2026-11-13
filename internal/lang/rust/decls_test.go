@@ -711,3 +711,86 @@ func TestAnErrInAMatchesGuardIsNoVariantCheck(t *testing.T) {
 		t.Errorf("forms = %v, want none: the pattern matches Ok", forms)
 	}
 }
+
+func TestMethodCallsRecordTheTypeTheCodeStates(t *testing.T) {
+	src := `impl Server {
+    fn run<T: Saver>(&self, store: &mut Store, shared: Arc<Cache>, me: &Self, any: T, d: &dyn Saver, n: u32) {
+        store.save();
+        shared.fill();
+        me.ping();
+        any.save();
+        d.save();
+        n.count();
+        self.db.query();
+        self.flush();
+        let c: Cache = make();
+        c.fill();
+        let l = Ledger { id: 1 };
+        l.post();
+        {
+            let store = other();
+            store.save();
+        }
+        store.save();
+        match load() {
+            Some(store) => store.save(),
+            None => {}
+        }
+        if let Some(shared) = find() {
+            shared.fill();
+        }
+        let f = |store| store.save();
+        store.save();
+    }
+}
+`
+	var got []string
+	for _, c := range byName(t, mustUnits(t, src), "Server::run").Calls {
+		if c.Kind == unit.MethodCall {
+			got = append(got, fmt.Sprintf("%d %s type=%q field=%q self=%v", c.Line, c.Name, c.Type, c.Field, c.Qualifier == "self"))
+		}
+	}
+	want := []string{
+		`3 save type="Store" field="" self=false`,
+		`4 fill type="Cache" field="" self=false`,
+		`5 ping type="Server" field="" self=false`,
+		`6 save type="" field="" self=false`,
+		`7 save type="" field="" self=false`,
+		`8 count type="" field="" self=false`,
+		`9 query type="" field="db" self=false`,
+		`10 flush type="" field="" self=true`,
+		`12 fill type="Cache" field="" self=false`,
+		`14 post type="Ledger" field="" self=false`,
+		`17 save type="" field="" self=false`,
+		`19 save type="Store" field="" self=false`,
+		`21 save type="" field="" self=false`,
+		`25 fill type="" field="" self=false`,
+		`27 save type="" field="" self=false`,
+		`28 save type="Store" field="" self=false`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("method calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestStructFieldTypesAreRecordedForRust(t *testing.T) {
+	src := `struct Server<T> {
+    db: Arc<Database>,
+    cache: &'static Cache,
+    names: Vec<String>,
+    inner: T,
+    pub store: crate::store::Store,
+}
+struct Pair(Left, Right);
+`
+	var got []string
+	for _, f := range mustDecls(t, src).FieldTypes {
+		got = append(got, fmt.Sprintf("%s.%s %s", f.Struct, f.Field, f.Type))
+	}
+	// Vec is recorded too: the graph finds no Vec method in the repository
+	// and falls back to guessing by name, as without a type.
+	want := []string{"Server.db Database", "Server.cache Cache", "Server.names Vec", "Server.store Store"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("field types:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
