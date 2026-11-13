@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	gogrammar "github.com/tree-sitter/tree-sitter-go/bindings/go"
@@ -620,6 +621,7 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 		Shape:     similarity.HashSymbols(s.Seq),
 		Nodes:     s.Nodes,
 		Test:      test,
+		TestCase:  test && owner == "" && isTestCase(short),
 		Leaves:    s.Leaves,
 		Seq:       s.Seq,
 		SeqLines:  s.Lines,
@@ -1018,4 +1020,16 @@ func ModulePath(gomod []byte) string {
 		}
 	}
 	return ""
+}
+
+// isTestCase reports whether a test file's function is one go test runs:
+// Test, Benchmark, Fuzz or Example, alone or followed by a name not
+// starting with a lower-case letter (TestSave, not Testify).
+func isTestCase(name string) bool {
+	for _, prefix := range []string{"Test", "Benchmark", "Fuzz", "Example"} {
+		if rest, ok := strings.CutPrefix(name, prefix); ok {
+			return rest == "" || !unicode.IsLower(rune(rest[0]))
+		}
+	}
+	return false
 }

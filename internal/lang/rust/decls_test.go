@@ -1234,3 +1234,29 @@ mod outer {
 		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+// A test case (#[test], #[tokio::test], #[rstest]) is told apart from the
+// helpers and fakes around it in test code.
+func TestTestCasesAreToldFromTestHelpers(t *testing.T) {
+	src := `pub fn real() {}
+
+#[cfg(test)]
+mod tests {
+    fn store() -> Store { Store }
+
+    #[test]
+    fn saves() { store(); }
+
+    #[tokio::test]
+    async fn loads() { store(); }
+}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		got = append(got, fmt.Sprintf("%s test=%v case=%v", u.Name, u.Test, u.TestCase))
+	}
+	want := "real test=false case=false\nstore test=true case=false\nsaves test=true case=true\nloads test=true case=true"
+	if strings.Join(got, "\n") != want {
+		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}

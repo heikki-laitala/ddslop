@@ -966,6 +966,7 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 		Nodes:     s.Nodes,
 		Test:      test,
 		Module:    sc.module,
+		TestCase:  slices.ContainsFunc(attrs, isTestAttr),
 		Leaves:    s.Leaves,
 		Seq:       s.Seq,
 		SeqLines:  s.Lines,
