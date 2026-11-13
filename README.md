@@ -183,11 +183,11 @@ Non-local differences become parameters; a `target` names existing code
 to use instead. Candidates are ranked by how much code the fix removes,
 and `ddslop explain c1` shows the copies' code side by side.
 
-**Few false alarms.** Generated files, test code (unless `--tests`),
-small functions, copies that share only a shape, public API of published
-crates and anything the compiler already reports are left out. Every
-threshold was measured on real codebases
-([docs/architecture.md](docs/architecture.md)).
+**Few false alarms.** Generated files, test code apart from helpers
+copied between test files (unless `--tests`), small functions, copies
+that share only a shape, public API of published crates and anything the
+compiler already reports are left out. Every threshold was measured on
+real codebases ([docs/architecture.md](docs/architecture.md)).
 
 ## Know the codebase before writing
 
@@ -302,7 +302,7 @@ that line's string literals.
 | `--format` | text on a terminal, else JSON | `text`, `json` or `sarif` |
 | `--diff REF` | off | report only candidates touching lines changed since `REF` |
 | `--baseline FILE` | off | skip candidates recorded in `FILE` |
-| `--tests` | off | include test code |
+| `--tests` | off | include all test code (without it, only copied test helpers are reported) |
 | `--min-nodes` | 50 | smallest function, in syntax nodes |
 | `--min-similarity` | 0.8 | threshold for near misses |
 
