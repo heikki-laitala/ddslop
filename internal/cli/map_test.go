@@ -735,3 +735,28 @@ func TestMapListsModulesCallingEachOtherInALoop(t *testing.T) {
 		t.Errorf("text map does not show the cycle:\n%s", text)
 	}
 }
+
+func TestMapLimitCapsACyclesLoop(t *testing.T) {
+	// a -> b -> c -> d -> a: a loop with no pair calling each other.
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"ring\"\n",
+		"src/lib.rs": "pub mod a;\npub mod b;\npub mod c;\npub mod d;\n",
+		"src/a.rs":   "pub fn fa() { crate::b::fb(); }\n",
+		"src/b.rs":   "pub fn fb() { crate::c::fc(); }\n",
+		"src/c.rs":   "pub fn fc() { crate::d::fd(); }\n",
+		"src/d.rs":   "pub fn fd() { crate::a::fa(); }\n",
+	}
+	_, stdout, _ := run("map", "--format", "json", "--limit", "2", repo(t, files))
+	var r struct {
+		Maps []struct {
+			Cycles []struct {
+				Loop     []struct{} `json:"loop"`
+				LoopMore int        `json:"loop_more"`
+			} `json:"cycles"`
+		} `json:"maps"`
+	}
+	decodeInto(t, stdout, &r)
+	if cs := r.Maps[0].Cycles; len(cs) != 1 || len(cs[0].Loop) != 2 || cs[0].LoopMore != 2 {
+		t.Errorf("cycles = %+v, want a loop of 4 steps capped at 2, 2 more", cs)
+	}
+}
