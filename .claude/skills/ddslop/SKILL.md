@@ -191,6 +191,15 @@ What to do per `kind`:
   convention, which `ddslop map` lists under `idioms`. When this place
   needs the other form (an outside library's error with no variant to
   match, say), leave it and say why in a `ddslop:ignore` comment.
+- `dependency-cycle` (`break-cycle`): modules of a Rust crate calling
+  each other in a loop; `values` lists the calls closing it (`a -> b`,
+  `b -> a`), each occurrence one of those calls. Remove one direction:
+  usually the call out of the lower-level module (a `config` building
+  another module's types: move the type down, or let the module build
+  it from raw values). In diff mode it is reported when your change
+  touched one of its calls, which means your change closed the loop:
+  call the other way round, or not at all. Mark a deliberate pair with
+  `ddslop:ignore` on one of its calls, saying why.
 - `duplicate-type`: structs with the same field names, or enums with the
   same variants (often one error enum per module). Keep one type and
   use it everywhere. Differences list field types that differ; when one

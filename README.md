@@ -155,6 +155,7 @@ the check that stops an agent adding the next copy.
 | `parameter-group` | the same 3+ parameters in 4+ functions | a parameter struct |
 | **Drift** | | |
 | `convention-drift` | a job done differently from 90%+ of the codebase: one `err.Error() == "..."` among dozens of `errors.Is` | follow the convention |
+| `dependency-cycle` | Rust modules of a crate calling each other in a loop (Go and Cargo forbid it between packages and crates) | remove one direction of the loop |
 | **Code to simplify** | | |
 | `dead-code` | a public function nothing in the repository uses | delete it |
 | `pass-through` | a wrapper that only forwards its parameters | call the target |

@@ -1290,7 +1290,7 @@ gathered once, by the detectors that exist; `map` describes it and
 | Kinds and states | `string-kinds` matches, enums | the enum, or the strings flagged | `string-kinds`; `convention-drift` for strings matched where the enum exists |
 | Parameter groups | `parameter-group` | the groups flagged; a struct that already holds a group is not recognised yet, so this concern has no conventional or drift state | `parameter-group` |
 | Errors | per-adapter error forms (section 4) | the form of each error concern | `convention-drift` |
-| Layers | the module graph | the layers | `convention-drift` (upward calls, bypasses) |
+| Layers | the module graph | the layers, and the cycles they collapse | `dependency-cycle` for modules of a Rust crate calling each other in a loop; `convention-drift` for bypasses |
 | Helpers | the call graph, clone groups | the shared helpers, a helper with copies flagged | the clone candidate |
 
 Every occurrence of a concern is exactly one of:
@@ -1540,6 +1540,19 @@ of its main crate's 62 modules in cycles. The largest crate's pairs
 include its configuration module and its store calling each other, the
 configuration building the store's endpoint, which is the kind of call
 the map exists to point at. Go codebases have none.
+
+`check` reports each cycle as a `dependency-cycle` candidate (action
+`break-cycle`, concern `layers`): a pair calling each other, with its
+two calls as occurrences, or a group with no such pair, with each step
+of its shortest loop. Each occurrence is the call's line, so diff mode
+reports a cycle when a change touched one of its calls, the change that
+closed the loop, and CI fails on it; a cycle the code already had goes
+into the baseline, which knows it by its fingerprint (the crate and the
+modules) whichever calls close it later. Like the map, it does not say
+which call is the wrong way. Generated files are left out, and a
+`ddslop:ignore` on one of the calls marks a deliberate pair. Measured:
+25 candidates on the 739k-line workspace and 10 on the 188k-line
+service, among them the configuration and store pair.
 
 Section 3 is built for its flagged families only (`codemap.Features`,
 `features` in JSON). Each `parallel-flow` family `check` reports, found
