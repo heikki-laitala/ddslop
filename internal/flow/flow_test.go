@@ -1126,3 +1126,24 @@ func TestRustTraitCallsKeepToTheTrait(t *testing.T) {
 		t.Errorf("Server::run calls %s, want %s", got, want)
 	}
 }
+
+// A method neither the trait nor its implementations declare is a
+// supertrait's (Derived: Base): guessed by its name, as untyped calls are.
+func TestRustTraitCallsToOtherTraitsMethodsAreGuessed(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run", typed("dyn Derived", "base")),
+		impl("a/src/concrete.rs", "Concrete::derived", "Derived"),
+		impl("a/src/concrete.rs", "Concrete::base", "Base"),
+	}
+	in := Inputs{Impls: []unit.Impl{
+		{File: "a/src/concrete.rs", Trait: "Derived", Type: "Concrete"},
+		{File: "a/src/concrete.rs", Trait: "Base", Type: "Concrete"},
+	}}
+	g := Build(in, units)
+	if got, want := callees(g, "a/src/server.rs Server::run"), "[a/src/concrete.rs Concrete::base]"; got != want {
+		t.Errorf("Server::run calls %s, want %s", got, want)
+	}
+	if got, want := fmt.Sprint(g.ByName[0]), "[true]"; got != want {
+		t.Errorf("ByName = %s, want %s: found by its name", got, want)
+	}
+}
