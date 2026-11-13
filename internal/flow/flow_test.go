@@ -672,3 +672,51 @@ func TestRustBareTypesStayInTheCallersCrate(t *testing.T) {
 		t.Errorf("Server::run calls %s, want nothing: b's Client is not in scope", got)
 	}
 }
+
+// A Rust value built by a call takes the producer's result type, read in
+// the producer's crate: b's Store::new returns b's Store.
+func TestRustCallsOnACallsResultResolveInTheProducersCrate(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run",
+			unit.Call{Kind: unit.PathCall, Qualifier: "b::Store", Name: "new"}, // let s = b::Store::new()
+			unit.Call{Kind: unit.MethodCall, Name: "save", From: 1},            // s.save()
+			unit.Call{Kind: unit.MethodCall, Name: "flush", From: 1, Result: 1}),
+		{File: "b/src/store.rs", Name: "Store::new", Results: []string{"Store", "Store"}},
+		fn("b/src/store.rs", "Store::save"),
+		fn("b/src/store.rs", "Store::flush"),
+		fn("a/src/store.rs", "Store::save"), // a's own Store
+		fn("a/src/store.rs", "Store::flush"),
+	}
+	in := Inputs{
+		Imports: map[string]map[string]string{"a/src/server.rs": {"Store": "b::Store"}},
+		Crates:  map[string]string{"a": "a", "b": "b"},
+	}
+	want := "[b/src/store.rs Store::new b/src/store.rs Store::save b/src/store.rs Store::flush]"
+	if got := callees(Build(in, units), "a/src/server.rs Server::run"); got != want {
+		t.Errorf("Server::run calls %s,\nwant %s", got, want)
+	}
+}
+
+// A Rust result type keeps its path: crate:: is the producer's crate, and
+// an outside crate's type (anyhow::Result) is never guessed.
+func TestRustResultPathsResolveFromTheProducer(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run",
+			unit.Call{Kind: unit.PathCall, Qualifier: "b::Db", Name: "connect"}, // Db::connect()
+			unit.Call{Kind: unit.MethodCall, Name: "query", From: 1, Result: 1}, // db.query() after ?
+			unit.Call{Kind: unit.MethodCall, Name: "frobnicate", From: 1}),      // on the anyhow::Result
+		{File: "b/src/db.rs", Name: "Db::connect", Results: []string{"anyhow::Result", "crate::db::Db"}},
+		fn("b/src/db.rs", "Db::query"),
+		fn("a/src/db.rs", "Db::query"), // the caller's crate's Db: not this one
+		fn("a/src/thing.rs", "Thing::frobnicate"),
+	}
+	in := Inputs{
+		Imports:   map[string]map[string]string{"a/src/server.rs": {"Db": "b::Db"}},
+		Crates:    map[string]string{"a": "a", "b": "b"},
+		RustFiles: []string{"a/src/server.rs", "b/src/db.rs"},
+	}
+	want := "[b/src/db.rs Db::connect b/src/db.rs Db::query]"
+	if got := callees(Build(in, units), "a/src/server.rs Server::run"); got != want {
+		t.Errorf("Server::run calls %s,\nwant %s", got, want)
+	}
+}
