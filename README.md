@@ -1,7 +1,8 @@
 # ddslop
 
-**Find the duplicated and dead code AI agents leave behind, and hand the
-agent a fix it can apply.**
+**Find the duplicated and dead code AI agents leave behind, hand the
+agent a fix it can apply, and show it the codebase's conventions before
+it writes the next copy.**
 
 > [!NOTE]
 > **ddslop supports Rust and Go.** Every detector works for both, except
@@ -40,10 +41,16 @@ on 12 cores), ddslop reported 713 candidates:
 | Wrappers that only forward their arguments | 15 | `find_user(id)` whose whole body is `load_user(id)` |
 | Traits with a single implementation | 3 | a store trait implemented by one session type, no test double |
 
+Finding copies is half the job; the other half is not writing them.
+`ddslop map` tells the agent, before it starts, how the codebase is
+built: its layers, the helpers it already shares, the features that
+copied one pipeline, and how it checks and wraps errors. Code that then
+strays from those conventions is reported as `convention-drift`.
+
 Works with **Claude Code**, **Codex** and **Copilot** through a skill that
-`ddslop init` installs: the agent runs ddslop before it finishes a change,
-when you ask it to clean up, and before it writes a new helper. Runs on
-Linux and macOS.
+`ddslop init` installs: the agent reads the map before starting a
+feature, runs ddslop before it finishes a change, when you ask it to
+clean up, and before it writes a new helper. Runs on Linux and macOS.
 
 ## Install
 
@@ -132,218 +139,116 @@ the check that stops an agent adding the next copy.
 
 ## What it finds
 
-Duplication:
-
-| Kind | Meaning | Suggestion |
+| Kind | What it is | Fix |
 | --- | --- | --- |
-| `exact-clone` | functions identical apart from formatting | `reuse-existing`: keep one, call it |
-| `renamed-clone` | same structure, different names, types or values | `extract-common` with the differences as parameters |
-| `near-miss` | similar functions with statements added, removed or changed, as a family around an anchor | `extract-common`; `unmatched_lines` show code only some copies have |
-| `block-clone` | a run of statements repeated inside larger functions | `extract-common` into a helper |
-| `setup-teardown` | 5 or more functions opening the same kind of value at their start and closing it at their end (begin and commit a transaction) | `extract-scope`: a closure-taking helper or an RAII guard (`suggestion.pattern`; GoF: Template Method) |
-| `string-kinds` | the same set of 3 or more string literals matched in 3 or more functions: kinds or states passed around as strings | `introduce-enum`: an enum parsed once at the boundary (`suggestion.pattern`) |
-| `parameter-group` | the same 3 or more parameters (names and types) taken by 4 or more functions | `introduce-parameter-object`: one struct passed instead (`suggestion.pattern`; listed in `values`) |
-| `convention-drift` | a job (`concern`, such as error checks) done in another form than at least 90% of the codebase uses | `follow-convention`: write it in the convention's form (`suggestion.pattern`), as the `target` does |
-| `shared-preamble` | the same opening check that returns early (sign-in, permission, readiness) in 5 or more functions | `extract-preamble`: an extractor or middleware (`suggestion.pattern`; GoF: Chain of Responsibility) |
-| `parallel-flow` | features whose call graphs run the same pipeline through different functions, step by step | `extract-pipeline`: one generic handler or service with the varying steps as parameters (`suggestion.pattern`; GoF: Template Method) |
-| `duplicate-type` | structs declaring the same field names (three or more), or enums declaring the same variants | `reuse-existing`: keep one type; `extract-common` when field types differ, listed as differences |
-| `duplicate-constant` | a constant declared again with the same name and value | `reuse-existing`: keep one declaration and import it |
-| `inlined-constant` | a string literal repeating the value of a constant in the same crate | `reuse-existing`: use the constant (the `target`) |
+| **Copied code** | | |
+| `exact-clone`, `renamed-clone` | the same function, perhaps with other names, types or values | keep one; differences become parameters |
+| `near-miss` | similar functions with statements added, removed or changed | extract the common code |
+| `block-clone` | statements pasted into several larger functions | extract a helper |
+| `duplicate-type`, `duplicate-constant` | the same struct, enum or constant declared again | keep one |
+| `inlined-constant` | a string literal spelling out an existing constant | use the constant |
+| **Repeated patterns** | | |
+| `parallel-flow` | features running the same pipeline through their own functions | one generic pipeline |
+| `shared-preamble` | the same early-return check (sign-in, permission) in 5+ functions | an extractor or middleware |
+| `setup-teardown` | 5+ functions opening and closing the same thing (a transaction) | a closure helper or RAII guard |
+| `string-kinds` | the same string literals matched in 3+ functions | an enum |
+| `parameter-group` | the same 3+ parameters in 4+ functions | a parameter struct |
+| **Drift** | | |
+| `convention-drift` | a job done differently from 90%+ of the codebase: one `err.Error() == "..."` among dozens of `errors.Is` | follow the convention |
+| **Code to simplify** | | |
+| `dead-code` | a public function nothing in the repository uses | delete it |
+| `pass-through` | a wrapper that only forwards its parameters | call the target |
+| `single-impl-trait` | a trait with one implementation and no test double | drop the trait |
 
-Code to simplify:
-
-| Kind | Meaning | Suggestion |
-| --- | --- | --- |
-| `dead-code` | a public function of an unpublished crate (Rust) or an exported function under `internal/` or in `package main` (Go) whose name appears nowhere else | `delete-dead` |
-| `pass-through` | a function whose body only passes its parameters on to another workspace function | `inline-wrapper`: call the `target` directly |
-| `single-impl-trait` | a trait implemented once, for one of the code's own types, with no test double | `remove-trait`: make its methods the type's own |
-
-Every candidate is self-contained, so an agent can act on it without
-another search:
+Each candidate carries everything an agent needs to fix it:
 
 ```json
 {
   "id": "c1",
   "kind": "renamed-clone",
-  "similarity": 1,
   "occurrences": [
     {"file": "src/orders.rs", "name": "load_order", "start_line": 1, "end_line": 9},
     {"file": "src/users.rs", "name": "load_user", "start_line": 1, "end_line": 9}
   ],
   "differences": [
-    {"kind": "identifier", "values": ["order_id", "user_id"], "lines": [[1, 2, 6], [1, 2, 6]], "local": true},
-    {"kind": "literal", "values": ["\"... orders ...\"", "\"... users ...\""], "lines": [[2], [2]], "local": false}
+    {"kind": "identifier", "values": ["order_id", "user_id"], "local": true},
+    {"kind": "literal", "values": ["\"... orders ...\"", "\"... users ...\""], "local": false}
   ],
-  "suggestion": {"action": "extract-common", "parameters": 1},
-  "score": {"nodes": 120, "lines": 9, "occurrences": 2, "duplicated_nodes": 120}
+  "suggestion": {"action": "extract-common", "parameters": 1}
 }
 ```
 
-A difference marked `"local": true` is a name each copy declares itself
-and needs no parameter; every other difference is a parameter of the
-shared code. A `target` is existing code to use instead of the
-occurrences. A `parallel-flow` candidate also lists its `steps`: for each
-role in the pipeline, the function that plays it in every feature.
-Candidates are ranked by how much code the fix removes.
+Non-local differences become parameters; a `target` names existing code
+to use instead. Candidates are ranked by how much code the fix removes,
+and `ddslop explain c1` shows the copies' code side by side.
 
-### Built to be trusted
+**Few false alarms.** Generated files, test code (unless `--tests`),
+small functions, copies that share only a shape, public API of published
+crates and anything the compiler already reports are left out. Every
+threshold was measured on real codebases
+([docs/architecture.md](docs/architecture.md)).
 
-A linter that cries wolf gets ignored, by people and by agents. ddslop
-leaves out:
+## Know the codebase before writing
 
-- generated files (marked `@generated`, "do not edit" or "Generated by" in
-  their header comments);
-- test code: test functions, `#[cfg(test)]` modules (inline or in their
-  own file), `tests/`, `benches/` and `tests.rs` (`--tests` includes it);
-- small functions and blocks (see the size flags below), unless a small
-  block is copied often enough to add up (25 nodes and 3 lines or more,
-  400 duplicated nodes in all); one- and two-line idioms never count;
-- near misses whose names and values mostly differ, and candidates that
-  would be mostly parameters: code that shares a shape, not logic;
-- public items of published crates, which are API, and anything the
-  compiler already reports;
-- wrappers around library functions, extension traits on foreign types,
-  and traits a test double implements.
+Agents duplicate code because they can't see what already exists.
+`ddslop map` shows them, in a page that fits in a prompt. Here is
+ddslop's map of itself:
 
-Every threshold was measured on a real codebase before it was set; the
-measurements are in [docs/architecture.md](docs/architecture.md).
+```text
+Layers, top first:
+  0  .
+  1  internal/cli
+  2  internal/baseline, internal/codemap, internal/config, internal/index, ...
+  3  internal/flow, internal/lang/syntax, internal/report
+
+Calls breaking the layers:
+  bypass  internal/cli -> internal/lang/syntax past internal/lang/rust: 1 call(s) against 9
+
+Shared helpers:
+  CrateOf (internal/flow/flow.go:250), used by internal/cli, internal/codemap
+      func CrateOf(file string) string {
+
+Idioms (use the convention; where there is none, the idiomatic form):
+  error-checks: errors.Is/As in 7 of 7
+  error-wrapping: %w in 10 of 10
+```
+
+It lists the layers and the calls that break them, the helpers modules
+share, the features that copied one pipeline, and how the code checks and
+wraps errors. Nothing to configure: it is read from the code.
+
+Two more commands help before writing:
+
+- `ddslop similar src/orders.rs:42` lists existing functions like a
+  drafted helper, most similar first: reuse instead of adding a copy.
+- `ddslop flows` prints each feature's entry point (a method of a
+  generated API trait, such as OpenAPI) and the functions it reaches.
 
 ## Coding agents
 
-`ddslop init` installs a skill that tells the agent when to run ddslop
-(`map` before starting a feature, to follow the codebase's layers, reuse
-its shared helpers and not copy a duplicated pipeline again; `check`
-before finishing a change, when asked to clean up and before writing a
-new helper), how to act on each kind of candidate, and to leave copies
-that are meant to diverge alone:
+`ddslop init` installs a skill telling the agent to read the `map`
+before a feature, ask `similar` before keeping a helper, run
+`check --diff` before finishing, and leave alone copies meant to diverge.
+The agent decides when to run it; no hook forces it.
 
 | Flag | Skill | Instructions |
 | --- | --- | --- |
-| `--claude` (default) | `.claude/skills/ddslop/SKILL.md` | `## ddslop` section in `CLAUDE.md` |
-| `--codex` | `.codex/skills/ddslop/SKILL.md` | `## ddslop` section in `AGENTS.md` |
-| `--copilot` | `.copilot/skills/ddslop/SKILL.md` | `## ddslop` section in `.github/copilot-instructions.md` |
-
-The agent decides when to run it; no hook forces it to stop or continue.
-Running `init` again only updates what changed. When `CLAUDE.md` and
-`AGENTS.md` are one file through a symlink, in either direction, the
-section is written once, into the real file, and the symlink stays. Add the agent flags
-together to install for several agents.
-
-## Commands
-
-| Command | What it does |
-| --- | --- |
-| `ddslop check [path]` | report duplicated code (the default command) |
-| `ddslop baseline [path]` | record current duplication in `.ddslop-baseline.json`, so `check --baseline` reports only new duplication |
-| `ddslop explain ID [path]` | show one candidate in full, with each occurrence's code and its differences marked |
-| `ddslop similar FILE:LINE [path]` | list existing functions like the one at that line, most similar first: ask before keeping a new helper |
-| `ddslop flows [path]` | list feature entry points (methods implementing generated API traits) and the functions each reaches |
-| `ddslop map [path]` | describe the layers the code forms (Go packages, a Rust workspace's crates, or one crate's modules with `--crate`), the calls breaking them, the helpers other modules share, the features copying one pipeline, and how the code checks and wraps errors |
-| `ddslop index [path]` | build or refresh the index at `.ddslop/index.db` |
-| `ddslop init [path]` | set ddslop up for coding agents |
-| `ddslop stats [path]` | describe the index, and the duplication trend over past checks |
-| `ddslop status [path]` | show what ddslop has installed in a project |
-| `ddslop uninstall [path]` | remove the skills, sections and `.gitignore` entry; `--purge` also the index |
-| `ddslop upgrade` | replace ddslop with the latest release (`--check` only reports) |
-| `ddslop version` | print the version (also `--version`) |
-
-`check` flags:
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--format` | text on a terminal, JSON otherwise | `text`, `json` or `sarif` (SARIF 2.1.0 for code scanning) |
-| `--min-nodes` | 50 | ignore functions smaller than this many syntax nodes |
-| `--min-block-nodes` | 100 | ignore copied blocks smaller than this (never below `--min-nodes`) |
-| `--min-near-nodes` | 150 | ignore near misses of functions smaller than this (never below `--min-nodes`) |
-| `--min-similarity` | 0.8 | threshold for near misses |
-| `--tests` | off | include test code |
-| `--diff` | off | only report candidates touching lines changed since this Git ref |
-| `--baseline` | off | do not report duplication recorded in this baseline file |
-| `--fail-over` | off | exit 1 only when the repository's duplication percentage is above this, still reporting every candidate |
-
-Settings for a repository go in `.ddslop.yaml` at its root:
-
-```yaml
-min-nodes: 60
-min-similarity: 0.75
-tests: false
-exclude:
-  - "**/*_gen.go"
-  - "crates/fake-*/**"
-```
-
-It sets the five analysis flags above (a flag given on the command line
-still wins) and `exclude`, glob patterns of files to leave out, matched
-against paths from the root: `*` within one directory, `**` across any
-number. An unknown key is an error, so a misspelt setting does not go
-unnoticed.
-
-The index keeps parsed code between runs, so only changed files are
-parsed again. Files are parsed on half the CPU cores; set
-`DDSLOP_INDEX_THREADS` to change that.
-
-## Feature flows
-
-`ddslop flows` maps the features of a codebase: each entry point and the
-functions it reaches, printed as a call tree (`--format json` for agents,
-`--depth` to limit it).
-
-```text
-OrdersApi::create_order (services/orders/src/api.rs:40-71)
-  validate (services/orders/src/api.rs:120-141)
-    caller (services/orders/src/auth.rs:12-21)
-  Orders::create (services/orders/src/orders.rs:88-150)
-    authorize (services/orders/src/orders.rs:30-36)
-    order_fingerprint (services/orders/src/orders.rs:200-213)
-```
-
-Entry points are methods implementing a trait declared in generated code,
-such as OpenAPI server traits. `check` uses the same map to find
-`parallel-flow` candidates (features that rebuild the same pipeline step
-by step instead of sharing it) and the targets of wrappers.
-
-Calls are resolved by name, without type information, and conservatively:
-a call that could mean several functions is not followed. Bare calls
-leave their crate only through `use` imports, calls into another crate
-need that crate to be a real (non-test) dependency, and common
-standard-library method names are not guessed. Calls through traits,
-closures and macros are not followed.
+| `--claude` (default) | `.claude/skills/ddslop/SKILL.md` | `CLAUDE.md` |
+| `--codex` | `.codex/skills/ddslop/SKILL.md` | `AGENTS.md` |
+| `--copilot` | `.copilot/skills/ddslop/SKILL.md` | `.github/copilot-instructions.md` |
 
 ## In CI
 
-`check` exits 1 when it finds candidates, so it can gate a pipeline. On an
-existing codebase, record what is already there and commit the file:
+Adopt it on an existing codebase by recording what is there, then gate
+only on what is new:
 
 ```sh
-ddslop baseline     # writes .ddslop-baseline.json
+ddslop baseline                                  # writes .ddslop-baseline.json
+ddslop check --baseline .ddslop-baseline.json    # fails only on new candidates
 ```
 
-`check --baseline .ddslop-baseline.json` then reports only duplication that
-is not in the baseline. Occurrences are recorded by file and function, not
-by line, so unrelated edits do not invalidate it; a known family stays
-known while you clean it up, and a new copy of it is reported. Re-run
-`ddslop baseline` after cleaning up to shrink the file.
-
-To keep intended duplication out of every run, mark it in the code with
-a reason:
-
-```rust
-// ddslop:ignore wire format, mirrors the Ledger's on purpose
-pub struct LedgerRefusal { /* ... */ }
-
-.field("request_timeout", &self.timeout) // ddslop:ignore Debug field name
-```
-
-A marker on a line of its own applies to the function, method, struct,
-enum or constant below it (doc comments and attributes may sit between);
-a marker after code applies to that line's string literals, such as a
-value that only happens to equal a constant. Marked code is left out of
-the analysis, and the summary counts it. A marker without a reason is an
-error.
-
-The ddslop GitHub Action installs ddslop, runs `check`, and shows the
-results as annotations on pull requests through GitHub code scanning. In
-diff mode the annotation sits on the changed copy:
+The GitHub Action shows candidates as code scanning annotations on the
+pull request, on the changed copy:
 
 ```yaml
 permissions:
@@ -359,47 +264,68 @@ steps:
       baseline: .ddslop-baseline.json
 ```
 
-`@v1` follows each v1.x release; pin an exact
-[release](https://github.com/heikki-laitala/ddslop/releases) such as
-`@v1.0.0` to stay on one. The tag you pin is the ddslop version the action
-installs. Other
-inputs: `path` (default `.`), `fail-over`, `args` (further `check`
-arguments) and `upload-sarif` (`false` to skip code scanning). Outside
-GitHub, run `ddslop check --format sarif` the same way.
+Pin an exact [release](https://github.com/heikki-laitala/ddslop/releases)
+such as `@v1.0.0` to stay on one. Other inputs: `path`, `fail-over`
+(fail only above this duplication percentage), `args` and `upload-sarif`.
+Elsewhere, use `ddslop check --format sarif`.
 
-Either `--baseline` or `--diff` alone also works: the baseline gates the
-whole codebase on new duplication, the diff limits a pull request to what
-it changed. For a softer gate, `--fail-over 5` fails only while the whole
-repository's duplication is above 5%, and still reports every candidate.
+Mark intended duplication in the code, with a reason:
+
+```rust
+// ddslop:ignore wire format, mirrors the Ledger's on purpose
+pub struct LedgerRefusal { /* ... */ }
+```
+
+A marker on its own line covers the item below it; after code, it covers
+that line's string literals.
+
+## Reference
+
+| Command | What it does |
+| --- | --- |
+| `check [path]` | report candidates (the default) |
+| `map [path]` | describe layers, helpers, features and idioms (`--crate` for one Rust crate) |
+| `similar FILE:LINE` | list existing functions like this one |
+| `explain ID` | show one candidate's code |
+| `flows [path]` | list features and the functions they reach |
+| `baseline [path]` | record current candidates |
+| `stats [path]` | index size and the duplication trend |
+| `index`, `init`, `status`, `uninstall`, `upgrade`, `version` | housekeeping |
+
+`ddslop COMMAND --help` lists every flag. The main `check` flags:
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--format` | text on a terminal, else JSON | `text`, `json` or `sarif` |
+| `--diff REF` | off | report only candidates touching lines changed since `REF` |
+| `--baseline FILE` | off | skip candidates recorded in `FILE` |
+| `--tests` | off | include test code |
+| `--min-nodes` | 50 | smallest function, in syntax nodes |
+| `--min-similarity` | 0.8 | threshold for near misses |
+
+Repository settings go in `.ddslop.yaml`; command-line flags win:
+
+```yaml
+min-nodes: 60
+min-similarity: 0.75
+exclude:
+  - "**/*_gen.go"
+```
 
 ## How it works
 
-Files are parsed with tree-sitter. Each function becomes a structure
-sequence with names and values blanked out:
+tree-sitter parses each function into a sequence of syntax nodes with
+names and values blanked out. Equal sequences are copies; MinHash, LSH
+and a Myers diff find near misses; a suffix array finds copied blocks. A
+call graph resolved by name gives the layers, features and helpers, and
+each language adapter counts the forms of its idioms. The design and
+measurements are in [docs/architecture.md](docs/architecture.md).
 
-- equal sequences are exact or renamed copies;
-- near misses are found with MinHash and LSH, verified with a bounded
-  Myers diff, kept only when most names and values agree, and grouped into
-  families;
-- copied blocks are maximal repeats of statements, found with a suffix
-  array;
-- parallel flows compare features' call-graph slices step by step,
-  ignoring code they share and code most features reach;
-- types are compared by field names, constants by name and value, and
-  dead code is a public name that no source file mentions anywhere else,
-  comments and macros included.
-
-See [docs/architecture.md](docs/architecture.md) for the design and the
-measurements behind the thresholds.
-
-## How ddslop differs
-
-| Tool | Approach | What ddslop adds |
-| --- | --- | --- |
-| `dupl` (golangci-lint) | suffix tree over Go syntax trees | values and renames, near misses, suggestions (ddslop covers Rust today; Go is planned) |
-| jscpd, PMD CPD | token windows, many languages | near misses and drift, matches on whole syntax units, refactoring candidates |
-| `mizchi/similarity` | tree-sitter and tree edit distance | refactoring candidates, agent output, feature flows |
-| Compiler warnings | unused private code | unused public code across a workspace, copies and wrappers |
+| Compared with | ddslop adds |
+| --- | --- |
+| `dupl`, jscpd, PMD CPD | renamed and near-miss copies, repeated patterns, fixes |
+| depguard, go-arch-lint | layers and conventions read from the code, not written by hand |
+| compiler warnings | unused public code, wrappers, copies |
 
 ## Development
 
@@ -408,12 +334,10 @@ make build   # bin/ddslop
 make test    # tests with the race detector
 make cover   # tests with an 80% coverage gate
 make lint    # golangci-lint and markdownlint
-make help    # all targets
 ```
 
 Contributors and coding agents follow [AGENTS.md](AGENTS.md).
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE) and, for the software compiled into the binary,
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+MIT. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
