@@ -525,7 +525,7 @@ func TestRustMethodCallsResolveByTheOperandsType(t *testing.T) {
 		fn("a/src/server.rs", "Server::run",
 			typed("Store", "save"), // store: &Store
 			unit.Call{Kind: unit.MethodCall, Field: "db", Name: "query"}, // self.db.query()
-			typed("Vec", "frobnicate")),                                  // no Vec method here: guessed by name
+			typed("Thing", "frobnicate")),                                // a repository type, called directly
 		fn("a/src/store.rs", "Store::save"),
 		fn("a/src/cache.rs", "Cache::save"),
 		fn("b/src/store.rs", "Store::save"), // another crate's Store
@@ -538,8 +538,8 @@ func TestRustMethodCallsResolveByTheOperandsType(t *testing.T) {
 	if got := callees(g, "a/src/server.rs Server::run"); got != want {
 		t.Errorf("Server::run calls %s,\nwant %s", got, want)
 	}
-	if got, want := fmt.Sprint(g.ByName[0]), "[false false true]"; got != want {
-		t.Errorf("ByName = %s, want %s: only the call on Vec is a guess", got, want)
+	if got, want := fmt.Sprint(g.ByName[0]), "[false false false]"; got != want {
+		t.Errorf("ByName = %s, want %s: every call is typed", got, want)
 	}
 }
 
@@ -562,5 +562,24 @@ func TestRustTypedCallsReachImportedCrates(t *testing.T) {
 	}
 	if !slices.Equal(g.ByName[0], []bool{false}) {
 		t.Errorf("ByName = %v, want a named call", g.ByName[0])
+	}
+}
+
+// A value of a type with no methods in the repository (Vec, Option) never
+// calls a repository method, however its method is named.
+func TestRustCallsOnOutsideTypesAreNotGuessed(t *testing.T) {
+	g := Build(Inputs{}, []unit.Unit{
+		fn("a/src/server.rs", "Server::run",
+			typed("Vec", "frobnicate"),   // Vec has no methods here: nothing
+			typed("Store", "frobnicate"), // Store has others: perhaps a trait default, guessed
+			method("x", "frobnicate")),   // untyped: guessed as before
+		fn("a/src/thing.rs", "Thing::frobnicate"),
+		fn("a/src/store.rs", "Store::save"),
+	})
+	if got, want := fmt.Sprint(g.ByName[0]), "[true]"; got != want || callees(g, "a/src/server.rs Server::run") != "[a/src/thing.rs Thing::frobnicate]" {
+		t.Errorf("calls %s (by name %s), want Thing::frobnicate guessed once, by the Store and untyped calls", callees(g, "a/src/server.rs Server::run"), got)
+	}
+	if g.ResolvedOf[0] != 2 {
+		t.Errorf("resolved %d calls, want 2: the call on Vec reaches nothing", g.ResolvedOf[0])
 	}
 }
