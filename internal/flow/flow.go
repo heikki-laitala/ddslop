@@ -499,11 +499,13 @@ func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, 
 			return -1 // Go qualifies only with package names: an outside package
 		case ok, pathKeyword(root), ix.isChildModule(caller, root):
 			// The path names a module of the caller's crate: its function,
-			// else (a re-export, say) the crate's one of that name.
+			// else (a re-export, say) the crate's only one of that name,
+			// never the caller's own file's by preference.
 			if u := inModule(units, ix.free[c.Name], CrateOf(caller.File), modulePath(c.Qualifier, caller)); u >= 0 {
 				return u
 			}
-			return pickLocal(units, caller, ix.free[c.Name])
+			crate := CrateOf(caller.File)
+			return only(units, ix.free[c.Name], func(u unit.Unit) bool { return CrateOf(u.File) == crate })
 		}
 		return -1
 	case unit.MethodCall:
