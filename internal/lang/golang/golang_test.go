@@ -554,3 +554,64 @@ type Server struct {
 		t.Errorf("field types:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestOperandTypesKeepToTheirScope(t *testing.T) {
+	src := `package api
+
+func run(db *DB, items []Item) {
+	{
+		db := &Other{}
+		db.Save()
+	}
+	db.Save()
+	if db := (&Other{}); true {
+		db.Save()
+	}
+	db.Save()
+	go func(db *Remote) {
+		db.Save()
+	}(nil)
+	db.Save()
+	for _, db := range items {
+		db.Save()
+	}
+	db.Save()
+}
+`
+	units, _, err := Parse("api/run.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range units[0].Calls {
+		if c.Kind == unit.MethodCall {
+			got = append(got, fmt.Sprintf("%d %s", c.Line, c.Type))
+		}
+	}
+	want := []string{"6 Other", "8 DB", "10 ", "12 DB", "14 Remote", "16 DB", "18 ", "20 DB"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("types:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestFieldTypesOfTestFilesAreMarked(t *testing.T) {
+	_, decls, err := Parse("api/server_test.go", []byte("package api_test\n\ntype Server struct{ store Fake }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decls.FieldTypes) != 1 || !decls.FieldTypes[0].Test {
+		t.Errorf("field types = %+v, want one marked as test code", decls.FieldTypes)
+	}
+}
+
+func TestModulePathReadsGoMod(t *testing.T) {
+	for gomod, want := range map[string]string{
+		"module example.com/app\n\ngo 1.25\n":         "example.com/app",
+		"// comment\nmodule \"example.com/q\" // x\n": "example.com/q",
+		"go 1.25\n": "",
+	} {
+		if got := ModulePath([]byte(gomod)); got != want {
+			t.Errorf("ModulePath(%q) = %q, want %q", gomod, got, want)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package golang
 
 import (
 	"errors"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -117,15 +118,35 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 			}
 		}
 		s.RecordStringMatch(n, values)
+		return g.scope()
 	case "return_statement":
 		if s.Closures == 0 {
 			s.Exits++
 		}
 	case "func_literal":
 		s.Closures++
-		return func() { s.Closures-- }
+		restore := g.scope()
+		eachParam(n.ChildByFieldName("parameters"), s.Src, func(name, typ string) {
+			if name != "" {
+				g.declare(name, typeOf(typ, g.packages))
+			}
+		})
+		return func() { s.Closures--; restore() }
+	case "block", "if_statement", "for_statement", "type_switch_statement",
+		"select_statement", "expression_case", "type_case", "communication_case", "default_case":
+		return g.scope()
 	}
 	return nil
+}
+
+// scope opens a lexical scope: the variables declared in it are
+// forgotten, and the ones it shadows restored, by the function it returns.
+func (g grammar) scope() func() {
+	outer := maps.Clone(g.vars)
+	return func() {
+		clear(g.vars)
+		maps.Copy(g.vars, outer)
+	}
 }
 
 // call classifies a call by its callee: f(x) is a free call, a selector
@@ -372,7 +393,7 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 					decls.Structs = append(decls.Structs, st)
 					for _, f := range st.Fields {
 						if typ := typeOf(f.Type, packages); typ != "" {
-							decls.FieldTypes = append(decls.FieldTypes, unit.FieldType{Struct: st.Name, Field: f.Name, Type: typ})
+							decls.FieldTypes = append(decls.FieldTypes, unit.FieldType{Struct: st.Name, Field: f.Name, Type: typ, Test: test})
 						}
 					}
 				}
@@ -771,4 +792,15 @@ func InterfaceMethods(src []byte) []string {
 		walk(root)
 	})
 	return names
+}
+
+// ModulePath returns the module path a go.mod declares, or "".
+func ModulePath(gomod []byte) string {
+	for line := range strings.Lines(string(gomod)) {
+		line, _, _ = strings.Cut(line, "//")
+		if path, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			return strings.Trim(strings.TrimSpace(path), "\"`")
+		}
+	}
+	return ""
 }

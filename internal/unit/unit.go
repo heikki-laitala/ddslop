@@ -228,6 +228,7 @@ type Decls struct {
 // "example.com/app/store.Store".
 type FieldType struct {
 	Struct, Field, Type string
+	Test                bool
 }
 
 // FuncType is a function type declaration: type command func(args
