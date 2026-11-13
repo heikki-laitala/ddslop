@@ -720,3 +720,24 @@ func TestRustResultPathsResolveFromTheProducer(t *testing.T) {
 		t.Errorf("Server::run calls %s,\nwant %s", got, want)
 	}
 }
+
+// A value's type may come from a crate the caller does not depend on:
+// b::make_c() returns c's Widget, whose methods a may call.
+func TestRustResultTypesNeedNoDirectDependency(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/run.rs", "run",
+			unit.Call{Kind: unit.PathCall, Qualifier: "b", Name: "make_c"},
+			unit.Call{Kind: unit.MethodCall, Name: "spin", From: 1}),
+		{File: "b/src/lib.rs", Name: "make_c", Results: []string{"c::Widget", "c::Widget"}},
+		fn("c/src/widget.rs", "Widget::spin"),
+		fn("d/src/gear.rs", "Gear::spin"),
+	}
+	in := Inputs{
+		Imports: map[string]map[string]string{"a/src/run.rs": {"make_c": "b::make_c"}},
+		Crates:  map[string]string{"a": "a", "b": "b", "c": "c", "d": "d"},
+	}
+	want := "[b/src/lib.rs make_c c/src/widget.rs Widget::spin]"
+	if got := callees(Build(in, units), "a/src/run.rs run"); got != want {
+		t.Errorf("run calls %s, want %s", got, want)
+	}
+}

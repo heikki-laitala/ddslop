@@ -238,7 +238,13 @@ func (ix index) resolveRust(units []unit.Unit, caller, home unit.Unit, typ, meth
 		return -1, true
 	}
 	cands := slices.DeleteFunc(slices.Clone(ix.owned[name+"::"+method]), func(u int) bool { return CrateOf(units[u].File) != dir })
-	u := ix.pick(units, caller, cands)
+	// The path fixed the crate, which a value's type may come from without
+	// the caller depending on it (b::make_c() returns c's type): prefer
+	// the caller's file, else take the crate's only candidate.
+	u := pickLocal(units, caller, cands)
+	if u < 0 {
+		u = only(units, cands, func(unit.Unit) bool { return true })
+	}
 	return u, u >= 0
 }
 
