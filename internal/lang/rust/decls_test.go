@@ -502,9 +502,12 @@ func TestUnitsRecordTheirErrorForms(t *testing.T) {
 		"2 error-wrapping map_err",
 		"3 error-checks variant",
 		"4 error-checks message",
+		"4 error-values variant",
 		"7 error-checks variant",
+		"8 error-values variant",
 		"10 error-wrapping context",
 		"11 error-checks message",
+		"12 error-values variant",
 		"14 error-wrapping map_err",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -540,6 +543,83 @@ func TestErrorFormsInMacrosQualifiedPathsAndAnyhowContext(t *testing.T) {
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestUnitsRecordHowTheyMakeErrors(t *testing.T) {
+	src := `fn parse(s: &str, e: Fault) -> Result<u8, Fault> {
+    if s.is_empty() {
+        return Err(Fault::Empty);
+    }
+    if s.len() > 9 {
+        return Err(crate::Fault::Long { len: s.len() });
+    }
+    if s == "x" {
+        return Err(Fault::Bad(s.to_owned()));
+    }
+    if s == "y" {
+        return Err(format!("bad {s}"));
+    }
+    if s == "z" {
+        return Err("bad".to_string());
+    }
+    if s == "w" {
+        return Err(String::from("bad"));
+    }
+    if s == "v" {
+        bail!("bad {s}");
+    }
+    if s == "u" {
+        return Err(anyhow::anyhow!("bad"));
+    }
+    if s == "t" {
+        return Err(e);
+    }
+    if s == "q" {
+        return Err(Fault::new(s));
+    }
+    Ok(0)
+}
+`
+	var got []string
+	for _, f := range byName(t, mustUnits(t, src), "parse").Forms {
+		got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
+	}
+	want := []string{
+		"3 error-values variant",
+		"6 error-values variant",
+		"9 error-values variant",
+		"12 error-values string",
+		"15 error-values string",
+		"18 error-values string",
+		"21 error-values anyhow",
+		"24 error-values anyhow",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestBinariesRecordNoErrorValues(t *testing.T) {
+	src := `fn args(s: &str) -> Result<u8, String> {
+    if s.is_empty() {
+        return Err(format!("usage: {s}"));
+    }
+    s.parse().map_err(|_| Fault::Number)
+}
+`
+	for _, path := range []string{"src/main.rs", "svc/src/bin/tool.rs", "svc/src/bin/tool/args.rs"} {
+		units, _, err := Parse(path, []byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, f := range byName(t, units, "args").Forms {
+			got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
+		}
+		if want := "5 error-wrapping map_err"; strings.Join(got, "\n") != want {
+			t.Errorf("%s: forms = %v, want %s", path, got, want)
+		}
 	}
 }
 

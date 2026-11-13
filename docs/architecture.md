@@ -1003,9 +1003,9 @@ Sections 1 and 2 are built (`internal/codemap`, `ddslop map` with text
 and JSON output; see As built below), and section 3 in part: the
 flagged `parallel-flow` families, as measurement left the other two
 rules nothing real to report yet. Section 4 is built for error checks
-and error wrapping in Go and Rust, and section 5 for drift from those
-idioms, and `--lang`; their other concerns and sources and Markdown
-output are planned.
+and error wrapping in Go and Rust and error values in Rust, and section
+5 for drift from those idioms, and `--lang`; their other concerns and
+sources and Markdown output are planned.
 
 The fragment and flow layers find copies after they are written. Most of
 them were written because the agent did not know how the codebase already
@@ -1488,6 +1488,31 @@ and uses `context` across its modules (74 of 249 wraps there), while
 reports it as such: a 70% convention with the other form listed beside
 it, and each crate's own convention under `--crate`.
 
+Error values, how a function makes a new error, are built for Rust
+(`error-values`): `Err(..)` holding a variant (`Fault::Busy`,
+`Fault::Write(e)`, `Fault::Long { .. }`) is `variant`; one holding a
+string (`format!`, a literal, `.to_string()`, `.into()` or `.to_owned()`
+on one, `String::from`) is `string`; anyhow's `bail!` and `anyhow!` are
+`anyhow`. An error passed on (`Err(e)`) or made by a constructor
+(`Fault::new(..)`) is no form, nor is an error made inside another
+macro, whose arguments the parser leaves as tokens. Binaries
+(`src/main.rs` and files under `src/bin/`) record no error values: their
+errors are printed, not matched by callers. Like wrapping, the concern
+has no idiomatic form, as variants and anyhow are both idiomatic, so a
+map without a convention names none.
+
+Measured on six Rust codebases: `lns-inference-router` makes errors from
+variants in 1586 of 1704 (93%), and `lens-artifact-hub` with anyhow in
+278 of 414, the rest variants; `Switchyard` and `lens-sandbox` lean to
+variants (59% and 51%), `llmtrace` to strings, and `Deslop` has no
+majority. Before binaries were left out, lns's command-line tools added
+48 string errors, mostly usage messages, which made 29 of its 90 drift
+candidates. Go waits: its forms (a sentinel such as `io.EOF`, a custom
+error type, or an ad hoc `errors.New` or `fmt.Errorf`) work together
+rather than as alternatives, sentinels for the errors callers check and
+ad hoc errors for the rest, so a convention among them would make every
+sentinel drift.
+
 Section 5 is built for the error idioms (`codemap.Drifts`, kind
 `convention-drift`, action `follow-convention`). `check` finds, per
 language (Go's and Rust's forms are never compared), every occurrence of
@@ -1520,7 +1545,14 @@ Measured on the four codebases: one candidate, on
 for it, so the message is the only thing to match. Without types ddslop
 cannot tell an outside library's error from the codebase's own, so such
 a place is left to a `ddslop:ignore` comment saying why, which the
-rule's description and the skill ask for. Bypasses, skipped helpers in
+rule's description and the skill ask for.
+
+Error values drift on `lns-inference-router` alone (the other five have
+no convention at 90%): 61 functions making string errors in a workspace
+that makes them from variants elsewhere, such as a response translation
+returning kinds as `Err("AfterTerminalEvent")` and an identity
+constructor returning `Err("host")`, which is the stringly typed error
+the convention exists to avoid. Bypasses, skipped helpers in
 `parallel-flow` families and drift from the scope and kind idioms are
 the design's other sources and wait for their sections.
 
@@ -2109,8 +2141,8 @@ seconds, 713 candidates (60 exact, 166 renamed, 189 near-miss families,
 traits).
 
 Next: the map layer (see Map layer). Layers, shared helpers and the
-flagged pipeline families are built, idioms for error checks and
-wrapping, and drift from them; the other concerns and deviations follow
+flagged pipeline families are built, idioms for error checks,
+wrapping and (in Rust) values, and drift from them; the other concerns and deviations follow
 once they are measured on the Rust codebases.
 
 1. **v1, fragment layer as a linter:** tree-sitter adapters for all three

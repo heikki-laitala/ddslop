@@ -69,7 +69,8 @@ func (grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 
 // IdiomaticForms names the idiomatic form of each concern the adapter
 // knows, which the map suggests where a codebase has no convention. Error
-// wrapping has none: map_err to a typed error and anyhow's context are
+// wrapping and error values have none: map_err to a typed error and
+// anyhow's context, and errors made from variants and with anyhow, are
 // both idiomatic, for libraries and applications.
 var IdiomaticForms = map[string]string{unit.ErrorChecks: "variant"}
 
@@ -89,9 +90,16 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 			form.Concern, form.Form = unit.ErrorChecks, "variant"
 		}
 	case "macro_invocation":
-		// A macro's arguments are an opaque token tree: read matches!'s
-		// pattern, after the value, from its tokens.
-		if m := n.ChildByFieldName("macro"); m != nil && lastSegment(m.Utf8Text(src)) == "matches" {
+		m := n.ChildByFieldName("macro")
+		if m == nil {
+			break
+		}
+		switch lastSegment(m.Utf8Text(src)) {
+		case "bail", "anyhow":
+			form.Concern, form.Form = unit.ErrorValues, "anyhow"
+		case "matches":
+			// A macro's arguments are an opaque token tree: read matches!'s
+			// pattern, after the value, from its tokens.
 			pattern, guard := matchesPattern(n, src)
 			if p := errPattern.FindStringSubmatch(pattern); p != nil && isVariantPath(strings.ReplaceAll(p[1], " ", "")) {
 				form.Concern, form.Form = unit.ErrorChecks, "variant"
@@ -108,6 +116,14 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 		}
 	case "call_expression":
 		callee := calleeOf(n)
+		if callee != nil && callee.Kind() == "identifier" && callee.Utf8Text(src) == "Err" {
+			if args := n.ChildByFieldName("arguments"); args != nil && args.NamedChildCount() == 1 {
+				if f := errorValue(args.NamedChild(0), src); f != "" {
+					form.Concern, form.Form = unit.ErrorValues, f
+				}
+			}
+			break
+		}
 		if callee == nil || callee.Kind() != "field_expression" {
 			break
 		}
@@ -129,6 +145,44 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 		}
 	}
 	return form
+}
+
+// errorValue returns the form of the error an Err(..) holds: a variant
+// (Fault::Busy, Fault::Write(e), Fault::Long { .. }), or a string
+// (format!, a literal, .to_string(), .into() or .to_owned() on one, or
+// String::from). Anything else, such as an error passed on or made by a
+// constructor, is no form; anyhow! is recorded as the macro itself.
+func errorValue(n *sitter.Node, src []byte) string {
+	switch n.Kind() {
+	case "string_literal", "raw_string_literal":
+		return "string"
+	case "macro_invocation":
+		if m := n.ChildByFieldName("macro"); m != nil && lastSegment(m.Utf8Text(src)) == "format" {
+			return "string"
+		}
+	case "call_expression":
+		callee := calleeOf(n)
+		switch {
+		case callee == nil:
+		case callee.Kind() == "field_expression":
+			field, value := callee.ChildByFieldName("field"), callee.ChildByFieldName("value")
+			if field != nil && value != nil && value.Kind() == "string_literal" {
+				switch field.Utf8Text(src) {
+				case "to_string", "into", "to_owned":
+					return "string"
+				}
+			}
+		case callee.Utf8Text(src) == "String::from":
+			return "string"
+		case isVariantPath(callee.Utf8Text(src)):
+			return "variant"
+		}
+	case "scoped_identifier", "struct_expression":
+		if isVariantPath(n.Utf8Text(src)) {
+			return "variant"
+		}
+	}
+	return ""
 }
 
 // errPattern finds an Err(Path ..) pattern in a macro's text.
@@ -273,7 +327,23 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 		units, decls = e.units, e.decls
 		marked = syntax.MarkIgnored(root, src, units, &decls)
 	})
+	if isBinaryPath(path) {
+		for i := range units {
+			units[i].Forms = slices.DeleteFunc(units[i].Forms, func(f unit.Form) bool { return f.Concern == unit.ErrorValues })
+		}
+	}
 	return units, decls, errors.Join(err, marked)
+}
+
+// isBinaryPath reports whether a file belongs to a binary by Cargo's
+// layout: src/main.rs, or under src/bin/. A binary's errors are printed
+// rather than matched by callers, so how it makes them is no error-values
+// form: measured, the CLIs of lns-inference-router return usage messages
+// as strings in a workspace that otherwise makes errors from variants.
+func isBinaryPath(path string) bool {
+	path = filepath.ToSlash(path)
+	return path == "src/main.rs" || strings.HasSuffix(path, "/src/main.rs") ||
+		strings.HasPrefix(path, "src/bin/") || strings.Contains(path, "/src/bin/")
 }
 
 // Traits returns the names of the traits a file declares, in source order.
