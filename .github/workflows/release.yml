@@ -125,7 +125,6 @@ jobs:
       - uses: ./
         with:
           version: ${{ github.ref_name }}
-          baseline: .ddslop-baseline.json
           upload-sarif: "false"
       - name: The action installed this release
         run: |
@@ -155,7 +154,6 @@ jobs:
       # Update the major here when releasing v2.
       - uses: heikki-laitala/ddslop@v1
         with:
-          baseline: .ddslop-baseline.json
           upload-sarif: "false"
       - name: The action installed this release
         run: |

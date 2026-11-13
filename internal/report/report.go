@@ -127,6 +127,7 @@ type Occurrence struct {
 }
 
 // Difference is one set of values that differ between the copies.
+// ddslop:ignore JSON output: mirrors clone.Difference on purpose, with string kinds for the wire
 type Difference struct {
 	Kind   string   `json:"kind"`
 	Values []string `json:"values"`

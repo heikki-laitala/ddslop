@@ -679,6 +679,7 @@ func closing(stmt *sitter.Node, name string, src []byte) string {
 // borrowed: fn f(a, b) { g(a, &b) }. Constructors (Self(x), Some(x)) and
 // calls on fields (self.inner.get(x)) do not count, and nor do functions
 // without parameters besides self.
+// ddslop:ignore the Go adapter's algorithm over Rust's node kinds; one table-driven home on a third language
 func forwards(fn *sitter.Node, src []byte) string {
 	params, body := fn.ChildByFieldName("parameters"), fn.ChildByFieldName("body")
 	if params == nil || body == nil || body.NamedChildCount() != 1 {
@@ -782,6 +783,7 @@ func (e *extractor) addTypeName(n *sitter.Node) {
 }
 
 // addEnum records an enum and its variants.
+// ddslop:ignore fills unit.Enum as addStruct fills unit.Struct; only a data model change could merge them
 func (e *extractor) addEnum(n *sitter.Node, test bool) {
 	name, body := n.ChildByFieldName("name"), n.ChildByFieldName("body")
 	if name == nil || body == nil || n.HasError() {
