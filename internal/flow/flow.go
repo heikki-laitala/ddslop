@@ -107,9 +107,11 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		ResolvedOf: make([]int, len(units))}
 	for i, u := range units {
 		owner, _ := split(u.Name)
-		for _, c := range u.Calls {
+		r := callResolver{ix: indexOf(u.File), units: units, caller: u, owner: owner,
+			done: make([]resolved, len(u.Calls))}
+		for k := range u.Calls {
 			g.Calls++
-			callee, byName := indexOf(u.File).resolve(units, u, owner, c)
+			callee, byName := r.resolve(k)
 			if callee < 0 {
 				continue
 			}
@@ -126,6 +128,55 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 	return g
 }
 
+// callResolver resolves one unit's calls, each once: a Go method call on
+// another call's result (unit.Call.From) needs that call resolved first,
+// and a chained call's operand is recorded after it.
+type callResolver struct {
+	ix     *index
+	units  []unit.Unit
+	caller unit.Unit
+	owner  string
+	done   []resolved
+}
+
+// resolved is a call's resolution: its callee (-1 for none), whether
+// found by name alone, and the state (0 not yet, 1 under way, 2 done).
+type resolved struct {
+	callee, state int
+	byName        bool
+}
+
+// resolve returns the unit call k refers to, or -1, and whether it was
+// found by its method name alone.
+func (r *callResolver) resolve(k int) (int, bool) {
+	d := &r.done[k]
+	switch d.state {
+	case 2:
+		return d.callee, d.byName
+	case 1:
+		return -1, false // a call whose operand is itself: malformed
+	}
+	d.state = 1
+	d.callee, d.byName = r.resolveCall(r.caller.Calls[k])
+	d.state = 2
+	return d.callee, d.byName
+}
+
+// resolveCall resolves a call whose operand may be another call's result:
+// typed by that result, read in the producing function's package.
+func (r *callResolver) resolveCall(c unit.Call) (int, bool) {
+	if c.From > 0 && c.From <= len(r.done) {
+		if callee, _ := r.resolve(c.From - 1); callee >= 0 && c.Result < len(r.units[callee].Results) {
+			if typ := r.units[callee].Results[c.Result]; typ != "" {
+				if u, known := r.ix.resolveTyped(r.units, CrateOf(r.units[callee].File), typ, c.Name); known {
+					return u, false
+				}
+			}
+		}
+	}
+	return r.ix.resolve(r.units, r.caller, r.owner, c)
+}
+
 // resolve returns the unit a call refers to, or -1, and whether it was
 // found by its method name alone (see Graph.ByName).
 func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) (int, bool) {
@@ -137,7 +188,7 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 		typ = ix.fields[CrateOf(caller.File)][owner+"."+c.Field]
 	}
 	if typ != "" {
-		if u, known := ix.resolveTyped(units, caller, typ, c.Name); known {
+		if u, known := ix.resolveTyped(units, CrateOf(caller.File), typ, c.Name); known {
 			return u, false
 		}
 	}
@@ -148,13 +199,14 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 }
 
 // resolveTyped resolves a Go method call on an operand of type typ
-// (written as unit.Call.Type) to that type's method in its package. A
+// (written as unit.Call.Type, unqualified for a type of the package in
+// directory home) to that type's method in its package. A
 // type from outside the repository's modules has none here (known, -1);
 // a type of the repository without the method, such as an interface, or
 // of a package whose module is unknown, is unknown, and the caller
 // guesses by name.
-func (ix index) resolveTyped(units []unit.Unit, caller unit.Unit, typ, method string) (int, bool) {
-	dir, name := CrateOf(caller.File), typ
+func (ix index) resolveTyped(units []unit.Unit, home, typ, method string) (int, bool) {
+	dir, name := home, typ
 	if i := strings.LastIndex(typ, "."); i >= 0 {
 		var inRepo bool
 		dir, inRepo = ix.packageDir(typ[:i])
