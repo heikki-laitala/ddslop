@@ -179,7 +179,19 @@ func (r *callResolver) resolve(k int) (int, bool) {
 // so its result types nothing.
 func (r *callResolver) resolveCall(c unit.Call) (int, bool) {
 	if c.From > 0 && c.From <= len(r.done) {
-		if callee, guessed := r.resolve(c.From - 1); callee >= 0 && !guessed && c.Result < len(r.units[callee].Results) {
+		callee, guessed := r.resolve(c.From - 1)
+		if adapter := r.caller.Calls[c.From-1]; (callee < 0 || guessed) && adapter.Adapts > 0 && adapter.From > 0 {
+			// A Rust result adapter the repository does not define
+			// (anyhow's context, Result's unwrap): the value is still that
+			// of the call it adapts, unwrapped by one that unwraps.
+			through := c
+			through.From, through.Result = adapter.From, adapter.Result|c.Result
+			if adapter.Adapts == 2 {
+				through.Result |= 1
+			}
+			return r.resolveCall(through)
+		}
+		if callee >= 0 && !guessed && c.Result < len(r.units[callee].Results) {
 			producer := r.units[callee]
 			if typ := producer.Results[c.Result]; typ != "" {
 				resolve := func() (int, bool) {

@@ -741,3 +741,30 @@ func TestRustResultTypesNeedNoDirectDependency(t *testing.T) {
 		t.Errorf("run calls %s, want %s", got, want)
 	}
 }
+
+// A result adapter the repository does not define (anyhow's context) is
+// looked through to the call it adapts; one it does define is a call
+// like any other, with its own result.
+func TestRustResultAdaptersAreLookedThroughUnlessTheyAreOurs(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/run.rs", "run",
+			unit.Call{Kind: unit.PathCall, Qualifier: "Db", Name: "connect"},                 // 1: Db::connect()
+			unit.Call{Kind: unit.MethodCall, Name: "context", From: 1, Result: 2, Adapts: 1}, // 2: .await.context(..)
+			unit.Call{Kind: unit.MethodCall, Name: "query", From: 2, Result: 1},              // 3: db.query() after ?
+			unit.Call{Kind: unit.PathCall, Qualifier: "Wrapper", Name: "make"},               // 4: Wrapper::make()
+			unit.Call{Kind: unit.MethodCall, Name: "unwrap", From: 4, Adapts: 2},             // 5: .unwrap(): Wrapper's own
+			unit.Call{Kind: unit.MethodCall, Name: "render", From: 5}),                       // 6: on Widget
+		{File: "a/src/db.rs", Name: "Db::connect", Results: []string{"", "", "anyhow::Result", "Db"}},
+		fn("a/src/db.rs", "Db::query"),
+		fn("a/src/other.rs", "Other::query"),
+		{File: "a/src/wrapper.rs", Name: "Wrapper::make", Results: []string{"Wrapper", "Wrapper"}},
+		{File: "a/src/wrapper.rs", Name: "Wrapper::unwrap", Results: []string{"Widget", "Widget"}},
+		fn("a/src/wrapper.rs", "Wrapper::render"),
+		fn("a/src/widget.rs", "Widget::render"),
+	}
+	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/run.rs"}}
+	want := "[a/src/db.rs Db::connect a/src/db.rs Db::query a/src/wrapper.rs Wrapper::make a/src/wrapper.rs Wrapper::unwrap a/src/widget.rs Widget::render]"
+	if got := callees(Build(in, units), "a/src/run.rs run"); got != want {
+		t.Errorf("run calls %s,\nwant %s", got, want)
+	}
+}

@@ -155,6 +155,11 @@ type Call struct {
 	// s.Store().Save()), and Result that result's position; From is 0
 	// when the operand is no call's result. Go only.
 	From, Result int
+	// Adapts marks a Rust method named like a result adapter (map_err,
+	// context, unwrap, ...): 1 when it keeps its operand's value, 2 when
+	// it takes it out as ? does. A library's is looked through to the
+	// call it adapts; one the repository defines is a call like any other.
+	Adapts int
 }
 
 // Statement is one statement of a block, as positions in its unit.
