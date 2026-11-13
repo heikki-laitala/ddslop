@@ -1204,6 +1204,7 @@ func (e *extractor) addImpl(n *sitter.Node, sc scope, test bool) {
 // addStruct records a struct with named fields; unit and tuple structs are
 // left out.
 func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
+	test = test || slices.ContainsFunc(attrs, isCfgTest) // #[cfg(test)] struct
 	name, body := n.ChildByFieldName("name"), n.ChildByFieldName("body")
 	if name == nil || body == nil || body.Kind() != "field_declaration_list" || n.HasError() {
 		return
