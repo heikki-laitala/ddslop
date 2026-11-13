@@ -39,6 +39,7 @@ type index struct {
 	free    map[string][]int             // free functions by name
 	methods map[string][]int             // methods by method name
 	owned   map[string][]int             // methods by "Owner::method", owner simplified
+	owners  map[string]bool              // the types with methods, simplified
 	crates  map[string]string            // workspace crate name -> crate directory
 	imports map[string]map[string]string // file -> imported name -> path
 	deps    map[string]map[string]bool   // crate directory -> workspace crates it imports from
@@ -68,7 +69,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 	indexOf := func(file string) *index {
 		ext := filepath.Ext(file)
 		if langs[ext] == nil {
-			langs[ext] = &index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{},
+			langs[ext] = &index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{}, owners: map[string]bool{},
 				crates: map[string]string{}, imports: in.Imports, deps: map[string]map[string]bool{},
 				fields: in.Fields, modules: in.Modules}
 		}
@@ -89,6 +90,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		}
 		ix.methods[name] = append(ix.methods[name], i)
 		ix.owned[owner+"::"+name] = append(ix.owned[owner+"::"+name], i)
+		ix.owners[owner] = true
 	}
 
 	for file, imported := range in.Imports {
@@ -193,7 +195,12 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 	case typ == "":
 	case strings.HasSuffix(caller.File, ".rs"):
 		// A Rust type is a simple name, found as Type::f is: in the
-		// caller's file, crate, or a workspace crate it imports from.
+		// caller's file, crate, or a workspace crate it imports from. A
+		// type with no methods here (Vec, Option) is from outside the
+		// repository: its methods are none of ours.
+		if !ix.owners[typ] {
+			return -1, false
+		}
 		if u := ix.pick(units, caller, ix.owned[typ+"::"+c.Name]); u >= 0 {
 			return u, false
 		}
