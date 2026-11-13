@@ -512,11 +512,10 @@ func check(root string, opts options) (report.Report, error) {
 		summary.Files++
 		for _, u := range f.Units {
 			switch {
+			case u.Test && !opts.tests && isHelper(u):
+				helpers = append(helpers, u)
 			case u.Test && !opts.tests:
 				summary.TestUnits++
-				if !u.TestCase && !u.Ignored {
-					helpers = append(helpers, u)
-				}
 			case u.Ignored:
 				summary.Ignored++
 			default:
@@ -531,7 +530,7 @@ func check(root string, opts options) (report.Report, error) {
 		decls.TypeNames = append(decls.TypeNames, f.Decls.TypeNames...)
 		decls.FuncTypes = append(decls.FuncTypes, f.Decls.FuncTypes...)
 	}
-	summary.Units = len(units)
+	summary.Units = len(units) + len(helpers)
 	summary.Version = versionString()
 	// The helpers compared for copies are analysed code too.
 	summary.Health.AnalysedLines = report.AnalysedLines(units, structs, consts) + report.AnalysedLines(helpers, nil, nil)
@@ -762,6 +761,14 @@ var parallelFlowOptions = flow.ParallelOptions{
 	MinCover:       0.2,
 	MinStepSim:     0.7,
 	SharedFraction: 0.25,
+}
+
+// isHelper reports whether a test unit is a helper compared for copies
+// without --tests: no test case, not marked ignored, and not in a
+// testdata directory, whose files are fixtures the Go tool never builds.
+func isHelper(u unit.Unit) bool {
+	inTestdata := slices.Contains(strings.Split(filepath.ToSlash(u.File), "/"), "testdata")
+	return !u.TestCase && !u.Ignored && !inTestdata
 }
 
 // inFiles counts the files units are in.
