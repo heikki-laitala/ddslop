@@ -928,8 +928,15 @@ that crosses it.
   crate, any other into the caller's own.
 - `self.m()` resolves to the caller's type. `x.m()` on a value whose type
   the code states resolves as `Type::m()` does: a parameter (`store: &mut
-  Store`, `Self`), a typed `let` or one bound to a struct literal, or the
-  impl's field (`self.db.query()`, typed by the struct's declaration). The
+  Store`, `Self`), a typed `let` or one bound to a struct literal, the
+  impl's field (`self.db.query()`, typed by the struct's declaration), or
+  a value built by a call (`let s = Store::new()`, `Db::connect().await?`,
+  a chained `Store::open()?.get()`). For the last, each function records
+  its result types (`Unit.Results`): as returned, and what a `?` leaves,
+  the type inside a `Result` or `Option` (an `async fn` declares the type
+  its `.await` gives). The graph resolves the producing call first, unless
+  it was only guessed, and reads the result's path where the producer is
+  (`Self` and `crate::` are the producer's crate). The
   adapter strips references and looks through `Box`, `Arc` and `Rc`, gives
   type parameters, trait objects and primitives no type, and drops a
   variable's type where a `let`, a pattern (`match`, `if let`, `for`) or a
@@ -986,7 +993,8 @@ module calls a method of a type a module above it defines, on a value
 it holds. Whether the map shows the weaker direction of such a cycle
 as a break depends on the weights of both, so one of them came and went
 as review fixes changed which calls resolve. `check` reported the same
-candidates.
+candidates. Typing values built by calls then resolved 14,476 calls
+(14,322); the layers, breaks, helpers and `check` stayed the same.
 
 ### Entry points
 
