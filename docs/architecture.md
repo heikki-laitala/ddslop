@@ -926,11 +926,23 @@ that crosses it.
   a repository function named `now`; a module path naming a workspace
   crate (`acme_token_credentials::is_canonical_key_id`) resolves into that
   crate, any other into the caller's own.
-- `self.m()` resolves to the caller's type. `x.m()` resolves only when one
-  method of that name exists, and never for common standard-library method
-  names (`as_ref`, `len`, `push`, `find`, `collect`, ...): on
-  a large Rust codebase, resolving those by uniqueness put `ModelId::as_ref`
-  into 80 feature slices.
+- `self.m()` resolves to the caller's type. `x.m()` on a value whose type
+  the code states resolves as `Type::m()` does: a parameter (`store: &mut
+  Store`, `Self`), a typed `let` or one bound to a struct literal, or the
+  impl's field (`self.db.query()`, typed by the struct's declaration). The
+  adapter strips references and looks through `Box`, `Arc` and `Rc`, gives
+  type parameters, trait objects and primitives no type, and drops a
+  variable's type where a `let`, a pattern (`match`, `if let`, `for`) or a
+  closure parameter shadows it, until its block ends; a `let` takes effect
+  after its value. A field whose struct name two modules of a crate
+  declare with different types is unknown. A type with no methods in the
+  repository (`Vec`, `Option`, serde's `Value`) is from outside it: calls
+  on it resolve to nothing. An untyped `x.m()`, or one on a repository
+  type without that method (a trait's default, perhaps), resolves only
+  when one method of that name exists, and never for common
+  standard-library method names (`as_ref`, `len`, `push`, `find`,
+  `collect`, ...): on a large Rust codebase, resolving those by
+  uniqueness put `ModelId::as_ref` into 80 feature slices.
 - Outside its own crate, a call resolves only into workspace crates the
   caller's crate imports from in its code, not in its tests: a crate used
   only as a dev-dependency is not a dependency.
@@ -947,6 +959,18 @@ about half of 134 cross-crate links were wrong.
 On a large Rust codebase, 84% of free calls to repository functions
 resolve; most unresolved method and path calls are standard-library calls
 whose names the repository also defines.
+
+Typing method calls, measured on `lns-inference-router`: of the method
+calls with a stated operand type, 4,525 are on types with no methods in
+the repository (`Vec` 1,009, `Option` 849, serde's `Value`, maps,
+`Formatter`), which no longer get guessed, and 1,657 reach a method of
+the type. Resolved calls went from 13,770 to 14,348 of 73,038. In
+`lns_ledger` (138 modules) the layers went from 15 to 12, the shared
+helpers gained methods reached through fields (`observe`, `is_open`,
+`actions`), and three upward calls appeared, each real: `records` reads
+a credit lot's `arguments()` while `credit` builds on `records`, `schema`
+calls `missing()` on a `reload::Decided` it is given, and `monitor`
+reaches `pause` the same way. `check` reported the same candidates.
 
 ### Entry points
 
@@ -1381,9 +1405,10 @@ crate's modules), which names each file once.
   `Option::or`, `bool::then`, a query builder's `.name()`, a middleware
   chain's `next.run()` and reqwest's `.build()` look like shared helpers.
   The price is real methods reached the same way (`to_hex`, `is_open`).
-  A Go call on an operand whose type the code states counts (see Parsing
-  and language adapters), so calls through struct fields, parameters and
-  values built by a call shape Go layers.
+  A call on an operand whose type the code states counts (see Parsing
+  and language adapters, and the Rust rules under Symbol index and call
+  graph), so calls through struct fields and parameters shape the
+  layers, in Go also through values built by a call.
 - A module no counted call goes to or comes from is unplaced (listed
   apart): nothing says where it belongs, and as a source it would land
   on top. Types-only crates are most of them.
