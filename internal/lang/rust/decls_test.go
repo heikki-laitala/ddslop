@@ -1058,3 +1058,26 @@ func TestRustMethodCallsRecordTheCallProducingTheirOperand(t *testing.T) {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+// tree-sitter parses let mut x with mut beside the pattern, not as a
+// mut_pattern around it: a mutable binding records its producer too.
+func TestMutableLetsRecordTheCallProducingThem(t *testing.T) {
+	src := `async fn run() -> Result<(), Error> {
+    let mut db = Db::connect().await?;
+    db.query();
+    Ok(())
+}
+`
+	calls := byName(t, mustUnits(t, src), "run").Calls
+	var got []string
+	for _, c := range calls {
+		from := "-"
+		if c.From > 0 {
+			from = fmt.Sprintf("%s#%d", calls[c.From-1].Name, c.Result)
+		}
+		got = append(got, fmt.Sprintf("%s from=%s", c.Name, from))
+	}
+	if want := "connect from=-\nquery from=connect#1\nOk from=-"; strings.Join(got, "\n") != want {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
