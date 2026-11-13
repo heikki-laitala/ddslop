@@ -1135,3 +1135,23 @@ func TestResultAdaptersAreMarked(t *testing.T) {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+func TestParenthesisedValuesKeepTheirProducer(t *testing.T) {
+	src := `async fn run() -> anyhow::Result<()> {
+    let db = (Db::connect().await?);
+    db.query();
+    (Store::open()?).get();
+    Ok(())
+}
+`
+	calls := byName(t, mustUnits(t, src), "run").Calls
+	var got []string
+	for _, c := range calls {
+		if c.From > 0 {
+			got = append(got, fmt.Sprintf("%s from=%s#%d", c.Name, calls[c.From-1].Name, c.Result))
+		}
+	}
+	if want := "query from=connect#3\nget from=open#1"; strings.Join(got, "\n") != want {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
