@@ -940,3 +940,32 @@ func TestRustModulePathFallbackSkipsTheCallersOwnFunction(t *testing.T) {
 		t.Errorf("root calls %s, want nothing: two functions named f, neither inner's", got)
 	}
 }
+
+// A Rust field chain is followed through the struct declarations: from
+// self, a typed variable or a call's result, each field's type in turn.
+func TestRustFieldChainsResolve(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run",
+			unit.Call{Kind: unit.MethodCall, Field: "ctx.db", Name: "query"},               // self.ctx.db.query()
+			unit.Call{Kind: unit.MethodCall, Type: "Request", Field: "store", Name: "get"}, // req.store.get()
+			unit.Call{Kind: unit.PathCall, Qualifier: "Made", Name: "make"},                // Made::make()
+			unit.Call{Kind: unit.MethodCall, From: 3, Field: "inner", Name: "run"},         // .inner.run()
+			unit.Call{Kind: unit.MethodCall, Field: "ctx.missing", Name: "query"}),         // an unknown field: nothing
+		{File: "a/src/made.rs", Name: "Made::make", Results: []string{"Made", "Made"}},
+		fn("a/src/db.rs", "Db::query"), fn("a/src/other.rs", "Other::query"),
+		fn("a/src/store.rs", "Store::get"), fn("a/src/other.rs", "Other::get"),
+		fn("a/src/inner.rs", "Inner::run"), fn("a/src/other.rs", "Other::run"),
+	}
+	in := Inputs{
+		Crates:    map[string]string{"a": "a"},
+		RustFiles: []string{"a/src/server.rs"},
+		Fields: map[string]map[string]string{"a": {
+			"Server.ctx": "crate::context::Context", "Context.db": "Db",
+			"Request.store": "Store", "Made.inner": "Inner",
+		}},
+	}
+	want := "[a/src/db.rs Db::query a/src/store.rs Store::get a/src/made.rs Made::make a/src/inner.rs Inner::run]"
+	if got := callees(Build(in, units), "a/src/server.rs Server::run"); got != want {
+		t.Errorf("Server::run calls %s,\nwant %s", got, want)
+	}
+}
