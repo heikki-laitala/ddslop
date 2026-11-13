@@ -284,7 +284,7 @@ that line's string literals.
 | Command | What it does |
 | --- | --- |
 | `check [path]` | report candidates (the default) |
-| `map [path]` | describe layers, helpers, features and idioms (`--crate` for one Rust crate) |
+| `map [path]` | describe layers, helpers, features and idioms (`--lang` for one language, `--crate` for one Rust crate) |
 | `similar FILE:LINE` | list existing functions like this one |
 | `explain ID` | show one candidate's code |
 | `flows [path]` | list features and the functions they reach |

@@ -32,7 +32,7 @@ for each concern, such as checking and wrapping errors. Each language
 gets a map of its own. A module is a Go package, or a Rust module directly under
 its crate. A Rust workspace is described as crates, each with how many
 modules and layers it holds; --crate describes one crate's modules, as a
-single crate is by default. Calls are resolved by name, as in flows; only
+single crate is by default, and --lang describes one language. Calls are resolved by name, as in flows; only
 calls that name their target count, and test code is left out.
 
 Flags:
@@ -145,6 +145,7 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 	format := fs.String("format", "", `output format, "text" or "json" (default: text on a terminal, json otherwise)`)
 	limit := fs.Int("limit", 10, "list at most this many modules per layer, breaks, functions per break, helpers, features, steps and other members per feature, and forms per idiom")
 	crate := fs.String("crate", "", "describe the modules of this Rust crate (default: a workspace's crates)")
+	only := fs.String("lang", "", `describe only this language, "go" or "rust" (default: each language found)`)
 	root, code, ok := parseRoot(fs, args, stderr)
 	if !ok {
 		return code
@@ -155,6 +156,17 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 	}
 	if *limit < 1 {
 		return fail(stderr, fmt.Errorf("--limit must be at least 1, got %d", *limit))
+	}
+	langs := []string{"go", "rust"}
+	switch *only {
+	case "":
+	case "go", "rust":
+		langs = []string{*only}
+	default:
+		return fail(stderr, fmt.Errorf(`--lang must be "go" or "rust", got %q`, *only))
+	}
+	if *crate != "" && *only == "go" {
+		return fail(stderr, fmt.Errorf("--crate describes a Rust crate, not Go code"))
 	}
 
 	cfg, err := config.Load(root)
@@ -172,7 +184,7 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 	defer func() { _ = db.Close() }()
 
 	r := mapReport{Maps: []mapJSON{}}
-	for _, lang := range []string{"go", "rust"} {
+	for _, lang := range langs {
 		if *crate != "" && lang != "rust" {
 			continue
 		}
@@ -200,7 +212,7 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 		enc.SetIndent("", "  ")
 		err = enc.Encode(r)
 	} else {
-		err = writeMapText(stdout, r)
+		err = writeMapText(stdout, r, langs)
 	}
 	if err != nil {
 		return fail(stderr, err)
@@ -393,7 +405,8 @@ func sourceLine(root, file string, line int) string {
 	return ""
 }
 
-func writeMapText(w io.Writer, r mapReport) error {
+// writeMapText prints the maps of langs, the languages described.
+func writeMapText(w io.Writer, r mapReport, langs []string) error {
 	var b strings.Builder
 	for i, m := range r.Maps {
 		if i > 0 {
@@ -448,7 +461,12 @@ func writeMapText(w io.Writer, r mapReport) error {
 		writeIdiomsText(&b, m.Idioms)
 	}
 	if len(r.Maps) == 0 {
-		b.WriteString("no Go or Rust code found\n")
+		names := map[string]string{"go": "Go", "rust": "Rust"}
+		var missing []string
+		for _, l := range langs {
+			missing = append(missing, names[l])
+		}
+		fmt.Fprintf(&b, "no %s code found\n", strings.Join(missing, " or "))
 	}
 	_, err := io.WriteString(w, b.String())
 	return err

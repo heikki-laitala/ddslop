@@ -993,8 +993,8 @@ and JSON output; see As built below), and section 3 in part: the
 flagged `parallel-flow` families, as measurement left the other two
 rules nothing real to report yet. Section 4 is built for error checks
 and error wrapping in Go and Rust, and section 5 for drift from those
-idioms; their other concerns and sources, Markdown output and `--lang`
-are planned.
+idioms, and `--lang`; their other concerns and sources and Markdown
+output are planned.
 
 The fragment and flow layers find copies after they are written. Most of
 them were written because the agent did not know how the codebase already
@@ -1289,7 +1289,9 @@ uses, and `ddslop map` prints them per language (`{"maps": [...]}`, each
 map with `lang`, `scope`, `calls` and `resolved_calls` counts as in
 `flows`, `layers`, `unplaced`, `breaks` and `helpers`), each list capped
 by `--limit` (default 10; left-out modules are counted in `more` and
-`unplaced_more`).
+`unplaced_more`). `--lang go` or `--lang rust` prints that language's map
+alone (an empty list when it has no code there), and `--crate` with
+`--lang go` is refused, as a crate is Rust's.
 
 The map has two levels for Rust. A workspace is described by crate
 (`"scope": "crates"`): the layers the crates form, the breaks between
