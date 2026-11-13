@@ -1012,3 +1012,22 @@ func TestRustAdaptersKeepTheFieldPathBeforeThem(t *testing.T) {
 		t.Errorf("go calls %s, want %s", got, want)
 	}
 }
+
+// A path into another workspace crate's module (b::foo::Db) names that
+// module's type among the crate's types of the name.
+func TestRustWorkspaceModulePathsPickTheNamedModulesType(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run", typed("b::foo::Db", "query"), typed("b::Db", "query")),
+		fn("b/src/foo.rs", "Db::query"),
+		fn("b/src/bar.rs", "Db::query"),
+		fn("b/src/lib.rs", "Db::query"),
+	}
+	in := Inputs{
+		Crates:    map[string]string{"a": "a", "b": "b"},
+		Imports:   map[string]map[string]string{"a/src/server.rs": {"Db": "b::foo::Db"}},
+		RustFiles: []string{"a/src/server.rs", "b/src/foo.rs", "b/src/bar.rs", "b/src/lib.rs"},
+	}
+	if got, want := callees(Build(in, units), "a/src/server.rs Server::run"), "[b/src/foo.rs Db::query b/src/lib.rs Db::query]"; got != want {
+		t.Errorf("Server::run calls %s, want %s", got, want)
+	}
+}
