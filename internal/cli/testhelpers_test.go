@@ -98,3 +98,23 @@ func TestTestdataIsNoHelperAndHelpersCountAsAnalysed(t *testing.T) {
 		t.Errorf("summary = %+v, want 4 units analysed (2 production, 2 helpers) and 4 test units skipped", r.Summary)
 	}
 }
+
+// A helper group with a production function's shape must not take that
+// function's place among the near-miss family's copies: the family's
+// blocks would then be reported again as block clones.
+func TestHelperCopiesLeaveNearMissFamiliesAlone(t *testing.T) {
+	root := repo(t, map[string]string{
+		"src/a.rs":    users,
+		"src/b.rs":    usersLogged,
+		"tests/h1.rs": users,
+		"tests/h2.rs": users,
+	})
+	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", "--min-near-nodes", "20", "--min-block-nodes", "20", root)
+	var kinds []string
+	for _, c := range decode(t, stdout).Candidates {
+		kinds = append(kinds, c.Kind)
+	}
+	if got := strings.Join(kinds, " "); strings.Contains(got, "block-clone") || !strings.Contains(got, "near-miss") {
+		t.Errorf("kinds = %s, want the near miss and the helper copies, no block clone repeating the near miss", got)
+	}
+}
