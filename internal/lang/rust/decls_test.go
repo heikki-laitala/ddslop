@@ -1304,3 +1304,38 @@ func TestFunctionsInBenchesAreTestCases(t *testing.T) {
 		t.Errorf("bench_save: test=%v case=%v, want a test case", u.Test, u.TestCase)
 	}
 }
+
+// A method called through fields records the field path from where the
+// chain starts: self, a typed variable, or a call's result.
+func TestMethodCallsThroughFieldChainsRecordThePath(t *testing.T) {
+	src := `impl Server {
+    fn run(&self, req: &Request) {
+        self.ctx.db.query();
+        req.store.get();
+        make().inner.run();
+        self.db.ping();
+    }
+}
+`
+	calls := byName(t, mustUnits(t, src), "Server::run").Calls
+	var got []string
+	for _, c := range calls {
+		if c.Kind != unit.MethodCall {
+			continue
+		}
+		from := "-"
+		if c.From > 0 {
+			from = calls[c.From-1].Name
+		}
+		got = append(got, fmt.Sprintf("%s type=%q from=%s field=%q", c.Name, c.Type, from, c.Field))
+	}
+	want := []string{
+		`query type="" from=- field="ctx.db"`,
+		`get type="Request" from=- field="store"`,
+		`run type="" from=make field="inner"`,
+		`ping type="" from=- field="db"`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

@@ -1481,10 +1481,36 @@ func (g grammar) recordCall(s *syntax.Shaper, n *sitter.Node) {
 			op := g.vars[value.Utf8Text(s.Src)]
 			c.Type, c.From, c.Result = op.Type, op.From, op.Result
 		case value.Kind() == "field_expression":
-			// self.db.query(): a method of the impl's field.
-			if v, f := value.ChildByFieldName("value"), value.ChildByFieldName("field"); v != nil && f != nil && v.Kind() == "self" {
-				c.Field = f.Utf8Text(s.Src)
+			// self.ctx.db.query(), req.store.get(), make().inner.run(): the
+			// fields followed from where the chain starts.
+			var fields []string
+			base := value
+			for base != nil && base.Kind() == "field_expression" {
+				f := base.ChildByFieldName("field")
+				if f == nil {
+					break
+				}
+				fields = append([]string{f.Utf8Text(s.Src)}, fields...)
+				base = base.ChildByFieldName("value")
 			}
+			switch {
+			case base == nil || base.Kind() == "field_expression":
+				fields = nil
+			case base.Kind() == "self":
+			case base.Kind() == "identifier":
+				op := g.vars[base.Utf8Text(s.Src)]
+				if op == (syntax.Operand{}) {
+					fields = nil // an untyped start types nothing
+				}
+				c.Type, c.From, c.Result = op.Type, op.From, op.Result
+			default:
+				if p, ok := callResult(base); ok {
+					g.chains[len(s.Calls)] = p // recorded after this call
+				} else {
+					fields = nil
+				}
+			}
+			c.Field = strings.Join(fields, ".")
 		}
 	default:
 		return // closures and other callees are not resolved by name
