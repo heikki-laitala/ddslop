@@ -891,10 +891,11 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 }
 
 // isTestAttr reports whether an attribute marks a test function, such as
-// #[test], #[tokio::test(...)], #[rstest], #[test_case(...)] or #[bench].
+// #[test], #[tokio::test(...)], #[rstest], #[test_case(...)], #[bench], or
+// a runner's own named after test (#[wasm_bindgen_test]).
 func isTestAttr(attr string) bool {
 	name := attrName(attr)
-	return name == "test" || name == "rstest" || name == "test_case" || name == "bench"
+	return name == "test" || strings.HasSuffix(name, "_test") || name == "rstest" || name == "test_case" || name == "bench"
 }
 
 // isCfgTest reports whether an attribute limits an item to test builds.
