@@ -502,7 +502,8 @@ func check(root string, opts options) (report.Report, error) {
 	var structs []unit.Struct
 	var enums []unit.Enum
 	var consts []unit.Const
-	var decls unit.Decls // every file's, test code included, for traits
+	var decls unit.Decls    // every file's, test code included, for traits
+	var helpers []unit.Unit // test code's helpers, fakes and fixtures, without --tests
 	for _, f := range files {
 		if f.Generated {
 			summary.GeneratedFiles++
@@ -513,6 +514,9 @@ func check(root string, opts options) (report.Report, error) {
 			switch {
 			case u.Test && !opts.tests:
 				summary.TestUnits++
+				if !u.TestCase && !u.Ignored {
+					helpers = append(helpers, u)
+				}
 			case u.Ignored:
 				summary.Ignored++
 			default:
@@ -531,6 +535,10 @@ func check(root string, opts options) (report.Report, error) {
 	summary.Version = versionString()
 	summary.Health.AnalysedLines = report.AnalysedLines(units, structs, consts)
 	groups := clone.Groups(units, opts.minNodes)
+	// Without --tests, test code is checked for one thing: helpers copied
+	// between test files, a bigger bar than production code's. Test cases
+	// are repetitive by design and stay out.
+	groups = append(groups, clone.Groups(helpers, max(minTestHelperNodes, opts.minNodes))...)
 	nearMisses := clone.NearMisses(units, max(opts.minNearNodes, opts.minNodes), opts.minSim, threads)
 	// Functions reported together. A near-miss member represents its whole
 	// shape, so a family also covers the member's exact and renamed copies.
@@ -750,6 +758,13 @@ var parallelFlowOptions = flow.ParallelOptions{
 	MinStepSim:     0.7,
 	SharedFraction: 0.25,
 }
+
+// minTestHelperNodes is the smallest test helper (a function in test code
+// that is no test case) reported as a copy without --tests. Measured on a
+// 739k-line Rust workspace: 297 groups of helper copies at 50 nodes, most
+// of the smallest one-line fakes and accessors, 156 at 80; ddslop had 5
+// and 2.
+const minTestHelperNodes = 80
 
 // appendAnalysed appends the declarations to analyse: test code only when
 // tests are asked for, and none a ddslop:ignore comment marks, which the
