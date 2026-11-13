@@ -470,3 +470,35 @@ func TestGoTypedCallsWithoutAModuleAreGuessed(t *testing.T) {
 		t.Errorf("Server.Get calls %s (by name %v), want Cache.Fill guessed by name", got, g.ByName[0])
 	}
 }
+
+func TestGoMethodCallsOnACallsResultResolveByItsResultType(t *testing.T) {
+	open := unit.Call{Kind: unit.PathCall, Qualifier: "store", Name: "Open"}
+	units := []unit.Unit{
+		fn("api/server.go", "Server.Get",
+			open, // db, err := store.Open()
+			unit.Call{Kind: unit.MethodCall, Name: "Save", From: 1},             // db.Save()
+			unit.Call{Kind: unit.MethodCall, Name: "Close", From: 1, Result: 1}, // err.Close(): error has no type
+			unit.Call{Kind: unit.MethodCall, Name: "Flush", From: 5},            // store.Open().Flush(), chained
+			open,
+			unit.Call{Kind: unit.MethodCall, Name: "Run", From: 7}, // on an unresolved call's result: guessed
+			unit.Call{Kind: unit.FreeCall, Name: "unknown"}),
+		// a type of Open's own package is written unqualified
+		{File: "internal/store/open.go", Name: "Open", Results: []string{"DB", ""}},
+		fn("internal/store/db.go", "DB.Save"),
+		fn("other/db.go", "DB.Save"),
+		fn("internal/store/db.go", "DB.Close"),
+		fn("other/db.go", "DB.Close"),
+		fn("internal/store/db.go", "DB.Flush"),
+		fn("other/db.go", "DB.Flush"),
+		fn("api/job.go", "job.Run"),
+	}
+	in := Inputs{Modules: map[string]string{".": "example.com/app"}, Crates: map[string]string{"internal/store": "store"}}
+	g := Build(in, units)
+	want := "[internal/store/open.go Open internal/store/db.go DB.Save internal/store/db.go DB.Flush api/job.go job.Run]"
+	if got := callees(g, "api/server.go Server.Get"); got != want {
+		t.Errorf("Server.Get calls %s,\nwant %s", got, want)
+	}
+	if got, want := fmt.Sprint(g.ByName[0]), "[false false false true]"; got != want {
+		t.Errorf("ByName = %s, want %s: only the call on an unresolved result is a guess", got, want)
+	}
+}
