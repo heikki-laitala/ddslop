@@ -976,3 +976,28 @@ func run(s *Server) {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+// In Go, a test case is a TestXxx, BenchmarkXxx, FuzzXxx or ExampleXxx
+// function of a _test.go file; the rest there are helpers.
+func TestGoTestCasesAreToldFromTestHelpers(t *testing.T) {
+	src := `package store
+
+import "testing"
+
+func TestSave(t *testing.T) { fixture() }
+func BenchmarkSave(b *testing.B) {}
+func fixture() *Store { return nil }
+func Testify() {}
+`
+	units, _, err := Parse("store/store_test.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, u := range units {
+		got = append(got, fmt.Sprintf("%s case=%v", u.Name, u.TestCase))
+	}
+	if want := "TestSave case=true\nBenchmarkSave case=true\nfixture case=false\nTestify case=false"; strings.Join(got, "\n") != want {
+		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}

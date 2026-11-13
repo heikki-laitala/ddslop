@@ -22,6 +22,9 @@ type Unit struct {
 	// (outer::inner for mod outer { mod inner { .. } }), "" for none. Rust
 	// only.
 	Module string
+	// TestCase is true for a test the test runner calls (#[test], TestXxx);
+	// other test code is helpers, fakes and fixtures.
+	TestCase bool
 	// Ignored is true when a ddslop:ignore comment marks the unit: it is
 	// left out of the analysis.
 	Ignored bool
