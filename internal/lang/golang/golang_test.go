@@ -807,3 +807,39 @@ func plain() {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestSelectReceivesAndLiteralResultsDeclareVariables(t *testing.T) {
+	src := `package api
+
+import "encoding/json"
+
+func (s *Server) run(ch chan *Codec) {
+	select {
+	case json := <-ch:
+		json.Marshal()
+	case s := <-ch:
+		s.Flush()
+	}
+	_ = func() (db *DB) {
+		db.Save()
+		return
+	}
+}
+`
+	units, _, err := Parse("api/run.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range units[0].Calls {
+		got = append(got, fmt.Sprintf("%d kind=%d qualifier=%q type=%q", c.Line, c.Kind, c.Qualifier, c.Type))
+	}
+	want := []string{
+		fmt.Sprintf(`8 kind=%d qualifier="" type=""`, unit.MethodCall),
+		fmt.Sprintf(`10 kind=%d qualifier="" type=""`, unit.MethodCall),
+		fmt.Sprintf(`13 kind=%d qualifier="" type="DB"`, unit.MethodCall),
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

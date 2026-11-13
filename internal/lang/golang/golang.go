@@ -113,7 +113,7 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 				g.declare(name.Utf8Text(s.Src), typ, true)
 			}
 		}
-	case "short_var_declaration", "assignment_statement", "range_clause":
+	case "short_var_declaration", "assignment_statement", "range_clause", "receive_statement":
 		return func() { g.assign(n, s.Src) }
 	case "expression_switch_statement":
 		var values []string
@@ -137,11 +137,7 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	case "func_literal":
 		s.Closures++
 		restore := g.scope(false)
-		eachParam(n.ChildByFieldName("parameters"), s.Src, func(name, typ string) {
-			if name != "" {
-				g.declare(name, typeOf(typ, g.packages), true)
-			}
-		})
+		eachOwn(n, s.Src, func(name, typ string) { g.declare(name, typeOf(typ, g.packages), true) })
 		return func() { s.Closures--; restore() }
 	case "block":
 		// An if's body or else is a branch; other blocks run in sequence.
@@ -515,19 +511,12 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 	}
 	// The parameters and named results are the function's own scope.
 	vars, own := map[string]string{}, map[string]bool{}
-	for _, list := range []*sitter.Node{n.ChildByFieldName("parameters"), n.ChildByFieldName("result")} {
-		if list == nil || list.Kind() != "parameter_list" {
-			continue
+	eachOwn(n, src, func(name, typ string) {
+		own[name] = true
+		if t := typeOf(typ, packages); t != "" {
+			vars[name] = t
 		}
-		eachParam(list, src, func(name, typ string) {
-			if name != "" {
-				own[name] = true
-			}
-			if t := typeOf(typ, packages); name != "" && t != "" {
-				vars[name] = t
-			}
-		})
-	}
+	})
 	s := syntax.Flatten(n, src, grammar{receiver: receiverName(n, src), packages: packages, vars: vars,
 		scopes: &[]*varScope{{declared: own, assigned: map[string]bool{}}}})
 	return unit.Unit{
@@ -806,6 +795,21 @@ func funcTypes(n *sitter.Node, src []byte) []unit.FuncType {
 		}
 	}
 	return out
+}
+
+// eachOwn calls each with the named parameters and named results of a
+// function or function literal, with their types as written.
+func eachOwn(fn *sitter.Node, src []byte, each func(name, typ string)) {
+	for _, list := range []*sitter.Node{fn.ChildByFieldName("parameters"), fn.ChildByFieldName("result")} {
+		if list == nil || list.Kind() != "parameter_list" {
+			continue
+		}
+		eachParam(list, src, func(name, typ string) {
+			if name != "" {
+				each(name, typ)
+			}
+		})
+	}
 }
 
 // eachParam calls each with the name ("" when unnamed) and type of every
