@@ -476,6 +476,15 @@ fn leased(pool: &Pool) {
 	}
 }
 
+// forms returns a unit's forms as "line concern form", in order.
+func forms(u unit.Unit) []string {
+	var out []string
+	for _, f := range u.Forms {
+		out = append(out, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
+	}
+	return out
+}
+
 func TestUnitsRecordTheirErrorForms(t *testing.T) {
 	src := `fn load(store: &Store) -> Result<Row, Fault> {
     match store.get().map_err(Fault::Store) {
@@ -494,10 +503,7 @@ func TestUnitsRecordTheirErrorForms(t *testing.T) {
     Ok(row)
 }
 `
-	var got []string
-	for _, f := range byName(t, mustUnits(t, src), "load").Forms {
-		got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
-	}
+	got := forms(byName(t, mustUnits(t, src), "load"))
 	want := []string{
 		"2 error-wrapping map_err",
 		"3 error-checks variant",
@@ -530,10 +536,7 @@ func TestErrorFormsInMacrosQualifiedPathsAndAnyhowContext(t *testing.T) {
     Ok(a + b + c + d)
 }
 `
-	var got []string
-	for _, f := range byName(t, mustUnits(t, src), "check").Forms {
-		got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
-	}
+	got := forms(byName(t, mustUnits(t, src), "check"))
 	want := []string{
 		"2 error-checks variant",
 		"5 error-checks variant",
@@ -578,13 +581,16 @@ func TestUnitsRecordHowTheyMakeErrors(t *testing.T) {
     if s == "q" {
         return Err(Fault::new(s));
     }
+    if s == "p" {
+        return Result::Err(Fault::Empty);
+    }
+    if s == "o" {
+        return core::result::Result::Err(r#"bad"#.to_string());
+    }
     Ok(0)
 }
 `
-	var got []string
-	for _, f := range byName(t, mustUnits(t, src), "parse").Forms {
-		got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
-	}
+	got := forms(byName(t, mustUnits(t, src), "parse"))
 	want := []string{
 		"3 error-values variant",
 		"6 error-values variant",
@@ -594,6 +600,8 @@ func TestUnitsRecordHowTheyMakeErrors(t *testing.T) {
 		"18 error-values string",
 		"21 error-values anyhow",
 		"24 error-values anyhow",
+		"33 error-values variant",
+		"36 error-values string",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -613,10 +621,7 @@ func TestBinariesRecordNoErrorValues(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var got []string
-		for _, f := range byName(t, units, "args").Forms {
-			got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
-		}
+		got := forms(byName(t, units, "args"))
 		if want := "5 error-wrapping map_err"; strings.Join(got, "\n") != want {
 			t.Errorf("%s: forms = %v, want %s", path, got, want)
 		}
@@ -628,10 +633,7 @@ func TestAMessageCheckInAMatchesGuardIsRecorded(t *testing.T) {
     matches!(r, Err(e) if e.to_string().contains("busy"))
 }
 `
-	var got []string
-	for _, f := range byName(t, mustUnits(t, src), "busy").Forms {
-		got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
-	}
+	got := forms(byName(t, mustUnits(t, src), "busy"))
 	if want := "2 error-checks message"; strings.Join(got, "\n") != want {
 		t.Errorf("forms = %v, want %s", got, want)
 	}

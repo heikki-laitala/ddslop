@@ -116,7 +116,7 @@ func errorForm(n *sitter.Node, src []byte) unit.Form {
 		}
 	case "call_expression":
 		callee := calleeOf(n)
-		if callee != nil && callee.Kind() == "identifier" && callee.Utf8Text(src) == "Err" {
+		if callee != nil && (callee.Kind() == "identifier" || callee.Kind() == "scoped_identifier") && lastSegment(callee.Utf8Text(src)) == "Err" {
 			if args := n.ChildByFieldName("arguments"); args != nil && args.NamedChildCount() == 1 {
 				if f := errorValue(args.NamedChild(0), src); f != "" {
 					form.Concern, form.Form = unit.ErrorValues, f
@@ -166,7 +166,7 @@ func errorValue(n *sitter.Node, src []byte) string {
 		case callee == nil:
 		case callee.Kind() == "field_expression":
 			field, value := callee.ChildByFieldName("field"), callee.ChildByFieldName("value")
-			if field != nil && value != nil && value.Kind() == "string_literal" {
+			if field != nil && value != nil && (value.Kind() == "string_literal" || value.Kind() == "raw_string_literal") {
 				switch field.Utf8Text(src) {
 				case "to_string", "into", "to_owned":
 					return "string"
