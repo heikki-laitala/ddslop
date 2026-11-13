@@ -46,6 +46,19 @@ jobs:
       - name: Smoke test
         run: scripts/smoke-test.sh bin/ddslop
 
+  latest-release:
+    name: Latest release
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The latest published ddslop on this code, with no baseline: a
+      # candidate it finds fails the job until it is fixed or marked
+      # ddslop:ignore with a reason.
+      - uses: ./
+        with:
+          version: latest
+          upload-sarif: "false"
+
   action:
     name: Action
     runs-on: ubuntu-26.04
