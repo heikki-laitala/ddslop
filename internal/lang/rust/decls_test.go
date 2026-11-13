@@ -1209,3 +1209,28 @@ impl Store {
 		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+// A function in an inline module records that module's path within its
+// file.
+func TestUnitsRecordTheirInlineModule(t *testing.T) {
+	src := `pub fn top() {}
+
+mod outer {
+    pub fn a() {}
+    pub mod inner {
+        pub fn b() {}
+    }
+    impl Thing {
+        pub fn c() {}
+    }
+}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		got = append(got, fmt.Sprintf("%s module=%q", u.Name, u.Module))
+	}
+	want := "top module=\"\"\na module=\"outer\"\nb module=\"outer::inner\"\nThing::c module=\"outer\""
+	if strings.Join(got, "\n") != want {
+		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}

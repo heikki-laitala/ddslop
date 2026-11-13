@@ -816,6 +816,8 @@ func usesIn(container *sitter.Node, src []byte) map[string]string {
 // inside a trait impl, the trait implemented.
 type scope struct {
 	owner, trait string
+	// module is the inline module path within the file (outer::inner).
+	module string
 }
 
 func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
@@ -857,6 +859,14 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 			})
 		}
 		sc.trait = ""
+	case "mod_item":
+		// mod x { .. } opens an inline module; mod x; names a file.
+		if name := n.ChildByFieldName("name"); name != nil && n.ChildByFieldName("body") != nil {
+			if sc.module != "" {
+				sc.module += "::"
+			}
+			sc.module += name.Utf8Text(e.src)
+		}
 	}
 	var attrs []string
 	for i := uint(0); i < n.ChildCount(); i++ {
@@ -955,6 +965,7 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 		Shape:     similarity.HashSymbols(s.Seq),
 		Nodes:     s.Nodes,
 		Test:      test,
+		Module:    sc.module,
 		Leaves:    s.Leaves,
 		Seq:       s.Seq,
 		SeqLines:  s.Lines,

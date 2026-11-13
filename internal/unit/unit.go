@@ -18,6 +18,10 @@ type Unit struct {
 	// Test is true for test code: test functions, functions in test
 	// modules and functions in test files.
 	Test bool
+	// Module is the inline module the unit is declared in within its file
+	// (outer::inner for mod outer { mod inner { .. } }), "" for none. Rust
+	// only.
+	Module string
 	// Ignored is true when a ddslop:ignore comment marks the unit: it is
 	// left out of the analysis.
 	Ignored bool
