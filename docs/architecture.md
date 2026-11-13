@@ -932,7 +932,9 @@ that crosses it.
   impl's field (`self.db.query()`, typed by the struct's declaration), or
   a value built by a call (`let s = Store::new()`, `Db::connect().await?`,
   a chained `Store::open()?.get()`, also through `map_err`, `context`,
-  `unwrap` or `expect`, the last two unwrapping as `?` does). For the last, each function records
+  `unwrap` or `expect`, the last two unwrapping as `?` does, when the
+  repository defines no method of that name for the value: its own
+  `unwrap` is a call like any other, with its own result). For the last, each function records
   its result types (`Unit.Results`): as returned, and what a `?` leaves,
   the type inside a `Result` or `Option`; an `async fn` returns a future,
   of no type here, and records apart what its `.await` and `.await?`

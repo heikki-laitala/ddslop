@@ -196,7 +196,7 @@ func (g grammar) valueOf(v *sitter.Node, src []byte) syntax.Operand {
 		}
 		return syntax.Operand{}
 	}
-	if p, ok := callResult(v, src); ok {
+	if p, ok := callResult(v); ok {
 		if k, ok := g.calls[p.call]; ok {
 			return syntax.Operand{From: k + 1, Result: p.result}
 		}
@@ -204,11 +204,12 @@ func (g grammar) valueOf(v *sitter.Node, src []byte) syntax.Operand {
 	return syntax.Operand{}
 }
 
-// callResult returns the call a value is, through .await, ? and
-// resultAdapters, and the result position (see unit.Unit.Results): 1
-// more after ? or an unwrapping adapter, which take the value out of a
-// Result or Option, and 2 more after .await.
-func callResult(v *sitter.Node, src []byte) (produced, bool) {
+// callResult returns the call a value is, through .await and ?, and the
+// result position (see unit.Unit.Results): 1 more after ?, which takes
+// the value out of a Result or Option, and 2 more after .await. A result
+// adapter (map_err, unwrap) is a call like any other here, marked as one
+// (unit.Call.Adapts) for the call graph to look through.
+func callResult(v *sitter.Node) (produced, bool) {
 	result := 0
 	for v != nil {
 		switch v.Kind() {
@@ -219,15 +220,6 @@ func callResult(v *sitter.Node, src []byte) (produced, bool) {
 			result |= 2
 			v = v.NamedChild(0)
 		case "call_expression":
-			if callee := calleeOf(v); callee != nil && callee.Kind() == "field_expression" {
-				if f := callee.ChildByFieldName("field"); f != nil && resultAdapters[f.Utf8Text(src)] {
-					if unwrapping[f.Utf8Text(src)] {
-						result |= 1
-					}
-					v = callee.ChildByFieldName("value")
-					continue
-				}
-			}
 			return produced{call: span(v), result: result}, true
 		default:
 			return produced{}, false
@@ -1466,7 +1458,13 @@ func (g grammar) recordCall(s *syntax.Shaper, n *sitter.Node) {
 		return // closures and other callees are not resolved by name
 	}
 	if c.Kind == unit.MethodCall {
-		if p, ok := callResult(fn.ChildByFieldName("value"), s.Src); ok {
+		switch {
+		case unwrapping[c.Name]:
+			c.Adapts = 2
+		case resultAdapters[c.Name]:
+			c.Adapts = 1
+		}
+		if p, ok := callResult(fn.ChildByFieldName("value")); ok {
 			g.chains[len(s.Calls)] = p // recorded after this call
 		}
 	}

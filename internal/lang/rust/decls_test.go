@@ -1111,28 +1111,26 @@ async fn run() {
 	}
 }
 
-// map_err, context, unwrap and expect adapt a call's result: the value
-// is still the call's, and unwrap or expect take it out as ? does.
-func TestResultAdaptersKeepTheirCallsResult(t *testing.T) {
+// map_err, context, unwrap and expect are recorded as result adapters
+// (unwrap and expect as unwrapping): whether one is a library's, to look
+// through, or the repository's own method is the call graph's to tell.
+func TestResultAdaptersAreMarked(t *testing.T) {
 	src := `async fn run() -> anyhow::Result<()> {
     let db = Db::connect().await.context("connect")?;
     db.query();
     let s = Store::open().unwrap();
     s.get();
-    let t = Store::open().map_err(Fault::Io)?;
-    t.get();
     Ok(())
 }
 `
 	calls := byName(t, mustUnits(t, src), "run").Calls
 	var got []string
 	for _, c := range calls {
-		if c.From > 0 {
-			got = append(got, fmt.Sprintf("%s from=%s#%d", c.Name, calls[c.From-1].Name, c.Result))
+		if c.Kind == unit.MethodCall {
+			got = append(got, fmt.Sprintf("%s from=%s#%d adapts=%d", c.Name, calls[c.From-1].Name, c.Result, c.Adapts))
 		}
 	}
-	// The adapters are method calls on the produced value themselves.
-	want := "context from=connect#2\nquery from=connect#3\nunwrap from=open#0\nget from=open#1\nmap_err from=open#0\nget from=open#1"
+	want := "context from=connect#2 adapts=1\nquery from=context#1 adapts=0\nunwrap from=open#0 adapts=2\nget from=unwrap#0 adapts=0"
 	if strings.Join(got, "\n") != want {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
