@@ -5,13 +5,13 @@ import "testing"
 func TestCodeInOutOfLineTestModulesIsTestCode(t *testing.T) {
 	// lib.rs declares helpers as a test module, ledger.rs declares
 	// real_ledger; helpers/deep.rs is a submodule of helpers. Their copies
-	// of load_user are test code.
+	// of load_user are test code (test cases, which only --tests checks).
 	root := repo(t, map[string]string{
 		"svc/src/lib.rs":                users + "\n#[cfg(test)]\nmod helpers;\n\npub mod ledger;\n",
-		"svc/src/helpers.rs":            orders,
-		"svc/src/helpers/deep.rs":       orders,
+		"svc/src/helpers.rs":            "#[test]\n" + orders,
+		"svc/src/helpers/deep.rs":       "#[test]\n" + orders,
 		"svc/src/ledger.rs":             "pub fn noop() {}\n\n#[cfg(test)]\nmod real_ledger;\n",
-		"svc/src/ledger/real_ledger.rs": orders,
+		"svc/src/ledger/real_ledger.rs": "#[test]\n" + orders,
 	})
 
 	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)

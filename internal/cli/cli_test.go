@@ -113,13 +113,17 @@ func decodeInto(t *testing.T, stdout string, v any) {
 	}
 }
 
+// decodeJSON decodes JSON output into a T.
+func decodeJSON[T any](t *testing.T, stdout string) T {
+	t.Helper()
+	var v T
+	decodeInto(t, stdout, &v)
+	return v
+}
+
 func decode(t *testing.T, stdout string) jsonReport {
 	t.Helper()
-	var r jsonReport
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not valid JSON: %v\n%s", err, stdout)
-	}
-	return r
+	return decodeJSON[jsonReport](t, stdout)
 }
 
 func TestCheckReportsRenamedCloneAsJSON(t *testing.T) {
@@ -307,15 +311,17 @@ func TestCheckSkipsGeneratedFilesAndCountsThem(t *testing.T) {
 }
 
 func TestCheckSkipsTestsUnlessAsked(t *testing.T) {
+	// The copies in test code are test cases: a helper copied between
+	// test files is reported without --tests (see testhelpers_test.go).
 	root := repo(t, map[string]string{
 		"src/users.rs": users,
-		"src/lib.rs":   "#[cfg(test)]\nmod tests {\n" + orders + "}\n",
-		"tests/it.rs":  users,
+		"src/lib.rs":   "#[cfg(test)]\nmod tests {\n#[test]\n" + orders + "}\n",
+		"tests/it.rs":  "#[test]\n" + users,
 	})
 
 	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
 	if code != 0 {
-		t.Errorf("exit code = %d, want 0: the only copies are in tests", code)
+		t.Errorf("exit code = %d, want 0: the only copies are test cases", code)
 	}
 	r := decode(t, stdout)
 	if r.Summary.Units != 1 || r.Summary.TestUnits != 2 {
