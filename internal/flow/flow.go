@@ -189,7 +189,15 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 	if c.Field != "" {
 		typ = ix.fields[CrateOf(caller.File)][owner+"."+c.Field]
 	}
-	if typ != "" {
+	switch {
+	case typ == "":
+	case strings.HasSuffix(caller.File, ".rs"):
+		// A Rust type is a simple name, found as Type::f is: in the
+		// caller's file, crate, or a workspace crate it imports from.
+		if u := ix.pick(units, caller, ix.owned[typ+"::"+c.Name]); u >= 0 {
+			return u, false
+		}
+	default:
 		if u, known := ix.resolveTyped(units, CrateOf(caller.File), typ, c.Name); known {
 			return u, false
 		}
