@@ -904,6 +904,14 @@ func isCfgTest(attr string) bool {
 	return compact == "#[cfg(test)]" || strings.HasPrefix(compact, "#[cfg(all(test,")
 }
 
+// inBenches reports whether a file is in a benches/ directory, whose
+// functions a benchmark harness registers (Criterion's criterion_group!):
+// all of them are test cases.
+func inBenches(path string) bool {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	return slices.Contains(parts[:len(parts)-1], "benches")
+}
+
 // IsTestPath reports whether a file holds tests by Cargo and Rust
 // convention: under a tests/ or benches/ directory, or a tests.rs module.
 func IsTestPath(path string) bool {
@@ -967,7 +975,7 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 		Nodes:     s.Nodes,
 		Test:      test,
 		Module:    sc.module,
-		TestCase:  slices.ContainsFunc(attrs, isTestAttr),
+		TestCase:  slices.ContainsFunc(attrs, isTestAttr) || inBenches(e.path),
 		Leaves:    s.Leaves,
 		Seq:       s.Seq,
 		SeqLines:  s.Lines,
