@@ -206,10 +206,14 @@ func (r *callResolver) resolveCall(c unit.Call) (int, bool) {
 		}
 		if callee >= 0 && !guessed && c.Result < len(r.units[callee].Results) {
 			producer := r.units[callee]
-			if typ := producer.Results[c.Result]; typ != "" {
+			typ, home := producer.Results[c.Result], producer
+			if c.Field != "" && strings.HasSuffix(producer.File, ".rs") {
+				typ, home = r.ix.followFields(typ, home, c.Field) // make().inner.run()
+			}
+			if typ != "" {
 				resolve := func() (int, bool) {
 					if strings.HasSuffix(producer.File, ".rs") {
-						return r.ix.resolveRust(r.units, r.caller, producer, typ, c.Name)
+						return r.ix.resolveRust(r.units, r.caller, home, typ, c.Name)
 					}
 					return r.ix.resolveTyped(r.units, CrateOf(producer.File), typ, c.Name)
 				}
@@ -228,14 +232,23 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 	if c.Kind != unit.MethodCall || c.Qualifier == "self" {
 		return ix.resolveNamed(units, caller, owner, c), false
 	}
-	typ := c.Type
-	if c.Field != "" {
+	typ, home := c.Type, caller
+	switch {
+	case c.Field == "":
+	case strings.HasSuffix(caller.File, ".rs") && c.From > 0:
+		typ = "" // a field of a call's result: followed in resolveCall, or not at all
+	case strings.HasSuffix(caller.File, ".rs"):
+		if typ == "" {
+			typ = owner // self.ctx.db
+		}
+		typ, home = ix.followFields(typ, home, c.Field)
+	default:
 		typ = ix.fields[CrateOf(caller.File)][owner+"."+c.Field]
 	}
 	switch {
 	case typ == "":
 	case strings.HasSuffix(caller.File, ".rs"):
-		if u, done := ix.resolveRust(units, caller, caller, typ, c.Name); done {
+		if u, done := ix.resolveRust(units, caller, home, typ, c.Name); done {
 			return u, false
 		}
 	default:
@@ -271,6 +284,30 @@ func (ix index) resolveRust(units []unit.Unit, caller, home unit.Unit, typ, meth
 		u = only(units, cands, func(unit.Unit) bool { return true })
 	}
 	return u, u >= 0
+}
+
+// followFields follows a Rust field path (ctx.db) from a type written
+// where home is, through the struct declarations: each field's declared
+// type, read in its struct's crate. It returns the last field's type and
+// a unit standing for where that type is written, or "" when a field's
+// type is not known.
+func (ix index) followFields(typ string, home unit.Unit, path string) (string, unit.Unit) {
+	for _, field := range strings.Split(path, ".") {
+		dir, ok := ix.crateOfPath(typ, home)
+		if !ok {
+			return "", home
+		}
+		next := ix.fields[dir][unit.SimpleName(typ)+"."+field]
+		if next == "" {
+			return "", home
+		}
+		root := dir + "/src/lib.rs"
+		if dir == "." {
+			root = "src/lib.rs"
+		}
+		typ, home = next, unit.Unit{File: root}
+	}
+	return typ, home
 }
 
 // crateOfPath tells where a Rust type path's type is declared: the
