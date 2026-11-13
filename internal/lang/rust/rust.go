@@ -205,15 +205,17 @@ func (g grammar) valueOf(v *sitter.Node, src []byte) syntax.Operand {
 }
 
 // callResult returns the call a value is, through .await and ?, and the
-// result position: 1 after ?, which unwraps a Result or Option.
+// result position (see unit.Unit.Results): 1 more after ?, which unwraps
+// a Result or Option, and 2 more after .await.
 func callResult(v *sitter.Node) (produced, bool) {
 	result := 0
 	for v != nil {
 		switch v.Kind() {
 		case "try_expression":
-			result = 1
+			result |= 1
 			v = v.NamedChild(0)
 		case "await_expression":
+			result |= 2
 			v = v.NamedChild(0)
 		case "call_expression":
 			return produced{call: span(v), result: result}, true
@@ -252,13 +254,32 @@ func (g grammar) forget(pattern *sitter.Node, src []byte) {
 
 // results returns a function's result types (see unit.Unit.Results): the
 // type as returned, and the type a ? leaves of it, inside a Result or an
-// Option (the returned type itself otherwise). An async fn declares the
-// type its .await gives. No return type gives none.
+// Option (the returned type itself otherwise). An async fn returns a
+// future, of no type here, and declares the types its .await and .await?
+// give, at positions 2 and 3. No return type gives none.
 func (g grammar) results(fn *sitter.Node, src []byte) []string {
 	ret := fn.ChildByFieldName("return_type")
 	if ret == nil {
 		return nil
 	}
+	if isAsync(fn, src) {
+		return append([]string{"", ""}, g.returned(ret, src)...)
+	}
+	return g.returned(ret, src)
+}
+
+// isAsync reports whether a function is an async fn.
+func isAsync(fn *sitter.Node, src []byte) bool {
+	for i := uint(0); i < fn.NamedChildCount(); i++ {
+		if c := fn.NamedChild(i); c.Kind() == "function_modifiers" && strings.Contains(c.Utf8Text(src), "async") {
+			return true
+		}
+	}
+	return false
+}
+
+// returned returns a return type and what a ? leaves of it.
+func (g grammar) returned(ret *sitter.Node, src []byte) []string {
 	written := strings.TrimSpace(ret.Utf8Text(src))
 	returned, unwrapped := g.typeOf(written), ""
 	open := strings.Index(written, "<")

@@ -933,8 +933,10 @@ that crosses it.
   a value built by a call (`let s = Store::new()`, `Db::connect().await?`,
   a chained `Store::open()?.get()`). For the last, each function records
   its result types (`Unit.Results`): as returned, and what a `?` leaves,
-  the type inside a `Result` or `Option` (an `async fn` declares the type
-  its `.await` gives). The graph resolves the producing call first, unless
+  the type inside a `Result` or `Option`; an `async fn` returns a future,
+  of no type here, and records apart what its `.await` and `.await?`
+  give, so a future's own methods (`make().map(..)`) never reach its
+  output's. The graph resolves the producing call first, unless
   it was only guessed, and reads the result's path where the producer is
   (`Self` and `crate::` are the producer's crate). The
   adapter strips references and looks through `Box`, `Arc` and `Rc`, gives

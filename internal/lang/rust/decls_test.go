@@ -1012,7 +1012,8 @@ impl Store {
 	want := []string{
 		`Store::new ["Store" "Store"]`,
 		`Store::open ["Result" "Store"]`,
-		`Store::connect ["anyhow::Result" "crate::db::Db"]`,
+		// async: the future as returned, then what .await and .await? give
+		`Store::connect ["" "" "anyhow::Result" "crate::db::Db"]`,
 		`Store::find ["Option" "Item"]`,
 		`Store::count ["" ""]`,
 		`Store::nothing []`,
@@ -1047,7 +1048,7 @@ func TestRustMethodCallsRecordTheCallProducingTheirOperand(t *testing.T) {
 		"2 new from=-",
 		"3 save from=new#0",
 		"4 connect from=-",
-		"5 query from=connect#1",
+		"5 query from=connect#3",
 		"6 get from=open#1",
 		"6 open from=-",
 		"7 count from=new#0",
@@ -1077,7 +1078,35 @@ func TestMutableLetsRecordTheCallProducingThem(t *testing.T) {
 		}
 		got = append(got, fmt.Sprintf("%s from=%s", c.Name, from))
 	}
-	if want := "connect from=-\nquery from=connect#1\nOk from=-"; strings.Join(got, "\n") != want {
+	if want := "connect from=-\nquery from=connect#3\nOk from=-"; strings.Join(got, "\n") != want {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+// An async fn's call gives a future until awaited: make().map(..) is the
+// future's map, not the output's.
+func TestUnawaitedAsyncCallsAreNotTheirOutput(t *testing.T) {
+	src := `async fn make() -> Widget { Widget }
+
+async fn run() {
+    make().map(|w| w);
+    let f = make();
+    f.spin();
+    make().await.spin();
+}
+`
+	units := mustUnits(t, src)
+	if got := fmt.Sprintf("%q", byName(t, units, "make").Results); got != `["" "" "Widget" "Widget"]` {
+		t.Errorf("make's results = %s", got)
+	}
+	calls := byName(t, units, "run").Calls
+	var got []string
+	for _, c := range calls {
+		if c.From > 0 {
+			got = append(got, fmt.Sprintf("%s from=%s#%d", c.Name, calls[c.From-1].Name, c.Result))
+		}
+	}
+	if want := "map from=make#0\nspin from=make#0\nspin from=make#2"; strings.Join(got, "\n") != want {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }

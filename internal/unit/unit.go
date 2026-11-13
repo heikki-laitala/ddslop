@@ -71,7 +71,9 @@ type Unit struct {
 	// such as "(context.Context, string) (int, error)" (Go).
 	Types string
 	// Results are the unit's result types, written as Call.Type writes an
-	// operand's type ("" where that has none, such as error). Go only.
+	// operand's type ("" where that has none, such as error). In Go, one
+	// per result. In Rust, the type as returned and what a ? leaves of it,
+	// then, for an async fn, what .await and .await? give.
 	Results []string
 	// Forms are the forms the unit uses for concerns its language's
 	// adapter knows, such as how it checks errors, in source order.
