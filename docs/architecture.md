@@ -931,7 +931,8 @@ that crosses it.
   Store`, `Self`), a typed `let` or one bound to a struct literal, the
   impl's field (`self.db.query()`, typed by the struct's declaration), or
   a value built by a call (`let s = Store::new()`, `Db::connect().await?`,
-  a chained `Store::open()?.get()`). For the last, each function records
+  a chained `Store::open()?.get()`, also through `map_err`, `context`,
+  `unwrap` or `expect`, the last two unwrapping as `?` does). For the last, each function records
   its result types (`Unit.Results`): as returned, and what a `?` leaves,
   the type inside a `Result` or `Option`; an `async fn` returns a future,
   of no type here, and records apart what its `.await` and `.await?`
@@ -995,7 +996,7 @@ module calls a method of a type a module above it defines, on a value
 it holds. Whether the map shows the weaker direction of such a cycle
 as a break depends on the weights of both, so one of them came and went
 as review fixes changed which calls resolve. `check` reported the same
-candidates. Typing values built by calls then resolved 14,476 calls
+candidates. Typing values built by calls then resolved 14,524 calls
 (14,322); the layers, breaks, helpers and `check` stayed the same.
 
 ### Entry points
