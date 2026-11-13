@@ -6,6 +6,10 @@ config:
     tables: false
   MD010:
     code_blocks: false
+  # AGENTS.md is titled ddslop and holds the "## ddslop" section that
+  # ddslop init writes.
+  MD024:
+    siblings_only: true
 ignores:
   - "**/node_modules/**"
   - "**/vendor/**"
