@@ -680,3 +680,47 @@ func run(ok bool, items []*Other) {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestEachBranchStartsFromTheTypesBeforeIt(t *testing.T) {
+	src := `package api
+
+func run(ok bool, n int) {
+	x := &DB{}
+	if ok {
+		x = &Other{}
+	} else {
+		x.Save()
+	}
+	x.Save()
+	y := &DB{}
+	switch n {
+	case 1:
+		y = &Other{}
+	case 2:
+		y.Save()
+	}
+	y.Save()
+	z := &DB{}
+	if ok {
+		{
+			z = &Other{}
+		}
+		z.Save()
+	} else {
+		z.Save()
+	}
+}
+`
+	units, _, err := Parse("api/run.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range units[0].Calls {
+		got = append(got, fmt.Sprintf("%d %q", c.Line, c.Type))
+	}
+	want := []string{`8 "DB"`, `10 ""`, `16 "DB"`, `18 ""`, `24 ""`, `26 "DB"`}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

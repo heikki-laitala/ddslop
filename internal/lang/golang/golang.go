@@ -47,9 +47,8 @@ type grammar struct {
 	// vars maps the function's variables whose type the code states to
 	// that type (see typeOf), as declarations are visited.
 	vars map[string]string
-	// declared holds, per open scope, innermost last, the names declared
-	// in it.
-	declared *[]map[string]bool
+	// scopes are the open lexical scopes, innermost last.
+	scopes *[]*varScope
 }
 
 // Prefix keeps Go's symbols apart from other languages' alike-named kinds.
@@ -106,7 +105,7 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 				typ = typeOf(syntax.Compact(t.Utf8Text(s.Src)), g.packages)
 			}
 			for _, name := range fieldNodes(n, "name") {
-				g.declare(name.Utf8Text(s.Src), typ)
+				g.declare(name.Utf8Text(s.Src), typ, true)
 			}
 		}
 	case "short_var_declaration", "assignment_statement", "range_clause":
@@ -125,48 +124,72 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 			}
 		}
 		s.RecordStringMatch(n, values)
-		return g.scope()
+		return g.scope(false)
 	case "return_statement":
 		if s.Closures == 0 {
 			s.Exits++
 		}
 	case "func_literal":
 		s.Closures++
-		restore := g.scope()
+		restore := g.scope(false)
 		eachParam(n.ChildByFieldName("parameters"), s.Src, func(name, typ string) {
 			if name != "" {
-				g.declare(name, typeOf(typ, g.packages))
+				g.declare(name, typeOf(typ, g.packages), true)
 			}
 		})
 		return func() { s.Closures--; restore() }
-	case "block", "if_statement", "for_statement", "type_switch_statement",
-		"select_statement", "expression_case", "type_case", "communication_case", "default_case":
-		return g.scope()
+	case "block":
+		// An if's body or else is a branch; other blocks run in sequence.
+		parent := n.Parent()
+		return g.scope(parent != nil && parent.Kind() == "if_statement")
+	case "if_statement", "for_statement", "type_switch_statement", "select_statement":
+		return g.scope(false)
+	case "expression_case", "type_case", "communication_case", "default_case":
+		return g.scope(true)
 	}
 	return nil
 }
 
-// scope opens a lexical scope, closed by the function it returns: the
-// variables declared in it are forgotten and the ones they shadow
-// restored, and an outer variable assigned in it becomes unknown, as the
-// scope may not have run (an if's body, a loop).
-func (g grammar) scope() func() {
+// varScope is a lexical scope: the variables declared in it and the
+// outer ones assigned in it or in the scopes it holds.
+type varScope struct {
+	declared, assigned map[string]bool
+}
+
+// scope opens a lexical scope, closed by the function it returns. The
+// variables declared in it are then forgotten and the ones they shadow
+// restored. An outer variable assigned in it becomes unknown, as the
+// scope may not have run (an if's body, a loop), except when the scope
+// is a branch: the next branch (else, the next case) starts from the
+// types before it, and the variable becomes unknown when the if or
+// switch holding the branches ends.
+func (g grammar) scope(branch bool) func() {
 	outer := maps.Clone(g.vars)
-	*g.declared = append(*g.declared, map[string]bool{})
+	s := &varScope{declared: map[string]bool{}, assigned: map[string]bool{}}
+	*g.scopes = append(*g.scopes, s)
 	return func() {
-		declared := (*g.declared)[len(*g.declared)-1]
-		*g.declared = (*g.declared)[:len(*g.declared)-1]
-		inner := g.vars
-		for name := range inner {
-			if _, ok := outer[name]; !ok {
-				delete(inner, name)
+		*g.scopes = (*g.scopes)[:len(*g.scopes)-1]
+		restore := func(name string) {
+			if typ, ok := outer[name]; ok {
+				g.vars[name] = typ
+			} else {
+				delete(g.vars, name)
 			}
 		}
-		for name, typ := range outer {
-			if declared[name] || inner[name] == typ {
-				inner[name] = typ
+		for name := range s.declared {
+			restore(name)
+		}
+		for name := range s.assigned {
+			if s.declared[name] {
+				continue
+			}
+			if n := len(*g.scopes); n > 0 {
+				(*g.scopes)[n-1].assigned[name] = true
+			}
+			if branch {
+				restore(name)
 			} else {
-				delete(inner, name)
+				delete(g.vars, name)
 			}
 		}
 	}
@@ -251,11 +274,15 @@ func errorCallForm(c unit.Call, pkg string, n *sitter.Node, src []byte) unit.For
 	return form
 }
 
-// declare records a variable declared in the current scope, with its
-// type, or "" when unknown.
-func (g grammar) declare(name, typ string) {
-	if n := len(*g.declared); n > 0 {
-		(*g.declared)[n-1][name] = true
+// declare records a variable's type, or "" when unknown, in the current
+// scope: declared there (var, :=), or assigned there (=).
+func (g grammar) declare(name, typ string, declared bool) {
+	if n := len(*g.scopes); n > 0 {
+		in := (*g.scopes)[n-1].assigned
+		if declared {
+			in = (*g.scopes)[n-1].declared
+		}
+		in[name] = true
 	}
 	g.set(name, typ)
 }
@@ -298,11 +325,7 @@ func (g grammar) assign(n *sitter.Node, src []byte) {
 				typ = typeOf(syntax.Compact(t.Utf8Text(src)), g.packages)
 			}
 		}
-		if declares {
-			g.declare(name.Utf8Text(src), typ)
-		} else {
-			g.set(name.Utf8Text(src), typ)
-		}
+		g.declare(name.Utf8Text(src), typ, declares)
 	}
 }
 
@@ -468,7 +491,7 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 		}
 	})
 	s := syntax.Flatten(n, src, grammar{receiver: receiverName(n, src), packages: packages, vars: vars,
-		declared: &[]map[string]bool{}})
+		scopes: &[]*varScope{}})
 	return unit.Unit{
 		File:      path,
 		Name:      full,
