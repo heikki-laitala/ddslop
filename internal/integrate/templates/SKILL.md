@@ -33,7 +33,9 @@ ddslop check --format json .
 reports all duplication in the repository. Exit codes: 0 nothing found, 1
 candidates found, 2 error. The first run
 builds `.ddslop/index.db`; later runs only parse changed files. Generated
-files and test code are skipped (`--tests` includes tests).
+files are skipped, and so is test code apart from helpers (fixtures,
+fakes, builders) copied between test files, which are reported as
+clones; `--tests` includes all test code.
 
 Useful flags: `--min-nodes` (default 50), `--min-block-nodes` (default
 100) and `--min-near-nodes` (default 150) set the smallest code reported,

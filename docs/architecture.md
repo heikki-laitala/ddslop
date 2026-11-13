@@ -713,9 +713,20 @@ duplication, and are dropped below a threshold.
   `benches/` directory or a `tests.rs` module, or a function in the file
   of an out-of-line test module declared in its parent
   (`#[cfg(test)] mod real_store;`) and in that module's submodules.
-  a large Rust codebase has 124 such declarations. Analysing tests separately with
-  looser thresholds comes later, since table-driven tests are intentionally
-  repetitive.
+  a large Rust codebase has 124 such declarations. Without `--tests`, test
+  code is still checked for one thing: helpers copied between test files.
+  A test helper is test code that is no test case (`Unit.TestCase`: a
+  function with a test attribute, or Go's `TestXxx`, `BenchmarkXxx`,
+  `FuzzXxx` and `ExampleXxx` in a test file), such as a fixture, a fake's
+  method or a builder; exact and renamed copies of one are reported at 80
+  nodes (`minTestHelperNodes`, or `--min-nodes` when larger). Test cases,
+  near misses, blocks and constants stay out, as tests repeat on purpose.
+  Measured on a 739k-line Rust workspace: 297 groups of helper copies at
+  50 nodes, the smallest mostly one-line fakes and accessors, and 156 at
+  80, such as a 33-line event builder in three test files and one
+  fixture in three crates' test support; with everything in test code
+  checked (`--tests`) it reports about 3,300 candidates against 819.
+  ddslop itself had four JSON decoders repeating one in its tests.
 
 ### Additional detectors
 
