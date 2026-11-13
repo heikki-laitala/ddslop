@@ -1155,3 +1155,30 @@ func TestParenthesisedValuesKeepTheirProducer(t *testing.T) {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+// A path call's imported root is written as its import's path, by the
+// imports visible at the call: an alias in one function does not reach
+// another.
+func TestPathCallsExpandTheirVisibleImportedRoot(t *testing.T) {
+	src := `use crate::util as tools;
+
+fn a() {
+    use tokio::fs as helpers;
+    helpers::read();
+    tools::log();
+}
+
+fn b() {
+    helpers::log();
+}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		for _, c := range u.Calls {
+			got = append(got, fmt.Sprintf("%s %s::%s", u.Name, c.Qualifier, c.Name))
+		}
+	}
+	if want := "a tokio::fs::read\na crate::util::log\nb helpers::log"; strings.Join(got, "\n") != want {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}

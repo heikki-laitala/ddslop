@@ -789,22 +789,16 @@ func TestRustOutsideModulePathsResolveToNothing(t *testing.T) {
 	}
 }
 
-// use crate::util as helpers makes helpers a module of the crate; an
-// alias of an outside crate's module stays outside.
-func TestRustImportedModuleAliasesResolve(t *testing.T) {
+// The adapter writes an imported root as its import's path: crate::util
+// resolves in the crate, a workspace crate's path there, std::fs nowhere.
+func TestRustExpandedModulePathsResolve(t *testing.T) {
 	units := []unit.Unit{
-		fn("a/src/run.rs", "run", path("helpers", "log"), path("fsx", "read"), path("ledger", "post")),
+		fn("a/src/run.rs", "run", path("crate::util", "log"), path("std::fs", "read"), path("b", "post")),
 		fn("a/src/util.rs", "log"),
 		fn("a/src/util.rs", "read"),
 		fn("b/src/lib.rs", "post"),
 	}
-	in := Inputs{
-		Imports: map[string]map[string]string{"a/src/run.rs": {
-			"helpers": "crate::util", "fsx": "std::fs", "ledger": "b",
-		}},
-		Crates:    map[string]string{"a": "a", "b": "b"},
-		RustFiles: []string{"a/src/run.rs", "a/src/util.rs", "b/src/lib.rs"},
-	}
+	in := Inputs{Crates: map[string]string{"a": "a", "b": "b"}, RustFiles: []string{"a/src/run.rs", "a/src/util.rs", "b/src/lib.rs"}}
 	if got, want := callees(Build(in, units), "a/src/run.rs run"), "[a/src/util.rs log b/src/lib.rs post]"; got != want {
 		t.Errorf("run calls %s, want %s", got, want)
 	}

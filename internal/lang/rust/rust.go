@@ -1437,6 +1437,15 @@ func (g grammar) recordCall(s *syntax.Shaper, n *sitter.Node) {
 		}
 		if path := fn.ChildByFieldName("path"); path != nil {
 			c.Qualifier = path.Utf8Text(s.Src)
+			// An imported root is written as its import's path, by the
+			// imports visible here: helpers::log after use crate::util as
+			// helpers is crate::util::log.
+			if root, rest, found := strings.Cut(c.Qualifier, "::"); g.imports[root] != "" {
+				c.Qualifier = g.imports[root]
+				if found {
+					c.Qualifier += "::" + rest
+				}
+			}
 		}
 	case "field_expression":
 		c.Kind = unit.MethodCall
