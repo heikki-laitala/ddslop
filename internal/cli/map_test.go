@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -251,6 +252,60 @@ func TestMapOfGoKeepsPackages(t *testing.T) {
 	r := mapOf(t, repo(t, layeredService))
 	if len(r.Maps) != 1 || r.Maps[0].Scope != "packages" {
 		t.Errorf("maps = %+v, want Go's map of packages", r.Maps)
+	}
+}
+
+// goAndRust is a repository with a Go service and a Rust workspace.
+func goAndRust() map[string]string {
+	files := map[string]string{}
+	maps.Copy(files, layeredService)
+	maps.Copy(files, workspace)
+	return files
+}
+
+func TestMapOfGoAndRustHasAMapEach(t *testing.T) {
+	r := mapOf(t, repo(t, goAndRust()))
+	var langs []string
+	for _, m := range r.Maps {
+		langs = append(langs, m.Lang)
+	}
+	if want := []string{"go", "rust"}; !reflect.DeepEqual(langs, want) {
+		t.Errorf("maps = %v, want %v", langs, want)
+	}
+}
+
+func TestMapLangPicksOneLanguage(t *testing.T) {
+	root := repo(t, goAndRust())
+	for _, lang := range []string{"go", "rust"} {
+		r := mapOf(t, "--lang", lang, root)
+		if len(r.Maps) != 1 || r.Maps[0].Lang != lang {
+			t.Errorf("--lang %s: maps = %+v, want only the %s map", lang, r.Maps, lang)
+		}
+	}
+}
+
+func TestMapLangWithoutItsCodeIsEmpty(t *testing.T) {
+	root := repo(t, layeredService)
+	if r := mapOf(t, "--lang", "rust", root); len(r.Maps) != 0 {
+		t.Errorf("--lang rust on Go code: maps = %+v, want none", r.Maps)
+	}
+	_, stdout, _ := run("map", "--format", "text", "--lang", "rust", root)
+	if !strings.Contains(stdout, "no Rust code found") {
+		t.Errorf("text = %q, want it to say there is no Rust code", stdout)
+	}
+}
+
+func TestMapOfAnUnknownLangFails(t *testing.T) {
+	code, _, stderr := run("map", "--lang", "typescript", repo(t, layeredService))
+	if code != 2 || !strings.Contains(stderr, `"go" or "rust"`) {
+		t.Errorf("exit %d, stderr %q; want 2 and the languages there are", code, stderr)
+	}
+}
+
+func TestMapOfACrateInGoFails(t *testing.T) {
+	code, _, stderr := run("map", "--lang", "go", "--crate", "service", repo(t, goAndRust()))
+	if code != 2 || !strings.Contains(stderr, "--crate") {
+		t.Errorf("exit %d, stderr %q; want 2: a crate is Rust's", code, stderr)
 	}
 }
 
