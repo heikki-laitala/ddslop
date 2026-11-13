@@ -578,7 +578,8 @@ func funcTypes(n *sitter.Node, src []byte) []unit.FuncType {
 }
 
 // eachParam calls each with the name ("" when unnamed) and type of every
-// entry of a parameter or result list, a, b int giving two.
+// entry of a parameter or result list, a, b int giving two; a variadic
+// type is ...T, as written.
 func eachParam(list *sitter.Node, src []byte, each func(name, typ string)) {
 	for i := uint(0); list != nil && i < list.NamedChildCount(); i++ {
 		p := list.NamedChild(i)
@@ -587,6 +588,9 @@ func eachParam(list *sitter.Node, src []byte, each func(name, typ string)) {
 			continue
 		}
 		t := syntax.Compact(typ.Utf8Text(src))
+		if p.Kind() == "variadic_parameter_declaration" {
+			t = "..." + t
+		}
 		names := fieldNodes(p, "name")
 		if len(names) == 0 {
 			each("", t)

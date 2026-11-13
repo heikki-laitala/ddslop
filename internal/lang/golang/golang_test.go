@@ -454,6 +454,8 @@ func none() {}
 func one() error { return nil }
 
 func named(ctx context.Context, a, b string) (n, m int, err error) { return 0, 0, nil }
+
+func variadic(a int, rest ...string) {}
 `
 	units, _, err := Parse("store/store.go", []byte(src))
 	if err != nil {
@@ -463,7 +465,7 @@ func named(ctx context.Context, a, b string) (n, m int, err error) { return 0, 0
 	for _, u := range units {
 		got = append(got, u.Name+" "+u.Types)
 	}
-	if want := "[none () () one () (error) named (context.Context, string, string) (int, int, error)]"; fmt.Sprint(got) != want {
+	if want := "[none () () one () (error) named (context.Context, string, string) (int, int, error) variadic (int, ...string) ()]"; fmt.Sprint(got) != want {
 		t.Errorf("signatures = %v, want %s", got, want)
 	}
 }

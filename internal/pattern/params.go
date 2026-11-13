@@ -2,7 +2,7 @@ package pattern
 
 import (
 	"cmp"
-	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -126,7 +126,7 @@ func ofFuncType(u unit.Unit, funcTypes []unit.FuncType) bool {
 		return false
 	}
 	return slices.ContainsFunc(funcTypes, func(ft unit.FuncType) bool {
-		return !ft.Test && ft.Types == u.Types && path.Dir(ft.File) == path.Dir(u.File)
+		return !ft.Test && ft.Types == u.Types && filepath.Dir(ft.File) == filepath.Dir(u.File)
 	})
 }
 
