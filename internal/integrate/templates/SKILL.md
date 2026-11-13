@@ -68,6 +68,16 @@ ddslop map --format json --crate <name> .
   module goes through). Treat them as hints, not errors: some are
   deliberate, such as a composition root wiring everything together.
   Do not add to them; fix one only when asked.
+- `cycles`: groups of modules that call each other in a loop (Rust
+  modules within a crate; Go and Cargo forbid cycles between packages
+  and crates), with each pair calling each other directly (`links`: the
+  calls each way and a call site each way, the pair with the fewest
+  calls one way first), or a shortest `loop` when no pair does. In a
+  workspace map, `cycle_modules` per crate says where to look with
+  `--crate`. ddslop does not say which side is wrong: usually the call
+  out of the lower-level module is (a `config` building another
+  module's types). Never add a call that closes a new loop; untangle one
+  only when asked.
 - `features`: entry points that copy one pipeline through their own
   functions (a `parallel-flow` candidate in `check`): the `shape` (the
   most typical copy), its `steps` with the shared helpers each calls,
