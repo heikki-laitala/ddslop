@@ -926,13 +926,18 @@ that crosses it.
   a repository function named `now`; a module path naming a workspace
   crate (`acme_auth::verify_token`) resolves into that crate, and one
   rooted in `crate`, `self`, `super` or one of the caller's crate's
-  modules (by its files' paths) into the caller's crate; the adapter
+  modules into the caller's crate: a relative root names a child of the
+  caller's module (from the crate root, `bar` only when `src/bar.rs`
+  exists, not `src/foo/bar.rs`), by the module paths of the crate's
+  files. The adapter
   writes a root imported where the call is (`use crate::util as
   helpers`) as its import's path. Any other root is an outside crate's:
   `std::fs::read` never resolves to the crate's own `read`. Before that
   rule, such calls linked modules that never call each other; on a
-  188k-line Rust service 201 of 6,736 resolved calls were of this kind,
-  and on a 739k-line workspace 36.
+  188k-line Rust service 206 of 6,736 resolved calls were of this kind,
+  and on a 739k-line workspace 41. A type path in a call
+  (`chrono::Utc::now()`) keeps to its crate, as a typed method call
+  does.
 - `self.m()` resolves to the caller's type. `x.m()` on a value whose type
   the code states resolves as `Type::m()` does: a parameter (`store: &mut
   Store`, `Self`), a typed `let` or one bound to a struct literal, the
