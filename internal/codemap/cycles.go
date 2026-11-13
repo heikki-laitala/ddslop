@@ -32,8 +32,9 @@ type Hop struct {
 	Site     Site
 }
 
-// Site is a call: the calling unit and the called one.
-type Site struct{ Caller, Callee int }
+// Site is a call: the calling unit, the called one, and the call's index
+// among the caller's calls (-1 when the graph does not say).
+type Site struct{ Caller, Callee, Call int }
 
 // Cycles finds the groups of modules in the grouping whose calls form a
 // loop, largest first, counting every call between modules: also the weak
@@ -49,11 +50,15 @@ func Cycles(g *flow.Graph, group Grouping) []Cycle {
 		for _, caller := range all[a][b].callers {
 			for k, callee := range g.Callees[caller] {
 				if group(g.Units[callee]) == names[b] && named(g, caller, k) {
-					return Site{Caller: caller, Callee: callee}
+					call := -1
+					if caller < len(g.Targets) {
+						call = slices.Index(g.Targets[caller], callee)
+					}
+					return Site{Caller: caller, Callee: callee, Call: call}
 				}
 			}
 		}
-		return Site{Caller: -1, Callee: -1}
+		return Site{Caller: -1, Callee: -1, Call: -1}
 	}
 	var out []Cycle
 	for _, ms := range members {

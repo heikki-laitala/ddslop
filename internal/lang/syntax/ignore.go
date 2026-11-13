@@ -26,6 +26,9 @@ func MarkIgnored(root *sitter.Node, src []byte, units []unit.Unit, decls *unit.D
 	for i := range units {
 		u := &units[i]
 		u.Ignored = lines[u.StartLine]
+		for j := range u.Calls {
+			u.Calls[j].Ignored = lines[u.Calls[j].Line]
+		}
 		for j := range u.Leaves {
 			u.Leaves[j].Ignored = u.Leaves[j].Kind == unit.Literal && lines[u.Leaves[j].Line]
 		}

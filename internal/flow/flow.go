@@ -30,6 +30,9 @@ type Graph struct {
 	ByName [][]bool
 	// ResolvedOf counts, per unit, its call sites that resolved.
 	ResolvedOf []int
+	// Targets holds, per unit and parallel to its calls, the unit each
+	// call resolved to, or -1.
+	Targets [][]int
 	// Calls and Resolved count all call sites and the resolved ones.
 	Calls, Resolved int
 }
@@ -115,14 +118,16 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 	}
 
 	g := &Graph{Units: units, Callees: make([][]int, len(units)), ByName: make([][]bool, len(units)),
-		ResolvedOf: make([]int, len(units))}
+		ResolvedOf: make([]int, len(units)), Targets: make([][]int, len(units))}
 	for i, u := range units {
 		owner, _ := split(u.Name)
 		r := callResolver{ix: indexOf(u.File), units: units, caller: u, owner: owner,
 			done: make([]resolved, len(u.Calls))}
+		g.Targets[i] = make([]int, len(u.Calls))
 		for k := range u.Calls {
 			g.Calls++
 			callee, byName := r.resolve(k)
+			g.Targets[i][k] = callee
 			if callee < 0 {
 				continue
 			}

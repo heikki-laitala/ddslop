@@ -160,6 +160,8 @@ type Call struct {
 	// it takes it out as ? does. A library's is looked through to the
 	// call it adapts; one the repository defines is a call like any other.
 	Adapts int
+	// Ignored is true when a ddslop:ignore comment marks the call's line.
+	Ignored bool
 }
 
 // Statement is one statement of a block, as positions in its unit.

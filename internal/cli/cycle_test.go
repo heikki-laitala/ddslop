@@ -94,3 +94,44 @@ func TestDiffReportsTheChangeClosingACycle(t *testing.T) {
 		t.Errorf("candidates = %+v, want none: the change touched no call of the cycle", r.Candidates)
 	}
 }
+
+// config::load calls Other::endpoint before Store::endpoint, which
+// closes the cycle: the occurrence is the store call's line.
+var cycleAfterAnotherCall = map[string]string{
+	"Cargo.toml": "[package]\nname = \"app\"\n",
+	"src/lib.rs": "pub mod config;\npub mod other;\npub mod store;\n",
+	"src/config.rs": `pub fn load() {
+    crate::other::Other::endpoint();
+    crate::store::Store::endpoint();
+}
+pub fn value() -> u32 { 1 }
+`,
+	"src/other.rs": "pub struct Other;\nimpl Other { pub fn endpoint() {} }\n",
+	"src/store.rs": "pub struct Store;\nimpl Store { pub fn endpoint() {} }\npub fn open() { crate::config::value(); }\n",
+}
+
+func TestACyclesOccurrenceIsTheCallClosingIt(t *testing.T) {
+	_, stdout, _ := run("check", "--format", "json", repo(t, cycleAfterAnotherCall))
+	r := cycles(t, stdout)
+	if len(r.Candidates) != 1 {
+		t.Fatalf("candidates = %+v, want one cycle", r.Candidates)
+	}
+	if o := r.Candidates[0].Occurrences[0]; o.Name != "load" || o.StartLine != 3 {
+		t.Errorf("occurrence = %+v, want load's call into store, line 3", o)
+	}
+}
+
+func TestAnIgnoreOnACallLineLeavesItsCycleOut(t *testing.T) {
+	files := maps.Clone(cycleAfterAnotherCall)
+	files["src/config.rs"] = `pub fn load() {
+    crate::other::Other::endpoint();
+    // ddslop:ignore config reads the store's endpoint on purpose
+    crate::store::Store::endpoint();
+}
+pub fn value() -> u32 { 1 }
+`
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 0 {
+		t.Errorf("candidates = %+v, want the cycle marked at its call left out", r.Candidates)
+	}
+}
