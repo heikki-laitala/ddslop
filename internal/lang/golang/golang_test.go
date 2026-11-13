@@ -422,3 +422,24 @@ func load(err error) error {
 		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestParseRecordsTheParameterTypesOfFunctionTypes(t *testing.T) {
+	src := `package cli
+
+type command func(args []string, stdout, stderr io.Writer) int
+
+type (
+	handler func(context.Context, *Request) error
+	options struct{ verbose bool }
+)
+`
+	_, decls, err := Parse("cli/cli.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Named or not, each parameter counts by its type; a Context is left
+	// out, as from a function's parameters.
+	if want := "[[[]string io.Writer io.Writer] [*Request]]"; fmt.Sprint(decls.FuncTypes) != want {
+		t.Errorf("FuncTypes = %v, want %s", decls.FuncTypes, want)
+	}
+}

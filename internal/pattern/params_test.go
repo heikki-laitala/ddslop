@@ -35,7 +35,7 @@ func TestParameterGroupsFindsTheLargestSetPassedTogether(t *testing.T) {
 		withParams("other", "build:i64", "environment:&str", "transaction:&Transaction"),
 	}
 	var got []string
-	for _, g := range ParameterGroups(units) {
+	for _, g := range ParameterGroups(units, nil) {
 		var params, names []string
 		for _, p := range g.Params {
 			params = append(params, p.Name)
@@ -64,7 +64,7 @@ func TestParameterGroupsKeepUnrelatedGroupsApart(t *testing.T) {
 			withParams(fmt.Sprintf("worker%d", i), "gate:Gate", "hot:Conn", "stopping:Stopping", "build:i32"))
 	}
 	// The groups share one parameter only (build): two concepts.
-	if got := len(ParameterGroups(units)); got != 2 {
+	if got := len(ParameterGroups(units, nil)); got != 2 {
 		t.Errorf("got %d groups, want 2", got)
 	}
 }
@@ -85,7 +85,7 @@ func TestParameterGroupsAreDeterministic(t *testing.T) {
 	units = append(units, withParams("handle", "db:&Db", "fleet:Uuid", "token:&str"))
 	describe := func() string {
 		var out []string
-		for _, g := range ParameterGroups(units) {
+		for _, g := range ParameterGroups(units, nil) {
 			var ps []string
 			for _, p := range g.Params {
 				ps = append(ps, p.Name)
@@ -111,7 +111,23 @@ func TestParameterGroupsLeaveOutMethodsCalledViaInterfaces(t *testing.T) {
 		u.Dispatched = true
 		units = append(units, u)
 	}
-	if got := ParameterGroups(units); len(got) != 0 {
+	if got := ParameterGroups(units, nil); len(got) != 0 {
 		t.Errorf("got %d groups of interface methods, want none", len(got))
+	}
+}
+
+// Functions with the parameters of a declared function type have their
+// signature dictated: they are values of that type, such as the commands
+// of a command table.
+func TestParameterGroupsLeaveOutFunctionsOfDeclaredFunctionTypes(t *testing.T) {
+	var units []unit.Unit
+	for i := range 4 {
+		units = append(units, withParams(fmt.Sprintf("run%d", i), "args:[]string", "stdout:io.Writer", "stderr:io.Writer"))
+	}
+	if got := ParameterGroups(units, nil); len(got) != 1 {
+		t.Fatalf("got %d groups without function types, want 1", len(got))
+	}
+	if got := ParameterGroups(units, [][]string{{"[]string", "io.Writer", "io.Writer"}}); len(got) != 0 {
+		t.Errorf("got %d groups of a function type's values, want none", len(got))
 	}
 }
