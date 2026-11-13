@@ -439,7 +439,7 @@ type (
 	}
 	// Named or not, each parameter counts by its type; a Context is left
 	// out, as from a function's parameters.
-	if want := "[[[]string io.Writer io.Writer] [*Request]]"; fmt.Sprint(decls.FuncTypes) != want {
+	if want := "[{cli/cli.go [[]string io.Writer io.Writer] false} {cli/cli.go [*Request] false}]"; fmt.Sprint(decls.FuncTypes) != want {
 		t.Errorf("FuncTypes = %v, want %s", decls.FuncTypes, want)
 	}
 }

@@ -275,7 +275,9 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 				decls.Consts = append(decls.Consts, constants(n, path, src, test)...)
 			case "type_declaration":
 				decls.Structs = append(decls.Structs, structs(n, path, src, test)...)
-				decls.FuncTypes = append(decls.FuncTypes, funcTypes(n, src)...)
+				for _, params := range funcTypes(n, src) {
+					decls.FuncTypes = append(decls.FuncTypes, unit.FuncType{File: path, Params: params, Test: test})
+				}
 			}
 		}
 		marked = syntax.MarkIgnored(root, src, units, &decls)

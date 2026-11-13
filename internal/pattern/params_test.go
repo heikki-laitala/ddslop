@@ -116,18 +116,34 @@ func TestParameterGroupsLeaveOutMethodsCalledViaInterfaces(t *testing.T) {
 	}
 }
 
-// Functions with the parameters of a declared function type have their
-// signature dictated: they are values of that type, such as the commands
-// of a command table.
+// Functions with the parameters of a function type declared in their own
+// Go package have their signature dictated: they are values of that type,
+// such as the commands of a command table. A type elsewhere, or in test
+// code, dictates nothing about them.
 func TestParameterGroupsLeaveOutFunctionsOfDeclaredFunctionTypes(t *testing.T) {
-	var units []unit.Unit
-	for i := range 4 {
-		units = append(units, withParams(fmt.Sprintf("run%d", i), "args:[]string", "stdout:io.Writer", "stderr:io.Writer"))
+	commands := func(file string) []unit.Unit {
+		var units []unit.Unit
+		for i := range 4 {
+			u := withParams(fmt.Sprintf("run%d", i), "args:[]string", "stdout:io.Writer", "stderr:io.Writer")
+			u.File = file
+			units = append(units, u)
+		}
+		return units
 	}
-	if got := ParameterGroups(units, nil); len(got) != 1 {
-		t.Fatalf("got %d groups without function types, want 1", len(got))
-	}
-	if got := ParameterGroups(units, [][]string{{"[]string", "io.Writer", "io.Writer"}}); len(got) != 0 {
-		t.Errorf("got %d groups of a function type's values, want none", len(got))
+	types := []string{"[]string", "io.Writer", "io.Writer"}
+	for _, tc := range []struct {
+		name     string
+		units    []unit.Unit
+		funcType unit.FuncType
+		want     int
+	}{
+		{"same package", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli.go", Params: types}, 0},
+		{"other package", commands("internal/cli/map.go"), unit.FuncType{File: "internal/report/report.go", Params: types}, 1},
+		{"test code", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli_test.go", Params: types, Test: true}, 1},
+		{"not Go", commands("internal/cli/map.rs"), unit.FuncType{File: "internal/cli/cli.go", Params: types}, 1},
+	} {
+		if got := len(ParameterGroups(tc.units, []unit.FuncType{tc.funcType})); got != tc.want {
+			t.Errorf("%s: got %d groups, want %d", tc.name, got, tc.want)
+		}
 	}
 }
