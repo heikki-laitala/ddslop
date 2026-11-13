@@ -88,7 +88,11 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	case "match_arm":
 		restore := g.scope()
 		if pattern := n.ChildByFieldName("pattern"); pattern != nil {
-			g.forget(pattern, s.Src)
+			var value *sitter.Node
+			if block := n.Parent(); block != nil && block.Parent() != nil {
+				value = block.Parent().ChildByFieldName("value") // match value { arm }
+			}
+			g.bind(pattern, value, s.Src)
 		}
 		return restore
 	case "block":
@@ -122,7 +126,7 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	case "let_condition":
 		return func() {
 			if pattern := n.ChildByFieldName("pattern"); pattern != nil {
-				g.forget(pattern, s.Src)
+				g.bind(pattern, n.ChildByFieldName("value"), s.Src)
 			}
 		}
 	case "else_clause":
@@ -175,7 +179,7 @@ func (g grammar) let(n *sitter.Node, src []byte) {
 		return
 	}
 	if pattern.Kind() != "identifier" {
-		g.forget(pattern, src)
+		g.bind(pattern, n.ChildByFieldName("value"), src) // let Some(x) = find() else { .. }
 		return
 	}
 	var op syntax.Operand
@@ -229,6 +233,35 @@ func callResult(v *sitter.Node) (produced, bool) {
 	}
 	return produced{}, false
 }
+
+// bind records the variables a pattern binds from a value: Some(x) or
+// Ok(x) binds what a ? leaves of a call's result, or of a variable
+// holding one (if let Some(x) = find()); any other binding is unknown.
+// A value unwrapped already (find()?) has no position for unwrapping it
+// again.
+func (g grammar) bind(pattern, value *sitter.Node, src []byte) {
+	g.forget(pattern, src)
+	if pattern.Kind() == "match_pattern" && pattern.NamedChildCount() > 0 {
+		pattern = pattern.NamedChild(0) // an arm's, before any guard
+	}
+	if pattern.Kind() != "tuple_struct_pattern" || pattern.NamedChildCount() != 2 || value == nil {
+		return
+	}
+	variant, inner := pattern.ChildByFieldName("type"), pattern.NamedChild(1)
+	if variant == nil || inner.Kind() != "identifier" || !unwrapsTo[variant.Utf8Text(src)] {
+		return
+	}
+	op := g.valueOf(value, src)
+	if value.Kind() == "identifier" {
+		op = g.vars[value.Utf8Text(src)]
+	}
+	if op.From > 0 && op.Result&1 == 0 {
+		g.set(inner.Utf8Text(src), syntax.Operand{From: op.From, Result: op.Result | 1})
+	}
+}
+
+// unwrapsTo are the variants a ? takes the value out of.
+var unwrapsTo = map[string]bool{"Some": true, "Ok": true}
 
 // set records what a variable holds, or forgets it when unknown.
 func (g grammar) set(name string, op syntax.Operand) {
