@@ -365,9 +365,15 @@ modules (`*sql.DB`, `strings.Builder`) resolves to nothing rather than
 to a repository method of the same name; a repository type without the
 method, such as an interface, and any type in a repository with no
 `go.mod`, fall back to the guess by name.
-Variables set from a call's result (`db, err := store.Open(..)`) and
-chained calls stay untyped: their type is the callee's result, which
-needs the callee resolved first.
+A variable set from a call (`db, err := store.Open(..)`, or `var db =
+store.Open(..)`) and a chained call (`s.Store().Save()`) take the type
+of the producing call's result at their position: the adapter records
+each function's result types (`Unit.Results`, as operand types are
+written) and, on the method call, which call produced the operand
+(`unit.Call.From`, `Result`). The graph resolves the producing call
+first, then the method on that result type, read in the producing
+function's package when written without one. A producing call that does
+not resolve, such as a standard-library one, leaves the operand untyped.
 
 On the Go service this resolved 882 of 2820 calls (723 before, some of
 them guesses): the store package, which handlers and the dashboard reach
@@ -376,7 +382,12 @@ shared helpers went from 1 to 7, all store methods both callers use. It
 also let `check` see two parallel flows: ingesting, updating and pushing
 a memory run one pipeline (real), and getting and deleting a document
 share only a thin handler's shape (arguable). On ddslop, 752 of 3058
-(742): `pattern` moved under `codemap`, which calls it.
+(742): `pattern` moved under `codemap`, which calls it. Typing variables
+set from a call then resolved 896 calls on the Go service (882) and 779
+of 3089 on ddslop (765): the service's `main`, which builds the store
+with `pg, err := store.NewPostgres(..)`, joined `api` and the dashboard
+as a caller of its shared methods (`CreateAPIKey`, `EnsureTenant`,
+`AllTenantIDs`); layers and `check` stayed the same.
 
 Setup-teardown is not built for Go: `defer x.Close()` is Go's own idiom
 for it (18 times in that service, 2 in ddslop), and transactions, the
@@ -1371,8 +1382,8 @@ crate's modules), which names each file once.
   chain's `next.run()` and reqwest's `.build()` look like shared helpers.
   The price is real methods reached the same way (`to_hex`, `is_open`).
   A Go call on an operand whose type the code states counts (see Parsing
-  and language adapters), so calls through struct fields and parameters shape Go
-  layers; calls on variables set from another call's result do not yet.
+  and language adapters), so calls through struct fields, parameters and
+  values built by a call shape Go layers.
 - A module no counted call goes to or comes from is unplaced (listed
   apart): nothing says where it belongs, and as a source it would land
   on top. Types-only crates are most of them.
@@ -1618,9 +1629,8 @@ candidate.
 - Conventions across languages, as for the other layers.
 
 Open question: whether name-based resolution resolves enough method
-calls for the layers to hold without SCIP; for Go, whether typing
-variables from their callee's result is needed after fields and
-parameters.
+calls for the layers to hold without SCIP; Go's are typed from the
+syntax where its types are stated.
 
 ## Modes
 
