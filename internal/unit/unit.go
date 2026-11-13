@@ -70,6 +70,9 @@ type Unit struct {
 	// Types are the unit's parameter and result types, named or not,
 	// such as "(context.Context, string) (int, error)" (Go).
 	Types string
+	// Results are the unit's result types, written as Call.Type writes an
+	// operand's type ("" where that has none, such as error). Go only.
+	Results []string
 	// Forms are the forms the unit uses for concerns its language's
 	// adapter knows, such as how it checks errors, in source order.
 	Forms []Form
@@ -145,6 +148,11 @@ type Call struct {
 	// Field is the receiver's field a method is called on: store in
 	// s.store.Save(). Go only.
 	Field string
+	// From is 1 + the index, among its unit's calls, of the call whose
+	// result the operand is (db.Save() after db, err := open(), or
+	// s.Store().Save()), and Result that result's position; From is 0
+	// when the operand is no call's result. Go only.
+	From, Result int
 }
 
 // Statement is one statement of a block, as positions in its unit.

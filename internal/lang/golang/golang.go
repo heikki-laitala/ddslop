@@ -44,9 +44,15 @@ var leafKinds = map[string]unit.LeafKind{
 type grammar struct {
 	receiver string
 	packages map[string]string // imported name -> import path
-	// vars maps the function's variables whose type the code states to
-	// that type (see typeOf), as declarations are visited.
-	vars map[string]string
+	// vars maps the function's variables whose type the code states, or
+	// that hold a call's result, to that operand, as declarations are
+	// visited.
+	vars map[string]operand
+	// calls maps a call's syntax node (its byte range) to its index among
+	// the unit's calls, and chains a method call's index to the call its
+	// operand is (s.Store().Save()), which is recorded after it.
+	calls  map[[2]uint]int
+	chains map[int][2]uint
 	// scopes are the open lexical scopes, innermost last.
 	scopes *[]*varScope
 	// generic names the type parameters of the function and its receiver.
@@ -89,6 +95,12 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	switch n.Kind() {
 	case "call_expression":
 		if c, ok := g.call(n, s.Src); ok {
+			g.calls[span(n)] = len(s.Calls)
+			if fn := n.ChildByFieldName("function"); c.Kind == unit.MethodCall && fn != nil {
+				if operand := fn.ChildByFieldName("operand"); operand != nil && operand.Kind() == "call_expression" {
+					g.chains[len(s.Calls)] = span(operand)
+				}
+			}
 			s.Calls = append(s.Calls, c)
 			if form := errorCallForm(c, g.packages[c.Qualifier], n, s.Src); form.Form != "" {
 				s.Forms = append(s.Forms, form)
@@ -105,14 +117,11 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 			t, values := n.ChildByFieldName("type"), n.ChildByFieldName("value")
 			names := fieldNodes(n, "name")
 			for i, name := range names {
-				typ := ""
-				switch {
-				case t != nil:
-					typ = g.typeOf(syntax.Compact(t.Utf8Text(s.Src)))
-				case values != nil && values.NamedChildCount() == uint(len(names)):
-					typ = g.literalType(values.NamedChild(uint(i)), s.Src) // var x = T{}
+				op := g.valueOf(values, uint(i), uint(len(names)), s.Src) // var x = T{}, var x = f()
+				if t != nil {
+					op = operand{typ: g.typeOf(syntax.Compact(t.Utf8Text(s.Src)))}
 				}
-				g.declare(name.Utf8Text(s.Src), typ, true)
+				g.declare(name.Utf8Text(s.Src), op, true)
 			}
 		}
 	case "short_var_declaration", "assignment_statement", "range_clause", "receive_statement":
@@ -139,7 +148,7 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	case "func_literal":
 		s.Closures++
 		restore := g.scope(false)
-		eachOwn(n, s.Src, func(name, typ string) { g.declare(name, g.typeOf(typ), true) })
+		eachOwn(n, s.Src, func(name, typ string) { g.declare(name, operand{typ: g.typeOf(typ)}, true) })
 		return func() { s.Closures--; restore() }
 	case "block":
 		// An if's body or else is a branch; other blocks run in sequence.
@@ -152,7 +161,7 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		restore := g.scope(false)
 		if alias := n.ChildByFieldName("alias"); alias != nil {
 			for i := uint(0); i < alias.NamedChildCount(); i++ {
-				g.declare(alias.NamedChild(i).Utf8Text(s.Src), "", true)
+				g.declare(alias.NamedChild(i).Utf8Text(s.Src), operand{}, true)
 			}
 		}
 		return restore
@@ -250,7 +259,8 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 			case g.packages[name] != "" && !g.isVariable(name):
 				c.Kind, c.Qualifier = unit.PathCall, name
 			default:
-				c.Type = g.vars[name]
+				op := g.vars[name]
+				c.Type, c.From, c.Result = op.typ, op.from, op.result
 			}
 		case "selector_expression":
 			// s.store.Save(): a method of the receiver's field.
@@ -304,9 +314,17 @@ func errorCallForm(c unit.Call, pkg string, n *sitter.Node, src []byte) unit.For
 	return form
 }
 
-// declare records a variable's type, or "" when unknown, in the current
-// scope: declared there (var, :=), or assigned there (=).
-func (g grammar) declare(name, typ string, declared bool) {
+// operand is what the code states about a variable: its type (see
+// typeOf), or the call whose result it holds (as unit.Call.From and
+// Result). The zero operand is unknown.
+type operand struct {
+	typ          string
+	from, result int
+}
+
+// declare records what a variable holds, in the current scope: declared
+// there (var, :=), or assigned there (=).
+func (g grammar) declare(name string, op operand, declared bool) {
 	if n := len(*g.scopes); n > 0 {
 		in := (*g.scopes)[n-1].assigned
 		if declared {
@@ -314,21 +332,16 @@ func (g grammar) declare(name, typ string, declared bool) {
 		}
 		in[name] = true
 	}
-	g.set(name, typ)
-}
-
-// set records a variable's type, or forgets the variable when its type is
-// unknown ("").
-func (g grammar) set(name, typ string) {
-	if typ == "" {
+	if op == (operand{}) {
 		delete(g.vars, name)
 		return
 	}
-	g.vars[name] = typ
+	g.vars[name] = op
 }
 
-// assign updates the variables an assignment, short declaration or range
-// clause sets: one set from a composite literal (T{}, &T{}) takes its type,
+// assign updates the variables an assignment, short declaration, range
+// clause or receive sets: one set from a composite literal (T{}, &T{})
+// takes its type, one set from a call holds its result (see valueOf), and
 // any other is forgotten.
 func (g grammar) assign(n *sitter.Node, src []byte) {
 	left, right := n.ChildByFieldName("left"), n.ChildByFieldName("right")
@@ -345,13 +358,41 @@ func (g grammar) assign(n *sitter.Node, src []byte) {
 		if name.Kind() != "identifier" {
 			continue
 		}
-		typ := ""
-		if n.Kind() != "range_clause" && right != nil && right.NamedChildCount() == left.NamedChildCount() {
-			typ = g.literalType(right.NamedChild(i), src)
+		var op operand
+		if n.Kind() != "range_clause" {
+			op = g.valueOf(right, i, left.NamedChildCount(), src)
 		}
-		g.declare(name.Utf8Text(src), typ, declares)
+		g.declare(name.Utf8Text(src), op, declares)
 	}
 }
+
+// valueOf returns what the i-th of names variables set from values
+// holds: a composite literal's type, or a call's result, the i-th when
+// one call gives them all (db, err := open()).
+func (g grammar) valueOf(values *sitter.Node, i, names uint, src []byte) operand {
+	if values == nil {
+		return operand{}
+	}
+	value, result := values, 0
+	switch {
+	case values.NamedChildCount() == names:
+		value = values.NamedChild(i)
+	case values.NamedChildCount() == 1:
+		value, result = values.NamedChild(0), int(i) //nolint:gosec // a result's position, a handful at most
+	default:
+		return operand{}
+	}
+	if k, ok := g.calls[span(value)]; ok && value.Kind() == "call_expression" {
+		return operand{from: k + 1, result: result}
+	}
+	if result > 0 {
+		return operand{}
+	}
+	return operand{typ: g.literalType(value, src)}
+}
+
+// span identifies a syntax node by its byte range.
+func span(n *sitter.Node) [2]uint { return [2]uint{n.StartByte(), n.EndByte()} }
 
 // literalType returns the type of a composite literal value (T{}, &T{})
 // as typeOf writes it, or "" for any other value.
@@ -563,15 +604,22 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 		full = owner + "." + short
 	}
 	// The parameters and named results are the function's own scope.
-	vars, own, generic := map[string]string{}, map[string]bool{}, typeParams(n, src)
+	vars, own, generic := map[string]operand{}, map[string]bool{}, typeParams(n, src)
 	eachOwn(n, src, func(name, typ string) {
 		own[name] = true
 		if t := typeOf(typ, packages, generic); t != "" {
-			vars[name] = t
+			vars[name] = operand{typ: t}
 		}
 	})
-	s := syntax.Flatten(n, src, grammar{receiver: receiverName(n, src), packages: packages, vars: vars,
-		scopes: &[]*varScope{{declared: own, assigned: map[string]bool{}}}, generic: generic})
+	g := grammar{receiver: receiverName(n, src), packages: packages, vars: vars,
+		scopes: &[]*varScope{{declared: own, assigned: map[string]bool{}}}, generic: generic,
+		calls: map[[2]uint]int{}, chains: map[int][2]uint{}}
+	s := syntax.Flatten(n, src, g)
+	for k, inner := range g.chains {
+		if j, ok := g.calls[inner]; ok {
+			s.Calls[k].From, s.Calls[k].Result = j+1, 0
+		}
+	}
 	return unit.Unit{
 		File:      path,
 		Name:      full,
@@ -588,6 +636,7 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 		Forwards:  forwards(n, src),
 		Params:    params(n, src),
 		Types:     types(n, src),
+		Results:   results(n, src, packages, generic),
 		Forms:     s.Forms,
 
 		StringMatches: s.Matches,
@@ -847,6 +896,20 @@ func funcTypes(n *sitter.Node, src []byte) []unit.FuncType {
 			out = append(out, unit.FuncType{Types: types(typ, src)})
 		}
 	}
+	return out
+}
+
+// results returns a function's result types as typeOf writes them.
+func results(fn *sitter.Node, src []byte, packages map[string]string, generic map[string]bool) []string {
+	r := fn.ChildByFieldName("result")
+	if r == nil {
+		return nil
+	}
+	if r.Kind() != "parameter_list" {
+		return []string{typeOf(syntax.Compact(r.Utf8Text(src)), packages, generic)}
+	}
+	var out []string
+	eachParam(r, src, func(_, typ string) { out = append(out, typeOf(typ, packages, generic)) })
 	return out
 }
 
