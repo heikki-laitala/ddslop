@@ -1058,3 +1058,45 @@ func TestRustAdaptersOnFieldsOfSelfAndVariablesUnwrapTheField(t *testing.T) {
 		t.Errorf("Server::go calls %s, want %s", got, want)
 	}
 }
+
+// impl is a method of a trait's implementation.
+func impl(file, name, trait string) unit.Unit {
+	u := fn(file, name)
+	u.Trait = trait
+	return u
+}
+
+// A value of a trait type (dyn Store, impl Store, S: Store) calls the
+// method of the trait's only implementation, or the trait's default when
+// that implementation leaves it; with several implementations which one
+// runs is not known, and no other method of the name is guessed.
+func TestRustCallsThroughTraitsReachTheirOnlyImplementation(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run",
+			typed("crate::store::Store", "get"), // one implementation
+			typed("Store", "describe"),          // a default it leaves
+			typed("Codec", "encode"),            // two implementations
+			typed("Codec", "flush")),            // the trait's own default, but neither leaves it
+		fn("a/src/store.rs", "Store::describe"),
+		impl("a/src/pg.rs", "PgStore::get", "Store"),
+		fn("a/src/cache.rs", "Cache::get"),
+		impl("a/src/json.rs", "Json::encode", "Codec"),
+		impl("a/src/json.rs", "Json::flush", "Codec"),
+		impl("a/src/bin.rs", "Bin::encode", "Codec"),
+		impl("a/src/bin.rs", "Bin::flush", "Codec"),
+		fn("a/src/codec.rs", "Codec::flush"),
+		fn("a/src/other.rs", "Other::encode"),
+	}
+	in := Inputs{Impls: []unit.Impl{
+		{File: "a/src/pg.rs", Trait: "Store", Type: "PgStore"},
+		{File: "a/src/json.rs", Trait: "Codec", Type: "Json"},
+		{File: "a/src/bin.rs", Trait: "Codec", Type: "Bin"},
+	}}
+	g := Build(in, units)
+	if got, want := callees(g, "a/src/server.rs Server::run"), "[a/src/pg.rs PgStore::get a/src/store.rs Store::describe]"; got != want {
+		t.Errorf("Server::run calls %s, want %s", got, want)
+	}
+	if got, want := fmt.Sprint(g.ByName[0]), "[false false]"; got != want {
+		t.Errorf("ByName = %s, want %s", got, want)
+	}
+}

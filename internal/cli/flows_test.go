@@ -283,3 +283,15 @@ func TestGraphInputsKeepWhatUnwrappingAFieldLeaves(t *testing.T) {
 		t.Errorf("b's Server.db = %+v, want unknown: two structs unwrap it differently", got)
 	}
 }
+
+// A test's fake implementation of a trait is not one the non-test code
+// calls through.
+func TestGraphInputsListNonTestImpls(t *testing.T) {
+	in := graphInputs(t.TempDir(), []index.File{{Path: "a/src/store.rs", Parsed: index.Parsed{Decls: unit.Decls{Impls: []unit.Impl{
+		{File: "a/src/store.rs", Trait: "Store", Type: "PgStore"},
+		{File: "a/src/store.rs", Trait: "Store", Type: "Fake", Test: true},
+	}}}}})
+	if got := fmt.Sprint(in.Impls); got != fmt.Sprint([]unit.Impl{{File: "a/src/store.rs", Trait: "Store", Type: "PgStore"}}) {
+		t.Errorf("Impls = %s, want PgStore's only", got)
+	}
+}

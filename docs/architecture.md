@@ -983,7 +983,15 @@ that crosses it.
   it was only guessed, and reads the result's path where the producer is
   (`Self` and `crate::` are the producer's crate). The
   adapter strips references and looks through `Box`, `Arc` and `Rc`, gives
-  type parameters, trait objects and primitives no type, and drops a
+  a trait object (`dyn Store + Send`, `impl Store`) or a type parameter
+  (`S: Store`, also in a `where` clause) its trait's path when one trait
+  that is no marker (`Send`, `Clone`, `'static`) bounds it, and
+  primitives, closures (`Fn(u8)`) and other type parameters no type. A
+  call on a trait reaches the method of the trait's only non-test
+  implementation, or the trait's default when that implementation leaves
+  it out; with several, which one runs is not known, and the call
+  resolves to nothing rather than to a method guessed by its name. It
+  drops a
   variable's type where a `let`, a pattern (`match`, `if let`, `for`) or a
   closure parameter shadows it, until its block ends; a `let` takes effect
   after its value, a `for` pattern in its body alone, and an `if let`'s
@@ -1044,7 +1052,12 @@ candidates. Typing values built by calls then resolved 14,524 calls
 Following field chains past the impl's own fields, each type read where
 its struct is declared, resolved 129 more on the workspace (14,891 to
 15,020) and 45 on the service, and showed two more real cycles, each
-reached through a field of a typed variable.
+reached through a field of a typed variable. Typing values of a trait
+(171 call sites on the workspace) resolved 62 more calls by type
+rather than by name alone there (13,607 to 13,669) and 5 on the
+service; calls on traits with several implementations, no longer
+guessed, took all resolved calls from 15,057 to 15,054. `check`
+reported the same candidates.
 
 ### Entry points
 

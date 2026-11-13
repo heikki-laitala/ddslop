@@ -44,6 +44,7 @@ type index struct {
 	methods     map[string][]int                // methods by method name
 	owned       map[string][]int                // methods by "Owner::method", owner simplified
 	owners      map[string]bool                 // the types with methods, simplified
+	impls       map[string]int                  // Rust trait -> its implementations, simplified
 	rustModules map[string]map[string]bool      // Rust crate directory -> its modules' paths (foo::bar), from its files' paths
 	crates      map[string]string               // workspace crate name -> crate directory
 	imports     map[string]map[string]string    // file -> imported name -> path
@@ -76,6 +77,8 @@ type Inputs struct {
 	// RustFiles are the Rust files analysed, functions or not: their
 	// paths name their crates' modules.
 	RustFiles []string
+	// Impls are the Rust trait implementations of the non-test code.
+	Impls []unit.Impl
 }
 
 // Build resolves every unit's calls. A call finds only functions of its
@@ -86,8 +89,8 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		ext := filepath.Ext(file)
 		if langs[ext] == nil {
 			langs[ext] = &index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{}, owners: map[string]bool{},
-				rustModules: map[string]map[string]bool{},
-				crates:      map[string]string{}, imports: in.Imports, deps: map[string]map[string]bool{},
+				impls: map[string]int{}, rustModules: map[string]map[string]bool{},
+				crates: map[string]string{}, imports: in.Imports, deps: map[string]map[string]bool{},
 				fields: in.Fields, modules: in.Modules}
 		}
 		return langs[ext]
@@ -113,6 +116,9 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		ix.owners[owner] = true
 	}
 
+	for _, im := range in.Impls {
+		indexOf(im.File).impls[im.Trait]++
+	}
 	for _, file := range in.RustFiles {
 		if m, ok := moduleOf(file); ok {
 			indexOf(file).addModules(m, CrateOf(file))
@@ -292,6 +298,9 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 func (ix index) resolveRust(units []unit.Unit, caller, home unit.Unit, typ, method string) (int, bool) {
 	name := unit.SimpleName(typ)
 	dir, inRepo := ix.crateOfPath(typ, home)
+	if inRepo && ix.impls[name] > 0 {
+		return ix.resolveTrait(units, name, dir, method), true
+	}
 	if !ix.owners[name] || !inRepo {
 		return -1, true
 	}
@@ -325,6 +334,25 @@ func (ix index) resolveRust(units []unit.Unit, caller, home unit.Unit, typ, meth
 		u = only(units, cands, func(unit.Unit) bool { return true })
 	}
 	return u, u >= 0
+}
+
+// resolveTrait resolves a method call on a value of a Rust trait (dyn
+// Store, impl Store, S: Store) declared in the crate dir: the method of
+// the trait's only implementation, or its default when that
+// implementation leaves it out. With several implementations, which runs
+// is not known: -1.
+func (ix index) resolveTrait(units []unit.Unit, trait, dir, method string) int {
+	cands := slices.DeleteFunc(slices.Clone(ix.methods[method]), func(u int) bool { return units[u].Trait != trait })
+	if len(cands) < ix.impls[trait] {
+		// An implementation leaves the method to the trait's default.
+		cands = append(cands, slices.DeleteFunc(slices.Clone(ix.owned[trait+"::"+method]), func(u int) bool {
+			return units[u].Trait != "" || CrateOf(units[u].File) != dir
+		})...)
+	}
+	if len(cands) != 1 {
+		return -1
+	}
+	return cands[0]
 }
 
 // followFields follows a Rust field path (ctx.db) from a type written
