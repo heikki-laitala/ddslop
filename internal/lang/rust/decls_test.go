@@ -992,3 +992,69 @@ struct Client {
 		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+func TestRustUnitsRecordTheirResultTypes(t *testing.T) {
+	src := `use crate::db::Db;
+
+impl Store {
+    fn new() -> Self { Store }
+    fn open() -> Result<Store, Error> { todo!() }
+    async fn connect() -> anyhow::Result<Db> { todo!() }
+    fn find(&self) -> Option<&Item> { None }
+    fn count(&self) -> usize { 0 }
+    fn nothing(&self) {}
+}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		got = append(got, fmt.Sprintf("%s %q", u.Name, u.Results))
+	}
+	want := []string{
+		`Store::new ["Store" "Store"]`,
+		`Store::open ["Result" "Store"]`,
+		`Store::connect ["anyhow::Result" "crate::db::Db"]`,
+		`Store::find ["Option" "Item"]`,
+		`Store::count ["" ""]`,
+		`Store::nothing []`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("results:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestRustMethodCallsRecordTheCallProducingTheirOperand(t *testing.T) {
+	src := `async fn run() -> Result<(), Error> {
+    let s = Store::new();
+    s.save();
+    let db = Db::connect().await?;
+    db.query();
+    Store::open()?.get();
+    let n = s.count();
+    n.add();
+    Ok(())
+}
+`
+	calls := byName(t, mustUnits(t, src), "run").Calls
+	var got []string
+	for _, c := range calls {
+		from := "-"
+		if c.From > 0 {
+			from = fmt.Sprintf("%s#%d", calls[c.From-1].Name, c.Result)
+		}
+		got = append(got, fmt.Sprintf("%d %s from=%s", c.Line, c.Name, from))
+	}
+	want := []string{
+		"2 new from=-",
+		"3 save from=new#0",
+		"4 connect from=-",
+		"5 query from=connect#1",
+		"6 get from=open#1",
+		"6 open from=-",
+		"7 count from=new#0",
+		"8 add from=count#0",
+		"9 Ok from=-",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

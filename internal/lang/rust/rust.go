@@ -27,10 +27,15 @@ type grammar struct {
 	self    string
 	generic map[string]bool
 	imports map[string]string
-	vars    map[string]string
+	vars    map[string]syntax.Operand
 	// entries holds the variables as each open if found them, by the if's
 	// span, for its else.
-	entries *map[[2]uint]map[string]string
+	entries *map[[2]uint]map[string]syntax.Operand
+	// calls maps a call's syntax node (its byte range) to its index among
+	// the unit's calls, and chains a method call's index to the call its
+	// operand is, recorded after it (Store::open()?.get()).
+	calls  map[[2]uint]int
+	chains map[int]produced
 }
 
 // Prefix is empty for Rust, the first language: its symbols, and so its
@@ -153,9 +158,17 @@ func (g grammar) scope() func() {
 	}
 }
 
+// produced is a call's result: the call's syntax node and the result's
+// position (see unit.Unit.Results).
+type produced struct {
+	call   [2]uint
+	result int
+}
+
 // let records the variable a let declares: its type when stated (let c:
-// Cache) or built by a struct literal (Ledger { .. }). Any other binding
-// shadows the name with a value of unknown type.
+// Cache) or built by a struct literal (Ledger { .. }), or the call whose
+// result it holds (let s = Store::new()). Any other binding shadows the
+// name with a value of unknown type.
 func (g grammar) let(n *sitter.Node, src []byte) {
 	pattern := n.ChildByFieldName("pattern")
 	if pattern == nil {
@@ -165,24 +178,59 @@ func (g grammar) let(n *sitter.Node, src []byte) {
 		g.forget(pattern, src)
 		return
 	}
-	typ := ""
+	var op syntax.Operand
 	if t := n.ChildByFieldName("type"); t != nil {
-		typ = g.typeOf(t.Utf8Text(src))
-	} else if v := n.ChildByFieldName("value"); v != nil && v.Kind() == "struct_expression" {
-		if name := v.ChildByFieldName("name"); name != nil {
-			typ = g.typeOf(name.Utf8Text(src))
-		}
+		op.Type = g.typeOf(t.Utf8Text(src))
+	} else if v := n.ChildByFieldName("value"); v != nil {
+		op = g.valueOf(v, src)
 	}
-	g.set(pattern.Utf8Text(src), typ)
+	g.set(pattern.Utf8Text(src), op)
 }
 
-// set records a variable's type, or forgets it when unknown ("").
-func (g grammar) set(name, typ string) {
-	if typ == "" {
+// valueOf returns what a value states: a struct literal's type, or the
+// call it is, looking through .await and ? (which takes result 1).
+func (g grammar) valueOf(v *sitter.Node, src []byte) syntax.Operand {
+	if v.Kind() == "struct_expression" {
+		if name := v.ChildByFieldName("name"); name != nil {
+			return syntax.Operand{Type: g.typeOf(name.Utf8Text(src))}
+		}
+		return syntax.Operand{}
+	}
+	if p, ok := callResult(v); ok {
+		if k, ok := g.calls[p.call]; ok {
+			return syntax.Operand{From: k + 1, Result: p.result}
+		}
+	}
+	return syntax.Operand{}
+}
+
+// callResult returns the call a value is, through .await and ?, and the
+// result position: 1 after ?, which unwraps a Result or Option.
+func callResult(v *sitter.Node) (produced, bool) {
+	result := 0
+	for v != nil {
+		switch v.Kind() {
+		case "try_expression":
+			result = 1
+			v = v.NamedChild(0)
+		case "await_expression":
+			v = v.NamedChild(0)
+		case "call_expression":
+			return produced{call: span(v), result: result}, true
+		default:
+			return produced{}, false
+		}
+	}
+	return produced{}, false
+}
+
+// set records what a variable holds, or forgets it when unknown.
+func (g grammar) set(name string, op syntax.Operand) {
+	if op == (syntax.Operand{}) {
 		delete(g.vars, name)
 		return
 	}
-	g.vars[name] = typ
+	g.vars[name] = op
 }
 
 // forget drops the variables a pattern binds: lower-case names, which
@@ -200,6 +248,29 @@ func (g grammar) forget(pattern *sitter.Node, src []byte) {
 	for i := uint(0); i < pattern.NamedChildCount(); i++ {
 		g.forget(pattern.NamedChild(i), src)
 	}
+}
+
+// results returns a function's result types (see unit.Unit.Results): the
+// type as returned, and the type a ? leaves of it, inside a Result or an
+// Option (the returned type itself otherwise). An async fn declares the
+// type its .await gives. No return type gives none.
+func (g grammar) results(fn *sitter.Node, src []byte) []string {
+	ret := fn.ChildByFieldName("return_type")
+	if ret == nil {
+		return nil
+	}
+	written := strings.TrimSpace(ret.Utf8Text(src))
+	returned, unwrapped := g.typeOf(written), ""
+	open := strings.Index(written, "<")
+	switch unit.SimpleName(written) {
+	case "Result", "Option":
+		if open >= 0 && strings.HasSuffix(written, ">") {
+			unwrapped = g.typeOf(firstTypeArgument(written[open+1 : len(written)-1]))
+		}
+	default:
+		unwrapped = returned
+	}
+	return []string{returned, unwrapped}
 }
 
 // typeOf returns the type a method call on a value of the written type
@@ -824,7 +895,8 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 	// The signature sees its module's imports; each block of the body also
 	// those its own use declarations add (see Visit).
 	g := grammar{self: unit.SimpleName(owner), generic: typeParameters(n, e.src), imports: maps.Clone(e.visibleImports(n)),
-		vars: map[string]string{}, entries: &map[[2]uint]map[string]string{}}
+		vars: map[string]syntax.Operand{}, entries: &map[[2]uint]map[string]syntax.Operand{},
+		calls: map[[2]uint]int{}, chains: map[int]produced{}}
 	if impl := enclosingImpl(n); impl != nil {
 		maps.Copy(g.generic, typeParameters(impl, e.src))
 	}
@@ -836,14 +908,20 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 				pattern = pattern.NamedChild(pattern.NamedChildCount() - 1)
 			}
 			if p.Kind() == "parameter" && pattern != nil && typ != nil && pattern.Kind() == "identifier" {
-				g.set(pattern.Utf8Text(e.src), g.typeOf(typ.Utf8Text(e.src)))
+				g.set(pattern.Utf8Text(e.src), syntax.Operand{Type: g.typeOf(typ.Utf8Text(e.src))})
 			}
 		}
 	}
 	if g.imports == nil {
 		g.imports = map[string]string{}
 	}
+	results := g.results(n, e.src)
 	s := syntax.Flatten(n, e.src, g)
+	for k, p := range g.chains {
+		if j, ok := g.calls[p.call]; ok {
+			s.Calls[k].From, s.Calls[k].Result = j+1, p.result
+		}
+	}
 	e.units = append(e.units, unit.Unit{
 		File:      e.path,
 		Name:      name,
@@ -858,6 +936,7 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 		Blocks:    s.Blocks,
 		Trait:     sc.trait,
 		Calls:     s.Calls,
+		Results:   results,
 		Public:    isPublic(n, e.src),
 		External:  (owner == "" && name == "main") || slices.ContainsFunc(attrs, isExternalAttr),
 		Forwards:  forwards(n, e.src),
@@ -1340,7 +1419,8 @@ func (g grammar) recordCall(s *syntax.Shaper, n *sitter.Node) {
 		case value.Kind() == "self":
 			c.Qualifier = "self"
 		case value.Kind() == "identifier":
-			c.Type = g.vars[value.Utf8Text(s.Src)]
+			op := g.vars[value.Utf8Text(s.Src)]
+			c.Type, c.From, c.Result = op.Type, op.From, op.Result
 		case value.Kind() == "field_expression":
 			// self.db.query(): a method of the impl's field.
 			if v, f := value.ChildByFieldName("value"), value.ChildByFieldName("field"); v != nil && f != nil && v.Kind() == "self" {
@@ -1350,6 +1430,12 @@ func (g grammar) recordCall(s *syntax.Shaper, n *sitter.Node) {
 	default:
 		return // closures and other callees are not resolved by name
 	}
+	if c.Kind == unit.MethodCall {
+		if p, ok := callResult(fn.ChildByFieldName("value")); ok {
+			g.chains[len(s.Calls)] = p // recorded after this call
+		}
+	}
+	g.calls[span(n)] = len(s.Calls)
 	s.Calls = append(s.Calls, c)
 }
 
