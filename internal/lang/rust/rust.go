@@ -25,7 +25,7 @@ var language = sitter.NewLanguage(rustgrammar.Language())
 // their declarations are visited.
 type grammar struct {
 	self    string
-	generic map[string]bool
+	generic map[string]string
 	imports map[string]string
 	vars    map[string]syntax.Operand
 	// entries holds the variables as each open if found them, by the if's
@@ -320,10 +320,11 @@ var lifetime = regexp.MustCompile(`^'\w+\s*`)
 // written type has, without type arguments, or "": references and mut
 // are stripped, Box, Arc and Rc looked through, Self is the impl's type
 // (self), a name the file imports is its import path (Client from use
-// reqwest::Client is reqwest::Client), and type parameters (generic),
-// trait objects (dyn, impl), tuples, slices, function pointers and
+// reqwest::Client is reqwest::Client), a trait object (dyn, impl) or type
+// parameter (generic) is its trait's path, when one trait gives its
+// methods (see traitOf), and tuples, slices, function pointers and
 // lower-case (primitive) types give "".
-func rustType(written, self string, generic map[string]bool, imports map[string]string) string {
+func rustType(written, self string, generic map[string]string, imports map[string]string) string {
 	t := strings.TrimSpace(written)
 	for {
 		switch {
@@ -345,8 +346,13 @@ func rustType(written, self string, generic map[string]bool, imports map[string]
 }
 
 // typePath returns a type's path as rustType writes it.
-func typePath(t, self string, generic map[string]bool, imports map[string]string) string {
-	for _, other := range []string{"dyn ", "impl ", "(", "[", "fn", "*"} {
+func typePath(t, self string, generic map[string]string, imports map[string]string) string {
+	for _, trait := range []string{"dyn ", "impl "} {
+		if rest, ok := strings.CutPrefix(t, trait); ok {
+			return typePath(traitOf(rest), self, nil, imports)
+		}
+	}
+	for _, other := range []string{"(", "[", "fn", "*"} {
 		if strings.HasPrefix(t, other) {
 			return ""
 		}
@@ -354,11 +360,17 @@ func typePath(t, self string, generic map[string]bool, imports map[string]string
 	if i := strings.Index(t, "<"); i >= 0 {
 		t = t[:i]
 	}
+	if strings.Contains(t, "(") {
+		return "" // Fn(u8) -> u8
+	}
 	path := strings.ReplaceAll(t, " ", "")
+	if bound, ok := generic[path]; ok {
+		return typePath(bound, self, nil, imports)
+	}
 	switch name := unit.SimpleName(path); {
 	case path == "Self":
 		return self
-	case name == "" || generic[path] || !isUpper(name):
+	case name == "" || !isUpper(name):
 		return ""
 	case !strings.Contains(path, "::") && imports[path] != "":
 		return imports[path]
@@ -368,6 +380,55 @@ func typePath(t, self string, generic map[string]bool, imports map[string]string
 		return imports[root] + "::" + rest
 	}
 	return path
+}
+
+// markers are the standard traits a bound adds without giving the value
+// methods code calls on it.
+var markers = map[string]bool{"Send": true, "Sync": true, "Sized": true, "Unpin": true, "Copy": true, "Clone": true,
+	"Debug": true, "Default": true, "Display": true, "Eq": true, "PartialEq": true, "Hash": true, "Ord": true, "PartialOrd": true}
+
+// traitOf returns the trait among bounds (Store + Send + 'static) whose
+// methods a value of them has: the only one that is no marker, lifetime
+// or ?Sized, or "" when none is or several are.
+func traitOf(bounds string) string {
+	trait := ""
+	for _, b := range splitTopLevel(bounds, '+') {
+		b = strings.TrimSpace(b)
+		name := b
+		if i := strings.Index(name, "<"); i >= 0 {
+			name = name[:i]
+		}
+		if b == "" || strings.HasPrefix(b, "'") || strings.HasPrefix(b, "?") || markers[unit.SimpleName(name)] {
+			continue
+		}
+		if trait != "" {
+			return ""
+		}
+		trait = b
+	}
+	return trait
+}
+
+// splitTopLevel splits a list at each sep outside brackets.
+func splitTopLevel(list string, sep rune) []string {
+	var out []string
+	depth, start := 0, 0
+	for i, r := range list {
+		switch r {
+		case '<', '(', '[':
+			depth++
+		case '>', ')', ']':
+			if depth > 0 && (r != '>' || i == 0 || list[i-1] != '-') { // not the -> of Fn() -> T
+				depth--
+			}
+		case sep:
+			if depth == 0 {
+				out = append(out, list[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(out, list[start:])
 }
 
 // firstTypeArgument returns the first of comma-separated type arguments,
@@ -1371,21 +1432,49 @@ func (e *extractor) addStruct(n *sitter.Node, sc scope, test bool, attrs []strin
 	e.decls.Structs = append(e.decls.Structs, ty)
 }
 
-// typeParameters returns the names of the type parameters a function,
-// impl or struct declares (<T: Saver, U>), leaving out lifetimes.
-func typeParameters(n *sitter.Node, src []byte) map[string]bool {
-	out := map[string]bool{}
+// typeParameters returns the type parameters a function, impl or struct
+// declares (<T: Saver, U>), leaving out lifetimes, each with the trait
+// its bounds there and in the where clause give it (see traitOf), or "".
+func typeParameters(n *sitter.Node, src []byte) map[string]string {
+	bounds := map[string][]string{}
+	add := func(name, bound *sitter.Node) {
+		if name == nil {
+			return
+		}
+		b := bounds[name.Utf8Text(src)]
+		if bound != nil {
+			b = append(b, strings.TrimPrefix(strings.TrimSpace(bound.Utf8Text(src)), ":")) // : Send + Store
+		}
+		bounds[name.Utf8Text(src)] = b
+	}
 	list := n.ChildByFieldName("type_parameters")
 	for i := uint(0); list != nil && i < list.NamedChildCount(); i++ {
 		p := list.NamedChild(i)
 		switch {
 		case p.Kind() == "type_identifier":
-			out[p.Utf8Text(src)] = true
+			add(p, nil)
 		case p.ChildByFieldName("name") != nil:
-			out[p.ChildByFieldName("name").Utf8Text(src)] = true
+			add(p.ChildByFieldName("name"), p.ChildByFieldName("bounds"))
 		case p.ChildByFieldName("left") != nil:
-			out[p.ChildByFieldName("left").Utf8Text(src)] = true
+			add(p.ChildByFieldName("left"), p.ChildByFieldName("bounds"))
 		}
+	}
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		if w := n.NamedChild(i); w.Kind() == "where_clause" {
+			for j := uint(0); j < w.NamedChildCount(); j++ {
+				left := w.NamedChild(j).ChildByFieldName("left")
+				if left == nil {
+					continue
+				}
+				if _, declared := bounds[left.Utf8Text(src)]; declared {
+					add(left, w.NamedChild(j).ChildByFieldName("bounds"))
+				}
+			}
+		}
+	}
+	out := map[string]string{}
+	for name, b := range bounds {
+		out[name] = traitOf(strings.Join(b, "+"))
 	}
 	return out
 }

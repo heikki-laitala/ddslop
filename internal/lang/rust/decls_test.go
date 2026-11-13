@@ -712,6 +712,42 @@ func TestAnErrInAMatchesGuardIsNoVariantCheck(t *testing.T) {
 	}
 }
 
+// A value of a trait type (dyn, impl, a type parameter's bound) calls
+// the trait's methods: its type is the trait's path. Marker traits (Send,
+// 'static) say nothing of the methods; a parameter of two traits is
+// ambiguous.
+func TestMethodCallsThroughTraitsRecordTheTrait(t *testing.T) {
+	src := `use crate::store::Store;
+
+fn run<S: Send + Store, U, V: Store + Saver>(a: Arc<dyn Store + Send + Sync>, b: impl Saver + 'static, c: &mut S, d: U, e: V, f: Box<dyn Fn(u8) -> u8>)
+where
+    U: Clone + Saver,
+{
+    a.get();
+    b.save();
+    c.get();
+    d.save();
+    e.get();
+    f.call();
+}
+`
+	var got []string
+	for _, c := range byName(t, mustUnits(t, src), "run").Calls {
+		got = append(got, fmt.Sprintf("%s type=%q", c.Name, c.Type))
+	}
+	want := []string{
+		`get type="crate::store::Store"`,
+		`save type="Saver"`,
+		`get type="crate::store::Store"`,
+		`save type="Saver"`,
+		`get type=""`,
+		`call type=""`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
 func TestMethodCallsRecordTheTypeTheCodeStates(t *testing.T) {
 	src := `impl Server {
     fn run<T: Saver>(&self, store: &mut Store, shared: Arc<Cache>, me: &Self, any: T, d: &dyn Saver, n: u32) {
@@ -754,8 +790,8 @@ func TestMethodCallsRecordTheTypeTheCodeStates(t *testing.T) {
 		`3 save type="Store" field="" self=false`,
 		`4 fill type="Cache" field="" self=false`,
 		`5 ping type="Server" field="" self=false`,
-		`6 save type="" field="" self=false`,
-		`7 save type="" field="" self=false`,
+		`6 save type="Saver" field="" self=false`,
+		`7 save type="Saver" field="" self=false`,
 		`8 count type="" field="" self=false`,
 		`9 query type="" field="db" self=false`,
 		`10 flush type="" field="" self=true`,
