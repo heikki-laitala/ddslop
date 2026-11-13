@@ -287,8 +287,10 @@ type Trait struct {
 // Impl is an implementation of a trait for a type, both as simple names
 // (see SimpleName).
 type Impl struct {
-	File               string
-	Trait, Type        string
+	File        string
+	Trait, Type string
+	// TraitPath is the trait as written (api::Store).
+	TraitPath          string
 	StartLine, EndLine int
 	// Blanket is true when the type is one of the impl's own type
 	// parameters: impl<T: Read> Io for T.
