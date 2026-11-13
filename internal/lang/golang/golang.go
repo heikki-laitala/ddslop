@@ -155,18 +155,22 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	return nil
 }
 
-// isReceiver reports whether name is the method's receiver here: no open
-// scope declares a variable of that name.
+// isReceiver reports whether name is the method's receiver here, not a
+// variable shadowing it.
 func (g grammar) isReceiver(name string) bool {
-	if g.receiver == "" || name != g.receiver {
-		return false
-	}
+	return g.receiver != "" && name == g.receiver && !g.isVariable(name)
+}
+
+// isVariable reports whether an open scope, the function's parameters
+// and results included, declares a variable of that name, which shadows
+// an imported package or the receiver.
+func (g grammar) isVariable(name string) bool {
 	for _, s := range *g.scopes {
 		if s.declared[name] {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // varScope is a lexical scope: the variables declared in it and the
@@ -236,7 +240,7 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 			switch name := operand.Utf8Text(src); {
 			case g.isReceiver(name):
 				c.Qualifier = "self"
-			case g.packages[name] != "":
+			case g.packages[name] != "" && !g.isVariable(name):
 				c.Kind, c.Qualifier = unit.PathCall, name
 			default:
 				c.Type = g.vars[name]
@@ -509,14 +513,23 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 	if owner != "" {
 		full = owner + "." + short
 	}
-	vars := map[string]string{}
-	eachParam(n.ChildByFieldName("parameters"), src, func(name, typ string) {
-		if t := typeOf(typ, packages); name != "" && t != "" {
-			vars[name] = t
+	// The parameters and named results are the function's own scope.
+	vars, own := map[string]string{}, map[string]bool{}
+	for _, list := range []*sitter.Node{n.ChildByFieldName("parameters"), n.ChildByFieldName("result")} {
+		if list == nil || list.Kind() != "parameter_list" {
+			continue
 		}
-	})
+		eachParam(list, src, func(name, typ string) {
+			if name != "" {
+				own[name] = true
+			}
+			if t := typeOf(typ, packages); name != "" && t != "" {
+				vars[name] = t
+			}
+		})
+	}
 	s := syntax.Flatten(n, src, grammar{receiver: receiverName(n, src), packages: packages, vars: vars,
-		scopes: &[]*varScope{}})
+		scopes: &[]*varScope{{declared: own, assigned: map[string]bool{}}}})
 	return unit.Unit{
 		File:      path,
 		Name:      full,
