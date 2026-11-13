@@ -788,6 +788,9 @@ func markTest(f *index.File) {
 	for i := range d.Structs {
 		d.Structs[i].Test = true
 	}
+	for i := range d.FieldTypes {
+		d.FieldTypes[i].Test = true
+	}
 	for i := range d.Consts {
 		d.Consts[i].Test = true
 	}

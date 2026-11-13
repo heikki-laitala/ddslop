@@ -212,7 +212,14 @@ func graphInputs(root string, files []index.File) flow.Inputs {
 			if in.Fields[dir] == nil {
 				in.Fields[dir] = map[string]string{}
 			}
-			in.Fields[dir][ft.Struct+"."+ft.Field] = ft.Type
+			// Structs of one name in two Rust modules of a crate that type
+			// a field differently leave it unknown ("").
+			key := ft.Struct + "." + ft.Field
+			if typ, seen := in.Fields[dir][key]; seen && typ != ft.Type {
+				in.Fields[dir][key] = ""
+			} else if !seen {
+				in.Fields[dir][key] = ft.Type
+			}
 		}
 		if _, done := in.Crates[dir]; done {
 			continue
