@@ -708,7 +708,8 @@ duplication, and are dropped below a threshold.
 - Test code is skipped by default and counted in the summary (`test_units`);
   `--tests` includes it. In Rust, test code is a function with a test
   attribute (`#[test]`, `#[tokio::test]`, `#[rstest]`, `#[test_case]`), a
-  function in a `#[cfg(test)]` module, a function in a `tests/` or
+  function, `impl` block or struct marked `#[cfg(test)]`, a function in
+  a `#[cfg(test)]` module, a function in a `tests/` or
   `benches/` directory or a `tests.rs` module, or a function in the file
   of an out-of-line test module declared in its parent
   (`#[cfg(test)] mod real_store;`) and in that module's submodules.
@@ -933,7 +934,14 @@ that crosses it.
   writes a root imported where the call is (`use crate::util as
   helpers`) as its import's path. Any other root is an outside crate's:
   `std::fs::read` never resolves to the crate's own `read`. Before that
-  rule, such calls linked modules that never call each other; on a
+  rule, such calls linked modules that never call each other. Of the
+  free functions with the called name, the one in the module the path
+  names wins (`crate::store::endpoint` is `store.rs`'s `endpoint`, not
+  `config.rs`'s); a function re-exported from elsewhere falls back to
+  the crate's only one of that name. Before, a name several modules
+  define (`plan`, `resolve`, `new`) stayed unresolved, or went to the
+  caller's own file's: on the 739k-line workspace, naming the module
+  resolved 362 more calls and found 4 more real cycles. On a
   188k-line Rust service 206 of 6,736 resolved calls were of this kind,
   and on a 739k-line workspace 41. A type path in a call
   (`chrono::Utc::now()`) keeps to its crate, as a typed method call

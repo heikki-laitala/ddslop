@@ -166,3 +166,22 @@ mod tests {
 		t.Errorf("candidates = %+v, want the test code's cycle with --tests", r.Candidates)
 	}
 }
+
+// The crate's root module (lib.rs) is a module like the others: a loop
+// through it is a cycle.
+func TestCheckReportsCyclesThroughTheRootModule(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "pub mod foo;\npub fn root_fn() { crate::foo::child_fn(); }\n",
+		"src/foo.rs": "pub fn child_fn() { crate::root_helper(); }\n",
+	}
+	files["src/lib.rs"] += "pub fn root_helper() {}\n"
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	r := cycles(t, stdout)
+	if len(r.Candidates) != 1 {
+		t.Fatalf("candidates = %+v, want the root module and foo calling each other", r.Candidates)
+	}
+	if got := strings.Join(r.Candidates[0].Values, ", "); !strings.Contains(got, "foo") {
+		t.Errorf("values = %s, want a cycle through foo and the root module", got)
+	}
+}
