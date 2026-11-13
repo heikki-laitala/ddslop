@@ -373,8 +373,8 @@ through fields, moved from the second layer to the bottom, and the map's
 shared helpers went from 1 to 7, all store methods both callers use. It
 also let `check` see two parallel flows: ingesting, updating and pushing
 a memory run one pipeline (real), and getting and deleting a document
-share only a thin handler's shape (arguable). On ddslop, 746 of 3027
-(736): `pattern` moved under `codemap`, which calls it.
+share only a thin handler's shape (arguable). On ddslop, 747 of 3028
+(737): `pattern` moved under `codemap`, which calls it.
 
 Setup-teardown is not built for Go: `defer x.Close()` is Go's own idiom
 for it (18 times in that service, 2 in ddslop), and transactions, the
