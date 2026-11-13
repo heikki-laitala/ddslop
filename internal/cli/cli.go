@@ -639,20 +639,20 @@ func dependencyCycles(g *flow.Graph, files []index.File, crates map[string]strin
 }
 
 // appendCycle adds a cycle closed by the calls at sites, unless a
-// ddslop:ignore marks one of their callers.
+// ddslop:ignore marks one of those calls or their callers.
 func appendCycle(out []report.Cycle, g *flow.Graph, key string, steps []string, sites []codemap.Site) []report.Cycle {
 	c := report.Cycle{Key: key, Steps: steps}
 	for _, s := range sites {
 		if s.Caller < 0 || g.Units[s.Caller].Ignored {
 			return out
 		}
-		caller, callee := g.Units[s.Caller], g.Units[s.Callee]
+		caller := g.Units[s.Caller]
 		line := caller.StartLine
-		for _, call := range caller.Calls {
-			if call.Name == shortName(callee.Name) {
-				line = call.Line
-				break
+		if s.Call >= 0 {
+			if caller.Calls[s.Call].Ignored {
+				return out
 			}
+			line = caller.Calls[s.Call].Line
 		}
 		c.Sites = append(c.Sites, report.CycleSite{Unit: caller, Line: line})
 	}
