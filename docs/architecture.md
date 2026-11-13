@@ -317,8 +317,8 @@ explicitly and never stores it in a struct, so it is never part of a
 parameter object) and their switches on strings (`case "a", "b":`), so
 parameter groups and string kinds work for Go; methods are left out of
 parameter groups, as they may implement an interface whose signature they
-must keep, and so are functions with the parameter types of a function
-type their package declares outside test code (`type command func(args
+must keep, and so are functions with the parameter and result types of
+a function type their package declares outside test code (`type command func(args
 []string, stdout, stderr io.Writer) int`): they are its values, such as a
 command table's commands. A type in another package may only share the
 spelling of its parameter types, so it dictates nothing. On a 100-file
@@ -812,8 +812,8 @@ and its fallback idiom for a concern is the proposal's pattern.
   pattern `parameter-object`; Fowler's "introduce parameter object"): the
   same parameters, names and types, taken by at least 4 functions, at
   least 3 of them. Trait methods are left out, since the trait dictates
-  their parameters, and so are Go functions whose parameter types are
-  those of a function type their package declares, its values. For each
+  their parameters, and so are Go functions whose parameter and result
+  types are those of a function type their package declares, its values. For each
   set of functions sharing 3 parameters, the group is everything they
   share, so no group repeats inside a larger one taken by the same
   functions; then groups sharing 2 parameters are one

@@ -67,6 +67,8 @@ type Unit struct {
 	// Params are the unit's named parameters in order, without self and
 	// without patterns that bind several names.
 	Params []Param
+	// Results are the unit's result types in order, named or not (Go).
+	Results []string
 	// Forms are the forms the unit uses for concerns its language's
 	// adapter knows, such as how it checks errors, in source order.
 	Forms []Form
@@ -212,9 +214,10 @@ type Decls struct {
 // []string, out io.Writer) int.
 type FuncType struct {
 	File string
-	// Params are the parameter types in order, named or not.
-	Params []string
-	Test   bool
+	// Params and Results are the parameter and result types in order,
+	// named or not.
+	Params, Results []string
+	Test            bool
 }
 
 // Trait is a trait declaration.

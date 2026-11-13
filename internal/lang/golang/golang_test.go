@@ -437,9 +437,31 @@ type (
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Named or not, each parameter counts by its type; a Context is left
-	// out, as from a function's parameters.
-	if want := "[{cli/cli.go [[]string io.Writer io.Writer] false} {cli/cli.go [*Request] false}]"; fmt.Sprint(decls.FuncTypes) != want {
+	// Named or not, each parameter and result counts by its type; a
+	// Context parameter is left out, as from a function's parameters.
+	if want := "[{cli/cli.go [[]string io.Writer io.Writer] [int] false} {cli/cli.go [*Request] [error] false}]"; fmt.Sprint(decls.FuncTypes) != want {
 		t.Errorf("FuncTypes = %v, want %s", decls.FuncTypes, want)
+	}
+}
+
+func TestUnitsRecordResultTypes(t *testing.T) {
+	src := `package store
+
+func none() {}
+
+func one() error { return nil }
+
+func named() (n, m int, err error) { return 0, 0, nil }
+`
+	units, _, err := Parse("store/store.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, u := range units {
+		got = append(got, fmt.Sprintf("%s %v", u.Name, u.Results))
+	}
+	if want := "[none [] one [error] named [int int error]]"; fmt.Sprint(got) != want {
+		t.Errorf("results = %v, want %s", got, want)
 	}
 }

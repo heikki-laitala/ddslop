@@ -126,6 +126,7 @@ func TestParameterGroupsLeaveOutFunctionsOfDeclaredFunctionTypes(t *testing.T) {
 		for i := range 4 {
 			u := withParams(fmt.Sprintf("run%d", i), "args:[]string", "stdout:io.Writer", "stderr:io.Writer")
 			u.File = file
+			u.Results = []string{"int"}
 			units = append(units, u)
 		}
 		return units
@@ -137,10 +138,11 @@ func TestParameterGroupsLeaveOutFunctionsOfDeclaredFunctionTypes(t *testing.T) {
 		funcType unit.FuncType
 		want     int
 	}{
-		{"same package", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli.go", Params: types}, 0},
+		{"same package", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli.go", Params: types, Results: []string{"int"}}, 0},
 		{"other package", commands("internal/cli/map.go"), unit.FuncType{File: "internal/report/report.go", Params: types}, 1},
 		{"test code", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli_test.go", Params: types, Test: true}, 1},
 		{"not Go", commands("internal/cli/map.rs"), unit.FuncType{File: "internal/cli/cli.go", Params: types}, 1},
+		{"other results", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli.go", Params: types, Results: []string{"bool"}}, 1},
 	} {
 		if got := len(ParameterGroups(tc.units, []unit.FuncType{tc.funcType})); got != tc.want {
 			t.Errorf("%s: got %d groups, want %d", tc.name, got, tc.want)

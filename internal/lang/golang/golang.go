@@ -275,8 +275,9 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 				decls.Consts = append(decls.Consts, constants(n, path, src, test)...)
 			case "type_declaration":
 				decls.Structs = append(decls.Structs, structs(n, path, src, test)...)
-				for _, params := range funcTypes(n, src) {
-					decls.FuncTypes = append(decls.FuncTypes, unit.FuncType{File: path, Params: params, Test: test})
+				for _, ft := range funcTypes(n, src) {
+					ft.File, ft.Test = path, test
+					decls.FuncTypes = append(decls.FuncTypes, ft)
 				}
 			}
 		}
@@ -313,6 +314,7 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 		Calls:     s.Calls,
 		Forwards:  forwards(n, src),
 		Params:    params(n, src),
+		Results:   results(n, src),
 		Forms:     s.Forms,
 
 		StringMatches: s.Matches,
@@ -533,42 +535,63 @@ func addressOf(n *sitter.Node, src []byte) *sitter.Node {
 // receiver aside: a, b int gives two.
 func params(fn *sitter.Node, src []byte) []unit.Param {
 	var out []unit.Param
-	eachParam(fn, src, func(name, typ string) {
-		if name != "" {
+	eachParam(fn.ChildByFieldName("parameters"), src, func(name, typ string) {
+		if name != "" && typ != contextType {
 			out = append(out, unit.Param{Name: name, Type: typ})
 		}
 	})
 	return out
 }
 
-// funcTypes returns the parameter types of a type declaration's function
-// types: type command func(args []string, out io.Writer) int gives
-// [[]string io.Writer].
-func funcTypes(n *sitter.Node, src []byte) [][]string {
-	var out [][]string
+// contextType is never grouped with other parameters: Go passes it
+// explicitly and never stores it in a struct.
+const contextType = "context.Context"
+
+// results returns the result types of a function or function type, named
+// or not: (n, m int, err error) gives int, int, error.
+func results(fn *sitter.Node, src []byte) []string {
+	r := fn.ChildByFieldName("result")
+	if r == nil {
+		return nil
+	}
+	if r.Kind() != "parameter_list" {
+		return []string{syntax.Compact(r.Utf8Text(src))}
+	}
+	var out []string
+	eachParam(r, src, func(_, typ string) { out = append(out, typ) })
+	return out
+}
+
+// funcTypes returns the signatures of a type declaration's function types,
+// without file: type command func(args []string, out io.Writer) int gives
+// parameters []string, io.Writer and result int. A Context parameter is
+// left out, as from a function's parameters.
+func funcTypes(n *sitter.Node, src []byte) []unit.FuncType {
+	var out []unit.FuncType
 	for i := uint(0); i < n.NamedChildCount(); i++ {
 		spec := n.NamedChild(i)
 		typ := spec.ChildByFieldName("type")
 		if spec.Kind() != "type_spec" || typ == nil || typ.Kind() != "function_type" {
 			continue
 		}
-		var types []string
-		eachParam(typ, src, func(_, t string) { types = append(types, t) })
-		out = append(out, types)
+		ft := unit.FuncType{Results: results(typ, src)}
+		eachParam(typ.ChildByFieldName("parameters"), src, func(_, t string) {
+			if t != contextType {
+				ft.Params = append(ft.Params, t)
+			}
+		})
+		out = append(out, ft)
 	}
 	return out
 }
 
 // eachParam calls each with the name ("" when unnamed) and type of every
-// parameter of a function or function type, a, b int giving two. A
-// context.Context is left out, since Go passes it explicitly and never
-// stores it in a struct.
-func eachParam(fn *sitter.Node, src []byte, each func(name, typ string)) {
-	list := fn.ChildByFieldName("parameters")
+// entry of a parameter or result list, a, b int giving two.
+func eachParam(list *sitter.Node, src []byte, each func(name, typ string)) {
 	for i := uint(0); list != nil && i < list.NamedChildCount(); i++ {
 		p := list.NamedChild(i)
 		typ := p.ChildByFieldName("type")
-		if typ == nil || typ.Utf8Text(src) == "context.Context" {
+		if typ == nil {
 			continue
 		}
 		t := syntax.Compact(typ.Utf8Text(src))
