@@ -843,3 +843,15 @@ func TestRustTypePathCallsKeepToTheirCrate(t *testing.T) {
 		t.Errorf("run calls %s, want %s", got, want)
 	}
 }
+
+// Targets records calls resolved by name or type; a guess by the method
+// name alone is no target, even when a named call reaches the same unit.
+func TestTargetsLeaveOutGuessedCalls(t *testing.T) {
+	g := Build(Inputs{}, []unit.Unit{
+		fn("a/src/x.rs", "run", method("x", "save"), path("Store", "save")),
+		fn("a/src/store.rs", "Store::save"),
+	})
+	if got := fmt.Sprint(g.Targets[0]); got != "[-1 1]" {
+		t.Errorf("targets = %s, want the guessed call left out and the named one kept", got)
+	}
+}

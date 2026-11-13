@@ -573,7 +573,7 @@ func check(root string, opts options) (report.Report, error) {
 		Kinds:    pattern.StringKinds(units),
 		Params:   pattern.ParameterGroups(units, decls.FuncTypes),
 		Drifts:   drifts(units, packages(root, files)),
-		Cycles:   dependencyCycles(g, files, packages(root, files)),
+		Cycles:   dependencyCycles(cycleGraph(g, root, files, units, opts.tests), files, packages(root, files)),
 	}, summary)
 	return r, recordHealth(db, root, r.Summary.Health)
 }
@@ -636,6 +636,15 @@ func dependencyCycles(g *flow.Graph, files []index.File, crates map[string]strin
 		}
 	}
 	return out
+}
+
+// cycleGraph is the call graph cycles are found in: the non-test code's,
+// or, with --tests, that of the units check analyses, test code included.
+func cycleGraph(g *flow.Graph, root string, files []index.File, units []unit.Unit, tests bool) *flow.Graph {
+	if !tests {
+		return g
+	}
+	return flow.Build(graphInputs(root, files), units)
 }
 
 // appendCycle adds a cycle closed by the calls at sites, unless a
