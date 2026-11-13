@@ -608,3 +608,23 @@ func TestRustTypedCallsTellOutsideCratesByThePath(t *testing.T) {
 		t.Errorf("Server::run calls %s,\nwant %s", got, want)
 	}
 }
+
+// A path naming a workspace crate stays in that crate, even when the
+// caller's own crate has a type of the same name.
+func TestRustQualifiedTypesStayInTheirCrate(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run", typed("b::Client", "send"), typed("crate::Client", "close")),
+		fn("a/src/client.rs", "Client::send"),
+		fn("a/src/client.rs", "Client::close"),
+		fn("b/src/client.rs", "Client::send"),
+		fn("b/src/client.rs", "Client::close"),
+	}
+	in := Inputs{
+		Imports: map[string]map[string]string{"a/src/server.rs": {"Client": "b::Client"}},
+		Crates:  map[string]string{"a": "a", "b": "b"},
+	}
+	want := "[b/src/client.rs Client::send a/src/client.rs Client::close]"
+	if got := callees(Build(in, units), "a/src/server.rs Server::run"); got != want {
+		t.Errorf("Server::run calls %s,\nwant %s", got, want)
+	}
+}

@@ -934,13 +934,17 @@ that crosses it.
   type parameters, trait objects and primitives no type, and drops a
   variable's type where a `let`, a pattern (`match`, `if let`, `for`) or a
   closure parameter shadows it, until its block ends; a `let` takes effect
-  after its value, and a `for` pattern or an `if let`'s binding in its
-  body alone. A field whose struct name two modules of a crate
+  after its value, a `for` pattern in its body alone, and an `if let`'s
+  or `while let`'s bindings from right after their value (so later
+  operands of a let chain see them), not in an `else`. A field whose struct name two modules of a crate
   declare with different types is unknown. A type keeps its path,
-  qualified by the file's `use` imports (`Client` imported from reqwest
-  is `reqwest::Client`): one rooted in a crate outside the workspace, or
-  with no methods in the repository (`Vec`, `Option`, serde's `Value`),
-  is from outside it, and calls on it resolve to nothing. An untyped `x.m()`, or one on a repository
+  qualified by the `use` imports visible where it is written (its
+  module's, not a parent module's, and those in the function's own
+  body): `Client` imported from reqwest is `reqwest::Client`. A path
+  rooted in a crate outside the workspace, or a type with no methods in
+  the repository (`Vec`, `Option`, serde's `Value`), is from outside it,
+  and calls on it resolve to nothing; a path rooted in a workspace crate
+  or in `crate`, `self` or `super` resolves in that crate alone. An untyped `x.m()`, or one on a repository
   type without that method (a trait's default, perhaps), resolves only
   when one method of that name exists, and never for common
   standard-library method names (`as_ref`, `len`, `push`, `find`,
@@ -967,7 +971,7 @@ Typing method calls, measured on `lns-inference-router`: most method
 calls with a stated operand type are on types from outside the
 repository (`Vec` 1,009, `Option` 849, serde's `Value`, maps,
 `Formatter`), which no longer get guessed. Resolved calls went from
-13,770 to 14,314 of 73,038. In `lns_ledger` (138 modules) the layers
+13,770 to 14,301 of 73,038. In `lns_ledger` (138 modules) the layers
 went from 15 to 12, the shared helpers gained methods reached through
 fields (`observe`, `is_open`, `actions`), and two upward calls appeared,
 both real: `records` reads a credit lot's `arguments()` while `credit`

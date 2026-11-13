@@ -28,6 +28,9 @@ type grammar struct {
 	generic map[string]bool
 	imports map[string]string
 	vars    map[string]string
+	// entries holds the variables as each open if found them, by the if's
+	// span, for its else.
+	entries *map[[2]uint]map[string]string
 }
 
 // Prefix is empty for Rust, the first language: its symbols, and so its
@@ -84,45 +87,49 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		}
 		return restore
 	case "block":
-		// A for's pattern and an if let's or while let's bindings are in
-		// scope in its body alone, after the iterator or value, and not
-		// in an else.
+		// A for's pattern is in scope in its body alone, after the
+		// iterator.
 		restore := g.scope()
-		switch p := n.Parent(); {
-		case p == nil:
-		case p.Kind() == "for_expression" && sameNode(p.ChildByFieldName("body"), n):
+		if p := n.Parent(); p != nil && p.Kind() == "for_expression" && sameNode(p.ChildByFieldName("body"), n) {
 			if pattern := p.ChildByFieldName("pattern"); pattern != nil {
 				g.forget(pattern, s.Src)
 			}
-		case (p.Kind() == "if_expression" && sameNode(p.ChildByFieldName("consequence"), n)) ||
-			(p.Kind() == "while_expression" && sameNode(p.ChildByFieldName("body"), n)):
-			if condition := p.ChildByFieldName("condition"); condition != nil {
-				g.forgetLets(condition, s.Src)
-			}
 		}
 		return restore
+	case "if_expression", "while_expression":
+		// An if let's or while let's bindings hold from right after their
+		// value, through the chain's later operands and the body, until
+		// the if or while ends; an else starts from the variables as the
+		// if found them.
+		(*g.entries)[span(n)] = maps.Clone(g.vars)
+		restore := g.scope()
+		return func() { delete(*g.entries, span(n)); restore() }
+	case "let_condition":
+		return func() {
+			if pattern := n.ChildByFieldName("pattern"); pattern != nil {
+				g.forget(pattern, s.Src)
+			}
+		}
+	case "else_clause":
+		if entry, ok := (*g.entries)[span(n.Parent())]; ok && n.Parent() != nil {
+			clear(g.vars)
+			maps.Copy(g.vars, entry)
+		}
 	}
 	return nil
 }
 
-// sameNode reports whether a and b are the same syntax node.
-func sameNode(a, b *sitter.Node) bool {
-	return a != nil && b != nil && a.StartByte() == b.StartByte() && a.EndByte() == b.EndByte()
+// span identifies a syntax node by its byte range.
+func span(n *sitter.Node) [2]uint {
+	if n == nil {
+		return [2]uint{}
+	}
+	return [2]uint{n.StartByte(), n.EndByte()}
 }
 
-// forgetLets drops the bindings of a condition's let patterns, also in a
-// chain (if let A(x) = a && let B(y) = b).
-func (g grammar) forgetLets(condition *sitter.Node, src []byte) {
-	switch condition.Kind() {
-	case "let_condition":
-		if pattern := condition.ChildByFieldName("pattern"); pattern != nil {
-			g.forget(pattern, src)
-		}
-	case "let_chain":
-		for i := uint(0); i < condition.NamedChildCount(); i++ {
-			g.forgetLets(condition.NamedChild(i), src)
-		}
-	}
+// sameNode reports whether a and b are the same syntax node.
+func sameNode(a, b *sitter.Node) bool {
+	return a != nil && b != nil && span(a) == span(b)
 }
 
 // scope opens a lexical scope: the bindings made in it are undone by the
@@ -522,7 +529,7 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var decls unit.Decls
 	var marked error
 	err := syntax.Parse(language, src, func(root *sitter.Node) {
-		e := extractor{path: path, src: src, imports: importsOf(root, src)}
+		e := extractor{path: path, src: src, uses: map[[2]uint]map[string]string{}}
 		e.walk(root, scope{}, IsTestPath(path), nil)
 		units, decls = e.units, e.decls
 		marked = syntax.MarkIgnored(root, src, units, &decls)
@@ -643,11 +650,53 @@ func lastSegment(path string) string {
 }
 
 type extractor struct {
-	path    string
-	src     []byte
-	imports map[string]string // the file's use imports, as Imports gives them
-	units   []unit.Unit
-	decls   unit.Decls
+	path  string
+	src   []byte
+	units []unit.Unit
+	decls unit.Decls
+	// uses caches each module's use imports (see visibleImports), by the
+	// span of the module's item list.
+	uses map[[2]uint]map[string]string
+}
+
+// visibleImports returns the use imports an item sees: those of the
+// module it is declared in, the file's top level or an inline mod's
+// body. A module does not see its parent's imports.
+func (e *extractor) visibleImports(item *sitter.Node) map[string]string {
+	module := item.Parent()
+	for module != nil && module.Kind() != "source_file" && module.Kind() != "declaration_list" {
+		module = module.Parent()
+	}
+	// An impl's or trait's item list is not a module: keep climbing to
+	// the mod or file holding it.
+	for module != nil && module.Kind() == "declaration_list" && module.Parent() != nil && module.Parent().Kind() != "mod_item" {
+		module = module.Parent().Parent()
+		for module != nil && module.Kind() != "source_file" && module.Kind() != "declaration_list" {
+			module = module.Parent()
+		}
+	}
+	if module == nil {
+		return nil
+	}
+	key := span(module)
+	if _, ok := e.uses[key]; !ok {
+		e.uses[key] = usesIn(module, e.src)
+	}
+	return e.uses[key]
+}
+
+// usesIn returns the imports of the use declarations directly in a
+// module's item list or a block, as Imports gives them.
+func usesIn(container *sitter.Node, src []byte) map[string]string {
+	out := map[string]string{}
+	for i := uint(0); i < container.NamedChildCount(); i++ {
+		if n := container.NamedChild(i); n.Kind() == "use_declaration" {
+			if arg := n.ChildByFieldName("argument"); arg != nil {
+				collectUse(arg, "", src, out)
+			}
+		}
+	}
+	return out
 }
 
 // walk finds function items, tracking the enclosing impl or trait name and
@@ -758,7 +807,12 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 	if owner != "" {
 		name = owner + "::" + name
 	}
-	g := grammar{self: unit.SimpleName(owner), generic: typeParameters(n, e.src), imports: e.imports, vars: map[string]string{}}
+	imports := maps.Clone(e.visibleImports(n))
+	if body := n.ChildByFieldName("body"); body != nil {
+		maps.Copy(imports, usesIn(body, e.src)) // use declarations in the function's own body
+	}
+	g := grammar{self: unit.SimpleName(owner), generic: typeParameters(n, e.src), imports: imports, vars: map[string]string{},
+		entries: &map[[2]uint]map[string]string{}}
 	if impl := enclosingImpl(n); impl != nil {
 		maps.Copy(g.generic, typeParameters(impl, e.src))
 	}
@@ -1156,7 +1210,7 @@ func (e *extractor) addStruct(n *sitter.Node, test bool, attrs []string) {
 				Type: syntax.Compact(ftype.Utf8Text(e.src)),
 				Line: syntax.Line(f.StartPosition()),
 			})
-			if typ := rustType(ftype.Utf8Text(e.src), ty.Name, generic, e.imports); typ != "" {
+			if typ := rustType(ftype.Utf8Text(e.src), ty.Name, generic, e.visibleImports(n)); typ != "" {
 				e.decls.FieldTypes = append(e.decls.FieldTypes, unit.FieldType{Struct: ty.Name, Field: fname.Utf8Text(e.src), Type: typ, Test: test})
 			}
 		}
