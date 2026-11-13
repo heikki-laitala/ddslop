@@ -1005,7 +1005,8 @@ func TestRustAdaptersKeepTheFieldPathBeforeThem(t *testing.T) {
 	in := Inputs{
 		Crates:    map[string]string{"a": "a"},
 		RustFiles: []string{"a/src/run.rs"},
-		Fields:    map[string]map[string]FieldType{"a": {"Made.inner": {Type: "Inner", File: "a/src/made.rs"}}},
+		// inner: Option<Inner>: unwrap() takes Inner out of the field.
+		Fields: map[string]map[string]FieldType{"a": {"Made.inner": {Type: "Option", Unwrapped: "Inner", File: "a/src/made.rs"}}},
 	}
 	if got, want := callees(Build(in, units), "a/src/run.rs go"), "[a/src/made.rs Made::make a/src/inner.rs Inner::run]"; got != want {
 		t.Errorf("go calls %s, want %s", got, want)

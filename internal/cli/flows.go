@@ -225,10 +225,11 @@ func graphInputs(root string, files []index.File) flow.Inputs {
 			// variants of one struct.
 			known, seen := in.Fields[dir][key]
 			elsewhere := strings.HasSuffix(ft.File, ".rs") && (known.File != ft.File || known.Module != ft.Module)
-			if seen && (known.Type != ft.Type || elsewhere && !strings.HasPrefix(ft.Type, "crate::")) {
+			relative := func(t string) bool { return t != "" && !strings.HasPrefix(t, "crate::") }
+			if seen && (known.Type != ft.Type || known.Unwrapped != ft.Unwrapped || elsewhere && (relative(ft.Type) || relative(ft.Unwrapped))) {
 				in.Fields[dir][key] = flow.FieldType{}
 			} else if !seen {
-				in.Fields[dir][key] = flow.FieldType{Type: ft.Type, File: ft.File, Module: ft.Module}
+				in.Fields[dir][key] = flow.FieldType{Type: ft.Type, Unwrapped: ft.Unwrapped, File: ft.File, Module: ft.Module}
 			}
 		}
 		if _, done := in.Crates[dir]; done {

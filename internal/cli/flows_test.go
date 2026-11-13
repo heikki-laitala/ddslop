@@ -267,3 +267,19 @@ func TestGraphInputsKeepGoFieldTypesOfBuildVariants(t *testing.T) {
 		t.Errorf("Server.db = %q, want Store: both build variants agree", got)
 	}
 }
+
+// A field's unwrapped type reaches the graph; structs of one name in two
+// modules that unwrap a field differently leave it unknown.
+func TestGraphInputsKeepWhatUnwrappingAFieldLeaves(t *testing.T) {
+	field := func(path, unwrapped string) index.File {
+		return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{
+			{Struct: "Server", Field: "db", Type: "Option", Unwrapped: unwrapped, File: "x/src/lib.rs"}}}}}
+	}
+	in := graphInputs(t.TempDir(), []index.File{field("a/src/lib.rs", "crate::Db"), field("b/src/one.rs", "crate::Db"), field("b/src/one.rs", "crate::Cache")})
+	if got := in.Fields["a"]["Server.db"].Unwrapped; got != "crate::Db" {
+		t.Errorf("a's Server.db unwraps to %q, want crate::Db", got)
+	}
+	if got := in.Fields["b"]["Server.db"]; got.Unwrapped != "" {
+		t.Errorf("b's Server.db = %+v, want unknown: two structs unwrap it differently", got)
+	}
+}

@@ -285,17 +285,22 @@ func isAsync(fn *sitter.Node, src []byte) bool {
 // returned returns a return type and what a ? leaves of it.
 func (g grammar) returned(ret *sitter.Node, src []byte) []string {
 	written := strings.TrimSpace(ret.Utf8Text(src))
-	returned, unwrapped := g.typeOf(written), ""
-	open := strings.Index(written, "<")
+	return []string{g.typeOf(written), unwrapped(written, g.typeOf)}
+}
+
+// unwrapped returns the type ? or unwrap() leaves of a value of the
+// written type, as typeOf writes it: the type inside a Result or an
+// Option, the type itself otherwise.
+func unwrapped(written string, typeOf func(string) string) string {
+	written = strings.TrimSpace(written)
 	switch unit.SimpleName(written) {
 	case "Result", "Option":
-		if open >= 0 && strings.HasSuffix(written, ">") {
-			unwrapped = g.typeOf(firstTypeArgument(written[open+1 : len(written)-1]))
+		if open := strings.Index(written, "<"); open >= 0 && strings.HasSuffix(written, ">") {
+			return typeOf(firstTypeArgument(written[open+1 : len(written)-1]))
 		}
-	default:
-		unwrapped = returned
+		return ""
 	}
-	return []string{returned, unwrapped}
+	return typeOf(written)
 }
 
 // typeOf returns the type a method call on a value of the written type
@@ -1357,8 +1362,9 @@ func (e *extractor) addStruct(n *sitter.Node, sc scope, test bool, attrs []strin
 			})
 			// A field of no type is recorded too, as unknown (""), so that a
 			// struct of the same name in another module cannot type it.
-			typ := rustType(ftype.Utf8Text(e.src), ty.Name, generic, e.visibleImports(n))
-			e.decls.FieldTypes = append(e.decls.FieldTypes, unit.FieldType{Struct: ty.Name, Field: fname.Utf8Text(e.src), Type: typ,
+			typeOf := func(written string) string { return rustType(written, ty.Name, generic, e.visibleImports(n)) }
+			e.decls.FieldTypes = append(e.decls.FieldTypes, unit.FieldType{Struct: ty.Name, Field: fname.Utf8Text(e.src),
+				Type: typeOf(ftype.Utf8Text(e.src)), Unwrapped: unwrapped(ftype.Utf8Text(e.src), typeOf),
 				File: e.path, Module: sc.module, Test: test})
 		}
 	})
