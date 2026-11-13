@@ -899,3 +899,80 @@ func (s *Server) kind(v any) {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestUnitsRecordTheirResultTypes(t *testing.T) {
+	src := `package api
+
+import st "example.com/app/internal/store"
+
+func open() (*st.DB, error) { return nil, nil }
+func one() *Cache { return nil }
+func named() (db *st.DB, n int) { return }
+func generic[T any]() (T, Cache) { var t T; return t, Cache{} }
+func none() {}
+`
+	units, _, err := Parse("api/open.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, u := range units {
+		got = append(got, fmt.Sprintf("%s %q", u.Name, u.Results))
+	}
+	want := []string{
+		`open ["example.com/app/internal/store.DB" ""]`,
+		`one ["Cache"]`,
+		`named ["example.com/app/internal/store.DB" ""]`,
+		`generic ["" "Cache"]`,
+		`none []`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("results:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestMethodCallsRecordTheCallProducingTheirOperand(t *testing.T) {
+	src := `package api
+
+func run(s *Server) {
+	db, err := open()
+	db.Save()
+	err.Error()
+	c := one()
+	c.Fill()
+	s.Store().Save()
+	c = &Cache{}
+	c.Fill()
+	var d = one()
+	d.Fill()
+}
+`
+	units, _, err := Parse("api/run.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := units[0].Calls
+	var got []string
+	for _, c := range calls {
+		from := "-"
+		if c.From > 0 {
+			from = fmt.Sprintf("%s#%d", calls[c.From-1].Name, c.Result)
+		}
+		got = append(got, fmt.Sprintf("%d %s from=%s", c.Line, c.Name, from))
+	}
+	want := []string{
+		"4 open from=-",
+		"5 Save from=open#0",
+		"6 Error from=open#1",
+		"7 one from=-",
+		"8 Fill from=one#0",
+		"9 Save from=Store#0",
+		"9 Store from=-",
+		"11 Fill from=-",
+		"12 one from=-",
+		"13 Fill from=one#0",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
