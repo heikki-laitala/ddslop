@@ -248,7 +248,9 @@ func (g grammar) bind(pattern, value *sitter.Node, src []byte) {
 		return
 	}
 	variant, inner := pattern.ChildByFieldName("type"), pattern.NamedChild(1)
-	if variant == nil || inner.Kind() != "identifier" || !unwrapsTo[variant.Utf8Text(src)] {
+	// An imported variant of the name (use crate::MyValue::Some) is
+	// another enum's.
+	if variant == nil || inner.Kind() != "identifier" || !unwrapsTo[variant.Utf8Text(src)] || g.imports[variant.Utf8Text(src)] != "" {
 		return
 	}
 	op := g.valueOf(value, src)
@@ -382,7 +384,7 @@ func rustType(written, self string, generic map[string]string, imports map[strin
 func typePath(t, self string, generic map[string]string, imports map[string]string) string {
 	for _, trait := range []string{"dyn ", "impl "} {
 		if rest, ok := strings.CutPrefix(t, trait); ok {
-			return typePath(traitOf(rest), self, nil, imports)
+			return traitPath(traitOf(rest), self, imports)
 		}
 	}
 	for _, other := range []string{"(", "[", "fn", "*"} {
@@ -398,7 +400,7 @@ func typePath(t, self string, generic map[string]string, imports map[string]stri
 	}
 	path := strings.ReplaceAll(t, " ", "")
 	if bound, ok := generic[path]; ok {
-		return typePath(bound, self, nil, imports)
+		return traitPath(bound, self, imports)
 	}
 	switch name := unit.SimpleName(path); {
 	case path == "Self":
@@ -413,6 +415,15 @@ func typePath(t, self string, generic map[string]string, imports map[string]stri
 		return imports[root] + "::" + rest
 	}
 	return path
+}
+
+// traitPath returns a trait's path as rustType writes a trait type:
+// marked "dyn " to tell it from a concrete type of the name.
+func traitPath(trait, self string, imports map[string]string) string {
+	if path := typePath(trait, self, nil, imports); path != "" {
+		return "dyn " + path
+	}
+	return ""
 }
 
 // markers are the standard traits a bound adds without giving the value
