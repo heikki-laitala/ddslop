@@ -864,3 +864,59 @@ fn run(c: Client, s: Store, k: Kept, local: Ledger, q: crate::queue::Queue) {
 		t.Errorf("types:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestLetChainBindingsApplyToLaterConditions(t *testing.T) {
+	src := `fn run(store: &Store) {
+    if let Some(store) = load() && store.ready() {
+        store.save();
+    } else {
+        store.save();
+    }
+}
+`
+	var got []string
+	for _, c := range byName(t, mustUnits(t, src), "run").Calls {
+		got = append(got, fmt.Sprintf("%d %s %q", c.Line, c.Name, c.Type))
+	}
+	want := []string{`2 load ""`, `2 ready ""`, `3 save ""`, `5 save "Store"`}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestRustImportsQualifyOnlyWhereTheyAreVisible(t *testing.T) {
+	src := `use crate::store::Store;
+
+fn local(c: Client) {
+    use reqwest::Client;
+    c.send();
+}
+
+fn other(c: Client, s: Store) {
+    c.send();
+    s.save();
+}
+
+mod inner {
+    use crate::cache::Cache;
+    fn run(c: Cache, s: Store) {
+        c.fill();
+        s.save();
+    }
+}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		for _, c := range u.Calls {
+			got = append(got, fmt.Sprintf("%s %s %s", u.Name, c.Name, c.Type))
+		}
+	}
+	want := []string{
+		"local send reqwest::Client",
+		"other send Client", "other save crate::store::Store",
+		"run fill crate::cache::Cache", "run save Store",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
