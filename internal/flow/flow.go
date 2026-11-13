@@ -201,12 +201,14 @@ func (r *callResolver) resolve(k int) (int, bool) {
 func (r *callResolver) resolveCall(c unit.Call) (int, bool) {
 	if c.From > 0 && c.From <= len(r.done) {
 		callee, guessed := r.resolve(c.From - 1)
-		if adapter := r.caller.Calls[c.From-1]; (callee < 0 || guessed) && adapter.Adapts > 0 && adapter.From > 0 {
+		if adapter := r.caller.Calls[c.From-1]; (callee < 0 || guessed) && adapter.Adapts > 0 && (adapter.From > 0 || adapter.Field != "") {
 			// A Rust result adapter the repository does not define
 			// (anyhow's context, Result's unwrap): the value is still that
-			// of the call it adapts, unwrapped by one that unwraps.
+			// of the call or field it adapts, unwrapped by one that
+			// unwraps; a field from self or a typed variable
+			// (self.inner.unwrap()) starts where the adapter's does.
 			through := c
-			through.From, through.Result = adapter.From, adapter.Result|c.Result
+			through.From, through.Result, through.Type = adapter.From, adapter.Result|c.Result, adapter.Type
 			unwraps := adapter.Adapts == 2 || c.Result&1 == 1
 			if adapter.Field != "" {
 				// make().inner.unwrap().run(): the fields before the adapter,

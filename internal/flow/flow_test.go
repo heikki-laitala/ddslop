@@ -1031,3 +1031,30 @@ func TestRustWorkspaceModulePathsPickTheNamedModulesType(t *testing.T) {
 		t.Errorf("Server::run calls %s, want %s", got, want)
 	}
 }
+
+// An adapter on a field of self or of a typed variable unwraps that
+// field: self.inner.unwrap().run(), req.inner.context()?.run().
+func TestRustAdaptersOnFieldsOfSelfAndVariablesUnwrapTheField(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::go",
+			unit.Call{Kind: unit.MethodCall, Field: "inner", Name: "unwrap", Adapts: 2},
+			unit.Call{Kind: unit.MethodCall, From: 1, Name: "run"},
+			unit.Call{Kind: unit.MethodCall, Type: "Request", Field: "inner", Name: "context", Adapts: 1},
+			unit.Call{Kind: unit.MethodCall, From: 3, Result: 1, Name: "stop"}),
+		fn("a/src/inner.rs", "Inner::run"),
+		fn("a/src/inner.rs", "Inner::stop"),
+		fn("a/src/other.rs", "Other::run"),
+		fn("a/src/other.rs", "Other::stop"),
+	}
+	in := Inputs{
+		Crates:    map[string]string{"a": "a"},
+		RustFiles: []string{"a/src/server.rs"},
+		Fields: map[string]map[string]FieldType{"a": {
+			"Server.inner":  {Type: "Option", Unwrapped: "Inner", File: "a/src/server.rs"},
+			"Request.inner": {Type: "Result", Unwrapped: "Inner", File: "a/src/server.rs"},
+		}},
+	}
+	if got, want := callees(Build(in, units), "a/src/server.rs Server::go"), "[a/src/inner.rs Inner::run a/src/inner.rs Inner::stop]"; got != want {
+		t.Errorf("Server::go calls %s, want %s", got, want)
+	}
+}
