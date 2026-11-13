@@ -426,11 +426,13 @@ func TestGoMethodCallsResolveByTheOperandsType(t *testing.T) {
 	onField := unit.Call{Kind: unit.MethodCall, Field: "store", Name: "Save"}
 	units := []unit.Unit{
 		fn("api/server.go", "Server.Get",
-			typed("example.com/app/internal/store.DB", "Load"), // another package's type
-			typed("Cache", "Fill"),                             // the caller's own package
-			typed("strings.Builder", "WriteString"),            // an outside type: no guess
-			onField,                                            // s.store.Save()
-			typed("Saver", "Flush")),                           // an interface: guessed by name
+			typed("example.com/app/internal/store.DB", "Load"),     // another package's type
+			typed("Cache", "Fill"),                                 // the caller's own package
+			typed("strings.Builder", "WriteString"),                // an outside type: no guess
+			onField,                                                // s.store.Save()
+			typed("Saver", "Flush"),                                // an interface: guessed by name
+			typed("example.com/app.Config", "Read"),                // the module's root package
+			typed("example.com/other/internal/store.DB", "Close")), // another module ending alike: outside
 		fn("internal/store/db.go", "DB.Load"),
 		fn("other/db.go", "DB.Load"),
 		fn("api/cache.go", "Cache.Fill"),
@@ -441,16 +443,30 @@ func TestGoMethodCallsResolveByTheOperandsType(t *testing.T) {
 		fn("api/file.go", "File.Flush"),
 		// store is also the last part of another directory's path
 		fn("store/db.go", "DB.Load"),
+		fn("config.go", "Config.Read"),
+		fn("internal/store/db.go", "DB.Close"),
 	}
 	in := Inputs{Fields: map[string]map[string]string{
 		"api": {"Server.store": "example.com/app/internal/store.Store"},
-	}}
+	}, Modules: map[string]string{".": "example.com/app"}}
 	g := Build(in, units)
-	want := "[internal/store/db.go DB.Load api/cache.go Cache.Fill internal/store/store.go Store.Save api/file.go File.Flush]"
+	want := "[internal/store/db.go DB.Load api/cache.go Cache.Fill internal/store/store.go Store.Save api/file.go File.Flush config.go Config.Read]"
 	if got := callees(g, "api/server.go Server.Get"); got != want {
 		t.Errorf("Server.Get calls %s,\nwant %s", got, want)
 	}
-	if got, want := fmt.Sprint(g.ByName[0]), "[false false false true]"; got != want {
+	if got, want := fmt.Sprint(g.ByName[0]), "[false false false true false]"; got != want {
 		t.Errorf("ByName = %s, want %s: only the interface's call is a guess", got, want)
+	}
+}
+
+// Without a go.mod, a typed call's package is unknown, and the call is
+// guessed by its method name as before.
+func TestGoTypedCallsWithoutAModuleAreGuessed(t *testing.T) {
+	g := Build(Inputs{}, []unit.Unit{
+		fn("api/server.go", "Server.Get", typed("example.com/app/api.Cache", "Fill")),
+		fn("api/cache.go", "Cache.Fill"),
+	})
+	if got := callees(g, "api/server.go Server.Get"); got != "[api/cache.go Cache.Fill]" || !g.ByName[0][0] {
+		t.Errorf("Server.Get calls %s (by name %v), want Cache.Fill guessed by name", got, g.ByName[0])
 	}
 }

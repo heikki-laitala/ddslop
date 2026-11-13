@@ -10,6 +10,7 @@ import (
 
 	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/index"
+	"github.com/heikki-laitala/ddslop/internal/lang/golang"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
 )
 
@@ -151,17 +152,35 @@ func treeOrder(steps []flow.Step) []flow.Step {
 }
 
 // graphInputs collects what call resolution needs: each file's imports,
-// each crate's name from its Cargo.toml under root, and the types of Go
-// struct fields.
+// each crate's name from its Cargo.toml under root, the types of Go
+// struct fields, and the module path of each go.mod above a Go file.
 func graphInputs(root string, files []index.File) flow.Inputs {
 	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{},
-		Fields: map[string]map[string]string{}}
+		Fields: map[string]map[string]string{}, Modules: map[string]string{}}
+	seen := map[string]bool{}
+	for _, f := range files {
+		if strings.HasSuffix(f.Path, ".go") {
+			for dir := filepath.Dir(f.Path); !seen[dir]; dir = filepath.Dir(dir) {
+				seen[dir] = true
+				gomod, err := os.ReadFile(filepath.Join(root, dir, "go.mod")) //nolint:gosec // a go.mod under the analysed root
+				if path := golang.ModulePath(gomod); err == nil && path != "" {
+					in.Modules[filepath.ToSlash(dir)] = path
+				}
+				if dir == "." || dir == string(filepath.Separator) {
+					break
+				}
+			}
+		}
+	}
 	for _, f := range files {
 		if len(f.Imports) > 0 {
 			in.Imports[f.Path] = f.Imports
 		}
 		dir := flow.CrateOf(f.Path)
 		for _, ft := range f.Decls.FieldTypes {
+			if ft.Test {
+				continue // the graph is of the non-test code
+			}
 			if in.Fields[dir] == nil {
 				in.Fields[dir] = map[string]string{}
 			}
