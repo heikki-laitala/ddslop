@@ -79,6 +79,7 @@ type Unit struct {
 const (
 	ErrorChecks   = "error-checks"   // how code tells one error from another
 	ErrorWrapping = "error-wrapping" // how code adds context to an error it passes on
+	ErrorValues   = "error-values"   // how code makes a new error
 )
 
 // Form is one occurrence of a form for a concern: "error-checks" done
