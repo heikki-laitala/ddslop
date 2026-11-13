@@ -416,3 +416,41 @@ func TestCallsStayInTheirLanguage(t *testing.T) {
 		}
 	}
 }
+
+// typed is a Go method call on an operand of a known type.
+func typed(typ, name string) unit.Call {
+	return unit.Call{Kind: unit.MethodCall, Type: typ, Name: name}
+}
+
+func TestGoMethodCallsResolveByTheOperandsType(t *testing.T) {
+	onField := unit.Call{Kind: unit.MethodCall, Field: "store", Name: "Save"}
+	units := []unit.Unit{
+		fn("api/server.go", "Server.Get",
+			typed("example.com/app/internal/store.DB", "Load"), // another package's type
+			typed("Cache", "Fill"),                             // the caller's own package
+			typed("strings.Builder", "WriteString"),            // an outside type: no guess
+			onField,                                            // s.store.Save()
+			typed("Saver", "Flush")),                           // an interface: guessed by name
+		fn("internal/store/db.go", "DB.Load"),
+		fn("other/db.go", "DB.Load"),
+		fn("api/cache.go", "Cache.Fill"),
+		fn("other/cache.go", "Cache.Fill"),
+		fn("api/writer.go", "writer.WriteString"),
+		fn("internal/store/store.go", "Store.Save"),
+		fn("other/store.go", "Store.Save"),
+		fn("api/file.go", "File.Flush"),
+		// store is also the last part of another directory's path
+		fn("store/db.go", "DB.Load"),
+	}
+	in := Inputs{Fields: map[string]map[string]string{
+		"api": {"Server.store": "example.com/app/internal/store.Store"},
+	}}
+	g := Build(in, units)
+	want := "[internal/store/db.go DB.Load api/cache.go Cache.Fill internal/store/store.go Store.Save api/file.go File.Flush]"
+	if got := callees(g, "api/server.go Server.Get"); got != want {
+		t.Errorf("Server.Get calls %s,\nwant %s", got, want)
+	}
+	if got, want := fmt.Sprint(g.ByName[0]), "[false false false true]"; got != want {
+		t.Errorf("ByName = %s, want %s: only the interface's call is a guess", got, want)
+	}
+}

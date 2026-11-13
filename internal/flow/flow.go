@@ -42,6 +42,8 @@ type index struct {
 	crates  map[string]string            // workspace crate name -> crate directory
 	imports map[string]map[string]string // file -> imported name -> path
 	deps    map[string]map[string]bool   // crate directory -> workspace crates it imports from
+	dirs    map[string]bool              // every unit's crate directory (a Go package's)
+	fields  map[string]map[string]string // Go package directory -> "Struct.field" -> type
 }
 
 // Inputs are what call resolution needs besides the units.
@@ -52,6 +54,9 @@ type Inputs struct {
 	// A directory missing here is named after itself, dashes as
 	// underscores.
 	Crates map[string]string
+	// Fields maps a Go package directory to the types of its structs'
+	// fields: "Server.store" to the type, written as unit.Call.Type.
+	Fields map[string]map[string]string
 }
 
 // Build resolves every unit's calls. A call finds only functions of its
@@ -62,7 +67,8 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		ext := filepath.Ext(file)
 		if langs[ext] == nil {
 			langs[ext] = &index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{},
-				crates: map[string]string{}, imports: in.Imports, deps: map[string]map[string]bool{}}
+				crates: map[string]string{}, imports: in.Imports, deps: map[string]map[string]bool{},
+				dirs: map[string]bool{}, fields: in.Fields}
 		}
 		return langs[ext]
 	}
@@ -74,6 +80,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 			name = strings.ReplaceAll(filepath.Base(dir), "-", "_")
 		}
 		ix.crates[name] = dir
+		ix.dirs[dir] = true
 		owner, name := split(u.Name)
 		if owner == "" {
 			ix.free[name] = append(ix.free[name], i)
@@ -101,13 +108,12 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		owner, _ := split(u.Name)
 		for _, c := range u.Calls {
 			g.Calls++
-			callee := indexOf(u.File).resolve(units, u, owner, c)
+			callee, byName := indexOf(u.File).resolve(units, u, owner, c)
 			if callee < 0 {
 				continue
 			}
 			g.Resolved++
 			g.ResolvedOf[i]++
-			byName := c.Kind == unit.MethodCall && c.Qualifier != "self"
 			if k := slices.Index(g.Callees[i], callee); k >= 0 {
 				g.ByName[i][k] = g.ByName[i][k] && byName
 				continue
@@ -119,8 +125,59 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 	return g
 }
 
-// resolve returns the unit a call refers to, or -1.
-func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) int {
+// resolve returns the unit a call refers to, or -1, and whether it was
+// found by its method name alone (see Graph.ByName).
+func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) (int, bool) {
+	if c.Kind != unit.MethodCall || c.Qualifier == "self" {
+		return ix.resolveNamed(units, caller, owner, c), false
+	}
+	typ := c.Type
+	if c.Field != "" {
+		typ = ix.fields[CrateOf(caller.File)][owner+"."+c.Field]
+	}
+	if typ != "" {
+		if u, known := ix.resolveTyped(units, caller, typ, c.Name); known {
+			return u, false
+		}
+	}
+	if stdMethods[c.Name] || (strings.HasSuffix(caller.File, ".go") && goStdMethods[c.Name]) {
+		return -1, false // most likely a standard-library method
+	}
+	return ix.pick(units, caller, ix.methods[c.Name]), true
+}
+
+// resolveTyped resolves a Go method call on an operand of type typ
+// (written as unit.Call.Type) to that type's method in its package. A
+// type from outside the repository has none here (known, -1); a type of
+// the repository without the method, such as an interface, is unknown,
+// and the caller guesses by name.
+func (ix index) resolveTyped(units []unit.Unit, caller unit.Unit, typ, method string) (int, bool) {
+	dir, name := CrateOf(caller.File), typ
+	if i := strings.LastIndex(typ, "."); i >= 0 {
+		dir, name = ix.packageDir(typ[:i]), typ[i+1:]
+		if dir == "" {
+			return -1, true
+		}
+	}
+	u := only(units, ix.owned[name+"::"+method], func(u unit.Unit) bool { return CrateOf(u.File) == dir })
+	return u, u >= 0
+}
+
+// packageDir returns the directory of the repository's Go package with
+// the import path, the longest that ends the path, or "".
+func (ix index) packageDir(importPath string) string {
+	best := ""
+	for dir := range ix.dirs {
+		if (importPath == dir || strings.HasSuffix(importPath, "/"+dir)) && len(dir) > len(best) {
+			best = dir
+		}
+	}
+	return best
+}
+
+// resolveNamed resolves a call that names its callee: a free call, a
+// path call, or a method call on self.
+func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) int {
 	switch c.Kind {
 	case unit.FreeCall:
 		return ix.resolveFree(units, caller, c.Name)
@@ -148,13 +205,9 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 		}
 		return pickLocal(units, caller, ix.free[c.Name])
 	case unit.MethodCall:
-		if c.Qualifier == "self" && owner != "" {
+		if owner != "" {
 			return ix.pick(units, caller, ix.owned[owner+"::"+c.Name])
 		}
-		if stdMethods[c.Name] || (strings.HasSuffix(caller.File, ".go") && goStdMethods[c.Name]) {
-			return -1 // most likely a standard-library method
-		}
-		return ix.pick(units, caller, ix.methods[c.Name])
 	}
 	return -1
 }
