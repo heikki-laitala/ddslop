@@ -1268,3 +1268,27 @@ func TestBenchmarksAreTestCases(t *testing.T) {
 		t.Errorf("saving: test=%v case=%v, want a test case", u.Test, u.TestCase)
 	}
 }
+
+// Test runners name their attribute after test: #[wasm_bindgen_test],
+// #[sqlx::test], #[test_log::test]. Each marks a test case.
+func TestRunnerAttributesMarkTestCases(t *testing.T) {
+	src := `#[wasm_bindgen_test]
+fn in_browser() {}
+
+#[sqlx::test]
+async fn with_db() {}
+
+#[test_log::test]
+fn logged() {}
+
+#[serde(rename = "contest")]
+fn not_a_test() {}
+`
+	var got []string
+	for _, u := range mustUnits(t, src) {
+		got = append(got, fmt.Sprintf("%s case=%v", u.Name, u.TestCase))
+	}
+	if want := "in_browser case=true\nwith_db case=true\nlogged case=true\nnot_a_test case=false"; strings.Join(got, "\n") != want {
+		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
