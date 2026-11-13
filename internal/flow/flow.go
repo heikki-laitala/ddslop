@@ -280,19 +280,21 @@ func (ix index) crateOfPath(path string, caller unit.Unit) (string, bool) {
 	if !strings.Contains(path, "::") {
 		return CrateOf(caller.File), true
 	}
-	switch root := firstSegment(path); root {
-	case "crate", "self", "super":
-		return CrateOf(caller.File), true
-	default:
-		if dir, ok := ix.crates[root]; ok {
-			return dir, true
-		}
-		// model::Client: a child module of the caller's, else another crate.
-		if ix.isChildModule(caller.File, root) {
-			return CrateOf(caller.File), true
-		}
-		return "", false
+	root := firstSegment(path)
+	if dir, ok := ix.crates[root]; ok && !pathKeyword(root) {
+		return dir, true
 	}
+	// model::Client: a child module of the caller's, else another crate.
+	if pathKeyword(root) || ix.isChildModule(caller.File, root) {
+		return CrateOf(caller.File), true
+	}
+	return "", false
+}
+
+// pathKeyword reports whether a Rust path's root is crate, self or super,
+// which stay in the crate the path is written in.
+func pathKeyword(root string) bool {
+	return root == "crate" || root == "self" || root == "super"
 }
 
 // addModules records the module a Rust file is, and the modules its path
@@ -333,6 +335,58 @@ func moduleOf(file string) (string, bool) {
 		segments = nil
 	}
 	return strings.Join(segments, "::"), true
+}
+
+// modulePath returns the module a Rust path in the caller's crate names,
+// from the file it is written in: crate::a::b names a::b, self::x the
+// file's module's x, super::x (super::super::x) its parent's
+// (grandparent's), and a relative x its child x.
+func modulePath(path, file string) string {
+	here, _ := moduleOf(file)
+	root, rest, _ := strings.Cut(path, "::")
+	switch root {
+	case "crate":
+		return rest
+	case "super":
+		for {
+			here = parentModule(here)
+			next, more, found := strings.Cut(rest, "::")
+			if next != "super" {
+				break
+			}
+			rest = ""
+			if found {
+				rest = more
+			}
+		}
+	case "self":
+	default:
+		rest = path
+	}
+	switch {
+	case here == "":
+		return rest
+	case rest == "":
+		return here
+	}
+	return here + "::" + rest
+}
+
+// parentModule returns a module path's parent: "" for a top module.
+func parentModule(module string) string {
+	if i := strings.LastIndex(module, "::"); i >= 0 {
+		return module[:i]
+	}
+	return ""
+}
+
+// inModule returns the only candidate in the crate directory whose file
+// is the module, or -1.
+func inModule(units []unit.Unit, cands []int, dir, module string) int {
+	return only(units, cands, func(u unit.Unit) bool {
+		m, ok := moduleOf(u.File)
+		return ok && CrateOf(u.File) == dir && m == module
+	})
 }
 
 // isChildModule reports whether name is a child module of the module
@@ -421,10 +475,20 @@ func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, 
 		dir, ok := ix.crates[root]
 		switch {
 		case ok && dir != CrateOf(caller.File):
+			// acme_auth::tokens::verify: the module after the crate's name.
+			_, module, _ := strings.Cut(c.Qualifier, "::")
+			if u := inModule(units, ix.free[c.Name], dir, module); u >= 0 {
+				return u
+			}
 			return only(units, ix.free[c.Name], func(u unit.Unit) bool { return CrateOf(u.File) == dir })
 		case strings.HasSuffix(caller.File, ".go"):
 			return -1 // Go qualifies only with package names: an outside package
-		case ok, root == "crate", root == "self", root == "super", ix.isChildModule(caller.File, root):
+		case ok, pathKeyword(root), ix.isChildModule(caller.File, root):
+			// The path names a module of the caller's crate: its function,
+			// else (a re-export, say) the crate's one of that name.
+			if u := inModule(units, ix.free[c.Name], CrateOf(caller.File), modulePath(c.Qualifier, caller.File)); u >= 0 {
+				return u
+			}
 			return pickLocal(units, caller, ix.free[c.Name])
 		}
 		return -1
@@ -457,16 +521,15 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 	if i := strings.LastIndex(path, "::"); i >= 0 {
 		target = path[i+2:] // the imported name, before any alias
 	}
-	switch root := firstSegment(path); root {
-	case "crate", "self", "super":
+	root := firstSegment(path)
+	if pathKeyword(root) {
 		return pickLocal(units, caller, ix.free[target])
-	default:
-		dir, ok := ix.crates[root]
-		if !ok {
-			return -1 // an outside crate, such as tokio
-		}
-		return only(units, ix.free[target], func(u unit.Unit) bool { return CrateOf(u.File) == dir })
 	}
+	dir, ok := ix.crates[root]
+	if !ok {
+		return -1 // an outside crate, such as tokio
+	}
+	return only(units, ix.free[target], func(u unit.Unit) bool { return CrateOf(u.File) == dir })
 }
 
 // pick chooses among candidates the one in the caller's file, else the

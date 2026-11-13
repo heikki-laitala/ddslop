@@ -855,3 +855,47 @@ func TestTargetsLeaveOutGuessedCalls(t *testing.T) {
 		t.Errorf("targets = %s, want the guessed call left out and the named one kept", got)
 	}
 }
+
+// A module path names the module whose function is called: of several
+// free functions named endpoint, the one in that module's file.
+func TestRustModulePathsPickTheNamedModulesFunction(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/lib.rs", "root", path("crate::store", "endpoint"), path("store", "endpoint")),
+		fn("a/src/config.rs", "load", path("super::store", "endpoint"), path("self::inner", "endpoint")),
+		fn("a/src/store.rs", "endpoint"),
+		fn("a/src/config.rs", "endpoint"),
+		fn("a/src/config/inner.rs", "endpoint"),
+		fn("a/src/api.rs", "reexported", path("crate::store", "helper")), // re-exported from a child: falls back
+		fn("a/src/store/helpers.rs", "helper"),
+	}
+	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{
+		"a/src/lib.rs", "a/src/config.rs", "a/src/store.rs", "a/src/config/inner.rs", "a/src/api.rs", "a/src/store/helpers.rs",
+	}}
+	g := Build(in, units)
+	for caller, want := range map[string]string{
+		"a/src/lib.rs root":       "[a/src/store.rs endpoint]",
+		"a/src/config.rs load":    "[a/src/store.rs endpoint a/src/config/inner.rs endpoint]",
+		"a/src/api.rs reexported": "[a/src/store/helpers.rs helper]",
+	} {
+		if got := callees(g, caller); got != want {
+			t.Errorf("%s calls %s, want %s", caller, got, want)
+		}
+	}
+}
+
+func TestModulePathFollowsSelfSuperAndChildren(t *testing.T) {
+	for _, c := range []struct{ path, file, want string }{
+		{"crate::a::b", "x/src/z.rs", "a::b"},
+		{"crate", "x/src/z.rs", ""},
+		{"self::inner", "x/src/a/b.rs", "a::b::inner"},
+		{"super::c", "x/src/a/b.rs", "a::c"},
+		{"super::super::c", "x/src/a/b.rs", "c"},
+		{"super", "x/src/a/b.rs", "a"},
+		{"child", "x/src/a.rs", "a::child"},
+		{"child", "x/src/lib.rs", "child"},
+	} {
+		if got := modulePath(c.path, c.file); got != c.want {
+			t.Errorf("modulePath(%q, %q) = %q, want %q", c.path, c.file, got, c.want)
+		}
+	}
+}
