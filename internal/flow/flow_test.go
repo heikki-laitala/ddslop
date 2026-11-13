@@ -71,7 +71,7 @@ func TestPathCalls(t *testing.T) {
 		fn("a/src/util.rs", "log"),
 		fn("a/src/led.rs", "Ledger::create",
 			path("Accounts", "create"), path("Endpoint", "priced"),
-			path("Self", "finish"), path("utils", "log"), path("Missing", "nothing")),
+			path("Self", "finish"), path("util", "log"), path("Missing", "nothing")),
 	})
 
 	want := "[a/src/acc.rs Accounts::create a/src/end.rs Endpoint<P>::priced a/src/led.rs Ledger::finish a/src/util.rs log]"
@@ -766,5 +766,25 @@ func TestRustResultAdaptersAreLookedThroughUnlessTheyAreOurs(t *testing.T) {
 	want := "[a/src/db.rs Db::connect a/src/db.rs Db::query a/src/wrapper.rs Wrapper::make a/src/wrapper.rs Wrapper::unwrap a/src/widget.rs Widget::render]"
 	if got := callees(Build(in, units), "a/src/run.rs run"); got != want {
 		t.Errorf("run calls %s,\nwant %s", got, want)
+	}
+}
+
+// std::fs::read names the standard library, not the crate's own read: a
+// module path stays in the caller's crate only when its root is one of
+// the crate's modules (or crate, self, super).
+func TestRustOutsideModulePathsResolveToNothing(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/store.rs", "password",
+			path("std::fs", "read"),    // the standard library's
+			path("tokio::fs", "write"), // another outside crate's
+			path("tls", "load"),        // one of the crate's modules
+			path("crate::tls", "load")),
+		fn("a/src/tls.rs", "read"),
+		fn("a/src/tls.rs", "write"),
+		fn("a/src/tls.rs", "load"),
+	}
+	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/store.rs", "a/src/tls.rs"}}
+	if got, want := callees(Build(in, units), "a/src/store.rs password"), "[a/src/tls.rs load]"; got != want {
+		t.Errorf("password calls %s, want %s: std and tokio are no modules of the crate", got, want)
 	}
 }
