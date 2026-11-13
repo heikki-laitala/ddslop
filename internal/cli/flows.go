@@ -150,15 +150,23 @@ func treeOrder(steps []flow.Step) []flow.Step {
 	return out
 }
 
-// graphInputs collects what call resolution needs: each file's imports and
-// each crate's name from its Cargo.toml under root.
+// graphInputs collects what call resolution needs: each file's imports,
+// each crate's name from its Cargo.toml under root, and the types of Go
+// struct fields.
 func graphInputs(root string, files []index.File) flow.Inputs {
-	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{}}
+	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{},
+		Fields: map[string]map[string]string{}}
 	for _, f := range files {
 		if len(f.Imports) > 0 {
 			in.Imports[f.Path] = f.Imports
 		}
 		dir := flow.CrateOf(f.Path)
+		for _, ft := range f.Decls.FieldTypes {
+			if in.Fields[dir] == nil {
+				in.Fields[dir] = map[string]string{}
+			}
+			in.Fields[dir][ft.Struct+"."+ft.Field] = ft.Type
+		}
 		if _, done := in.Crates[dir]; done {
 			continue
 		}

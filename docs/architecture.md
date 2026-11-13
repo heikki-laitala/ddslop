@@ -340,6 +340,32 @@ on the code's one `Header` method; on the Go service that dropped 72 of
 service has 37 entry points and no parallel flows: its handlers are thin
 and delegate to different services.
 
+Go method calls resolve by type where the code states it. The adapter
+records the type of a method call's operand (`unit.Call.Type`) when it
+is a parameter, a `var x T`, or a variable set from a composite literal
+(`x := T{}`, `&T{}`), qualified by the file's imports
+(`example.com/app/store.DB`), and the field for a call on a receiver's
+field (`s.store.Save()`, `unit.Call.Field`), whose type comes from the
+struct's declaration (`Decls.FieldTypes`), qualified by its own file's
+imports. Such a call resolves to that type's method in the package
+whose directory ends its import path (the longest such directory), and
+counts as named, not guessed. A type from outside the repository
+(`*sql.DB`, `strings.Builder`) resolves to nothing rather than to a
+repository method of the same name; a repository type without the
+method, such as an interface, falls back to the guess by name.
+Variables set from a call's result (`db, err := store.Open(..)`) and
+chained calls stay untyped: their type is the callee's result, which
+needs the callee resolved first.
+
+On the Go service this resolved 883 of 2820 calls (723 before, some of
+them guesses): the store package, which handlers and the dashboard reach
+through fields, moved from the second layer to the bottom, and the map's
+shared helpers went from 1 to 7, all store methods both callers use. It
+also let `check` see two parallel flows: ingesting, updating and pushing
+a memory run one pipeline (real), and getting and deleting a document
+share only a thin handler's shape (arguable). On ddslop, 728 of 2956
+(718): `pattern` moved under `codemap`, which calls it.
+
 Setup-teardown is not built for Go: `defer x.Close()` is Go's own idiom
 for it (18 times in that service, 2 in ddslop), and transactions, the
 case a closure helper would serve, appear two or three times per
@@ -1331,9 +1357,10 @@ crate's modules), which names each file once.
   `Graph.ByName`) is left out: on `lens-artifact-hub` such guesses made
   `Option::or`, `bool::then`, a query builder's `.name()`, a middleware
   chain's `next.run()` and reqwest's `.build()` look like shared helpers.
-  The price is real methods reached the same way (`to_hex`, `is_open`),
-  and in Go most calls between packages, which go through methods on
-  struct fields, so Go layers are shallow until the call graph has types.
+  The price is real methods reached the same way (`to_hex`, `is_open`).
+  A Go call on an operand whose type the code states counts (see Parsing
+  and language adapters), so calls through struct fields and parameters shape Go
+  layers; calls on variables set from another call's result do not yet.
 - A module no counted call goes to or comes from is unplaced (listed
   apart): nothing says where it belongs, and as a source it would land
   on top. Types-only crates are most of them.
@@ -1579,8 +1606,9 @@ candidate.
 - Conventions across languages, as for the other layers.
 
 Open question: whether name-based resolution resolves enough method
-calls for the layers to hold without SCIP or, for Go, the typed call
-graph; Go layers stay shallow until then.
+calls for the layers to hold without SCIP; for Go, whether typing
+variables from their callee's result is needed after fields and
+parameters.
 
 ## Modes
 
