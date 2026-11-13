@@ -274,8 +274,8 @@ annotations instead. Elsewhere, use `ddslop check --format sarif`.
 Mark intended duplication in the code, with a reason:
 
 ```rust
-// ddslop:ignore wire format, mirrors the Ledger's on purpose
-pub struct LedgerRefusal { /* ... */ }
+// ddslop:ignore wire format, mirrors the billing service's on purpose
+pub struct BillingRefusal { /* ... */ }
 ```
 
 A marker on its own line covers the item below it; after code, it covers

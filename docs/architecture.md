@@ -1114,7 +1114,8 @@ comparison adds about 0.35 s to a warm check there.
 ## Map layer
 
 Sections 1 and 2 are built (`internal/codemap`, `ddslop map` with text
-and JSON output; see As built below), and section 3 in part: the
+and JSON output; see As built below), section 1 with the cycles its
+layers collapse, and section 3 in part: the
 flagged `parallel-flow` families, as measurement left the other two
 rules nothing real to report yet. Section 4 is built for error checks
 and error wrapping in Go and Rust and error values in Rust, and section
@@ -1507,6 +1508,38 @@ Warm, `map` takes 0.94 s on the workspace, about as long as `flows`
 against 1.8 s for `check`; `--crate` for its largest crate takes 0.89 s. Naming a file's crate and
 module once per grouping rather than once per function took the crate
 view from 1.7 s to 0.94 s.
+
+Cycles (`codemap.Cycles`, `cycles` in JSON) are the groups of modules
+whose calls form a loop, every call counted, also the weak ones the
+layers set aside as upward breaks: each module of a group reaches every
+other. The layers collapse such a group into one layer without saying
+so, and inside it the map says nothing about direction. For each group
+the map lists the pairs that call each other directly, with the calls
+each way and a call site each way, those with the fewest calls one way
+first, or, when no pair does, a shortest loop through the group; a
+workspace map counts each crate's modules in cycles (`cycle_modules`).
+Only Rust modules within a crate can form one: Go's compiler forbids
+import cycles between packages, and Cargo cycles between crates.
+
+The map does not say which side of a pair is wrong. A weighted greedy
+feedback arc set (Eades, Lin and Smyth) was measured for that: it broke
+a 43-module group with 10 of its links (23 of 395 calls) and a 26-module
+one with 16 (37 of 430), short enough to act on, but it chose against
+what the modules are for. It kept a configuration module's calls into a
+store and cut the store's calls into the configuration, and it cut nine
+modules' calls into a provider module rather than the provider's one
+call back; counting each link once instead of each call was no better.
+Which way a dependency should point takes knowing what each module is
+for, which the agent or a person reading the pairs has.
+
+Measured on a 739k-line Rust workspace: its largest crate has 47 of 144
+modules in cycles, a group of 43 with 5 pairs calling each other
+directly and one of 4 with 1; a second service crate 26 of 50, in one
+group with 12 pairs; its code generator 6 of 19. A 188k-line service has 31
+of its main crate's 62 modules in cycles. The largest crate's pairs
+include its configuration module and its store calling each other, the
+configuration building the store's endpoint, which is the kind of call
+the map exists to point at. Go codebases have none.
 
 Section 3 is built for its flagged families only (`codemap.Features`,
 `features` in JSON). Each `parallel-flow` family `check` reports, found
