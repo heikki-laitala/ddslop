@@ -127,10 +127,22 @@ jobs:
           diff: HEAD
           args: --min-nodes 20
           upload-sarif: "false"
-      - name: Diff mode reported only the added copy
+      # Below fail-over the check passes, its candidates annotated as
+      # warnings.
+      - name: Run the action under a duplication limit
+        id: limit
+        uses: ./
+        with:
+          path: ${{ runner.temp }}/sample
+          fail-over: "100"
+          args: --min-nodes 20
+          upload-sarif: "false"
+      - name: Diff mode reported only the added copy, and the limit passed
         env:
           ADDED: ${{ steps.added.outputs.exit-code }}
           UNCHANGED: ${{ steps.unchanged.outputs.exit-code }}
+          LIMIT: ${{ steps.limit.outputs.exit-code }}
         run: |
           test "$ADDED" = 1 || { echo "exit code $ADDED for the change adding the copy, want 1" >&2; exit 1; }
           test "$UNCHANGED" = 0 || { echo "exit code $UNCHANGED for no change, want 0" >&2; exit 1; }
+          test "$LIMIT" = 0 || { echo "exit code $LIMIT under the duplication limit, want 0" >&2; exit 1; }

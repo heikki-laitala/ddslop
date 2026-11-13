@@ -112,20 +112,24 @@ runs:
         category: ddslop
 
     - name: Annotate
-      if: always() && steps.report.outputs.upload != 'true' && steps.check.outputs.exit-code == '1'
+      if: always() && steps.report.outputs.upload != 'true' && steps.check.outputs.exit-code != '2'
       shell: bash
       env:
         SARIF: ${{ steps.check.outputs.sarif-file }}
         TARGET: ${{ inputs.path }}
+        CODE: ${{ steps.check.outputs.exit-code }}
       run: |
         # SARIF paths are relative to the analysed path; annotations take
-        # paths relative to the repository.
+        # paths relative to the repository. Below fail-over the check
+        # passes but still reports its candidates: warnings, not errors.
         prefix=$(realpath --relative-to="$GITHUB_WORKSPACE" "$TARGET")
-        jq -r --arg prefix "$prefix" '
+        level=error
+        if [ "$CODE" = 0 ]; then level=warning; fi
+        jq -r --arg prefix "$prefix" --arg level "$level" '
           def data: gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
           def prop: data | gsub(":"; "%3A") | gsub(","; "%2C");
           .runs[].results[] | .locations[0].physicalLocation as $l |
-          "::error file=\(($prefix + "/" + $l.artifactLocation.uri) | ltrimstr("./") | prop),line=\($l.region.startLine),endLine=\($l.region.endLine // $l.region.startLine),title=ddslop \(.ruleId | prop)::\(.message.text | data)"
+          "::\($level) file=\(($prefix + "/" + $l.artifactLocation.uri) | ltrimstr("./") | prop),line=\($l.region.startLine),endLine=\($l.region.endLine // $l.region.startLine),title=ddslop \(.ruleId | prop)::\(.message.text | data)"
         ' "$SARIF"
 
     - name: Result
@@ -134,7 +138,7 @@ runs:
         CODE: ${{ steps.check.outputs.exit-code }}
       run: |
         case "$CODE" in
-          0) echo "ddslop: nothing to report" ;;
+          0) echo "ddslop: passed" ;;
           1) echo "::error::ddslop found duplication to refactor (see the annotations on the changed files)"; exit 1 ;;
           *) echo "::error::ddslop failed (exit code $CODE)"; exit 2 ;;
         esac
