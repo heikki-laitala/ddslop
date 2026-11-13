@@ -2011,7 +2011,10 @@ Built, following pruner's release setup:
   tests with the race detector and the coverage gate on Linux and macOS;
   an end-to-end smoke test of the built binary (`scripts/smoke-test.sh`);
   ddslop on its own code with no baseline, both the built binary and the
-  latest release through the action, failing on any candidate.
+  latest release through the action, failing on any candidate; the
+  action uploads its SARIF to code scanning, so pull requests carry the
+  same annotations as users'. The repository has the ddslop skill
+  installed for Claude Code and Codex (`ddslop init --claude --codex`).
 - **Releases** (`.github/workflows/release.yml`, on `vX.Y.Z` tags): Linux and
   macOS binaries for x86_64 and aarch64, built with cgo and each
   platform's C compiler on GitHub runners. aarch64 Linux is cross-compiled
