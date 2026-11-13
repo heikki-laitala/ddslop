@@ -40,16 +40,23 @@ type Graph struct {
 
 // index finds units by name.
 type index struct {
-	free        map[string][]int             // free functions by name
-	methods     map[string][]int             // methods by method name
-	owned       map[string][]int             // methods by "Owner::method", owner simplified
-	owners      map[string]bool              // the types with methods, simplified
-	rustModules map[string]map[string]bool   // Rust crate directory -> its modules' paths (foo::bar), from its files' paths
-	crates      map[string]string            // workspace crate name -> crate directory
-	imports     map[string]map[string]string // file -> imported name -> path
-	deps        map[string]map[string]bool   // crate directory -> workspace crates it imports from
-	fields      map[string]map[string]string // Go package directory -> "Struct.field" -> type
-	modules     map[string]string            // go.mod directory -> module path
+	free        map[string][]int                // free functions by name
+	methods     map[string][]int                // methods by method name
+	owned       map[string][]int                // methods by "Owner::method", owner simplified
+	owners      map[string]bool                 // the types with methods, simplified
+	rustModules map[string]map[string]bool      // Rust crate directory -> its modules' paths (foo::bar), from its files' paths
+	crates      map[string]string               // workspace crate name -> crate directory
+	imports     map[string]map[string]string    // file -> imported name -> path
+	deps        map[string]map[string]bool      // crate directory -> workspace crates it imports from
+	fields      map[string]map[string]FieldType // package or crate directory -> "Struct.field" -> its type
+	modules     map[string]string               // go.mod directory -> module path
+}
+
+// FieldType is a struct field's type, as unit.Call.Type writes types,
+// and where the struct is declared: its file and inline module (Rust), as
+// a relative type path is read there.
+type FieldType struct {
+	Type, File, Module string
 }
 
 // Inputs are what call resolution needs besides the units.
@@ -60,9 +67,9 @@ type Inputs struct {
 	// A directory missing here is named after itself, dashes as
 	// underscores.
 	Crates map[string]string
-	// Fields maps a Go package directory to the types of its structs'
-	// fields: "Server.store" to the type, written as unit.Call.Type.
-	Fields map[string]map[string]string
+	// Fields maps a Go package or Rust crate directory to its structs'
+	// field types, by "Struct.field".
+	Fields map[string]map[string]FieldType
 	// Modules maps the directory of each go.mod to its module path.
 	Modules map[string]string
 	// RustFiles are the Rust files analysed, functions or not: their
@@ -199,6 +206,9 @@ func (r *callResolver) resolveCall(c unit.Call) (int, bool) {
 			// of the call it adapts, unwrapped by one that unwraps.
 			through := c
 			through.From, through.Result = adapter.From, adapter.Result|c.Result
+			// make().inner.unwrap().run(): the fields before the adapter,
+			// then any after it.
+			through.Field = strings.Trim(adapter.Field+"."+c.Field, ".")
 			if adapter.Adapts == 2 {
 				through.Result |= 1
 			}
@@ -243,7 +253,7 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 		}
 		typ, home = ix.followFields(typ, home, c.Field)
 	default:
-		typ = ix.fields[CrateOf(caller.File)][owner+"."+c.Field]
+		typ = ix.fields[CrateOf(caller.File)][owner+"."+c.Field].Type
 	}
 	switch {
 	case typ == "":
@@ -276,6 +286,17 @@ func (ix index) resolveRust(units []unit.Unit, caller, home unit.Unit, typ, meth
 		return -1, true
 	}
 	cands := slices.DeleteFunc(slices.Clone(ix.owned[name+"::"+method]), func(u int) bool { return CrateOf(units[u].File) != dir })
+	// Two types of one name in a crate: the module the path names (db::Db
+	// read in server is server::db's; a bare name, home's own module).
+	if dir == CrateOf(home.File) || pathKeyword(firstSegment(typ)) {
+		module, _ := unitModule(home)
+		if i := strings.LastIndex(typ, "::"); i >= 0 {
+			module = modulePath(typ[:i], home)
+		}
+		if u := inModule(units, cands, dir, module); u >= 0 {
+			return u, true
+		}
+	}
 	// The path fixed the crate, which a value's type may come from without
 	// the caller depending on it (b::make_c() returns c's type): prefer
 	// the caller's file, else take the crate's only candidate.
@@ -298,14 +319,19 @@ func (ix index) followFields(typ string, home unit.Unit, path string) (string, u
 			return "", home
 		}
 		next := ix.fields[dir][unit.SimpleName(typ)+"."+field]
-		if next == "" {
+		if next.Type == "" {
 			return "", home
 		}
-		root := dir + "/src/lib.rs"
-		if dir == "." {
-			root = "src/lib.rs"
+		// Read the type where its struct is declared, as db::Db in
+		// server.rs is server::db's; the crate's root when not known.
+		where := unit.Unit{File: next.File, Module: next.Module}
+		if where.File == "" {
+			where.File = dir + "/src/lib.rs"
+			if dir == "." {
+				where.File = "src/lib.rs"
+			}
 		}
-		typ, home = next, unit.Unit{File: root}
+		typ, home = next.Type, where
 	}
 	return typ, home
 }

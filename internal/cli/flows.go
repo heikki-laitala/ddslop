@@ -180,7 +180,7 @@ func treeOrder(steps []flow.Step) []flow.Step {
 // Rust files, whose paths name their crates' modules.
 func graphInputs(root string, files []index.File) flow.Inputs {
 	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{},
-		Fields: map[string]map[string]string{}, Modules: map[string]string{}}
+		Fields: map[string]map[string]flow.FieldType{}, Modules: map[string]string{}}
 	seen := map[string]bool{}
 	for _, f := range files {
 		if strings.HasSuffix(f.Path, ".go") {
@@ -214,15 +214,15 @@ func graphInputs(root string, files []index.File) flow.Inputs {
 				continue // the graph is of the non-test code
 			}
 			if in.Fields[dir] == nil {
-				in.Fields[dir] = map[string]string{}
+				in.Fields[dir] = map[string]flow.FieldType{}
 			}
 			// Structs of one name in two Rust modules of a crate that type
 			// a field differently leave it unknown ("").
 			key := ft.Struct + "." + ft.Field
-			if typ, seen := in.Fields[dir][key]; seen && typ != ft.Type {
-				in.Fields[dir][key] = ""
+			if known, seen := in.Fields[dir][key]; seen && known.Type != ft.Type {
+				in.Fields[dir][key] = flow.FieldType{}
 			} else if !seen {
-				in.Fields[dir][key] = ft.Type
+				in.Fields[dir][key] = flow.FieldType{Type: ft.Type, File: ft.File, Module: ft.Module}
 			}
 		}
 		if _, done := in.Crates[dir]; done {
