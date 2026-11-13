@@ -894,8 +894,33 @@ func TestModulePathFollowsSelfSuperAndChildren(t *testing.T) {
 		{"child", "x/src/a.rs", "a::child"},
 		{"child", "x/src/lib.rs", "child"},
 	} {
-		if got := modulePath(c.path, c.file); got != c.want {
+		if got := modulePath(c.path, unit.Unit{File: c.file}); got != c.want {
 			t.Errorf("modulePath(%q, %q) = %q, want %q", c.path, c.file, got, c.want)
+		}
+	}
+}
+
+// A function in an inline module is that module's: inner::f from the
+// file's module, self::inner::f, and crate::outer::inner::f reach it.
+func TestRustInlineModulesResolve(t *testing.T) {
+	inner := fn("a/src/lib.rs", "f")
+	inner.Module = "inner"
+	units := []unit.Unit{
+		fn("a/src/lib.rs", "root", path("inner", "f"), path("self::inner", "g")),
+		inner,
+		{File: "a/src/lib.rs", Name: "g", Module: "inner"},
+		fn("a/src/other.rs", "f"), // another f the call must not reach
+		fn("a/src/other.rs", "g"),
+		fn("a/src/api.rs", "serve", path("crate::inner", "f")),
+	}
+	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/lib.rs", "a/src/other.rs", "a/src/api.rs"}}
+	g := Build(in, units)
+	for caller, want := range map[string]string{
+		"a/src/lib.rs root":  "[a/src/lib.rs f a/src/lib.rs g]",
+		"a/src/api.rs serve": "[a/src/lib.rs f]",
+	} {
+		if got := callees(g, caller); got != want {
+			t.Errorf("%s calls %s, want %s", caller, got, want)
 		}
 	}
 }
