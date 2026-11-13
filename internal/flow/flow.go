@@ -213,11 +213,8 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 		if !ix.owners[name] || !inRepo {
 			return -1, false
 		}
-		cands := ix.owned[name+"::"+c.Name]
-		if dir != "" {
-			// A path names its crate: look there alone.
-			cands = slices.DeleteFunc(slices.Clone(cands), func(u int) bool { return CrateOf(units[u].File) != dir })
-		}
+		// The type's crate is known: look there alone.
+		cands := slices.DeleteFunc(slices.Clone(ix.owned[name+"::"+c.Name]), func(u int) bool { return CrateOf(units[u].File) != dir })
 		if u := ix.pick(units, caller, cands); u >= 0 {
 			return u, false
 		}
@@ -233,13 +230,15 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 }
 
 // crateOfPath tells where a Rust type path's type is declared: the
-// crate directory a path names ("" for a bare name, which may come from
-// anywhere the caller sees), and whether it is the repository's at all.
-// A path rooted in crate, self or super is the caller's crate's, one
-// rooted in a workspace crate that crate's, and any other is outside.
+// crate directory, and whether it is the repository's at all. The
+// adapter qualifies imported names, so a bare name is the caller's
+// crate's own (a glob import, use b::*, is not followed). A path rooted
+// in crate, self, super or one of the crate's modules is the caller's
+// crate's, one rooted in a workspace crate that crate's, and any other
+// is outside.
 func (ix index) crateOfPath(path string, caller unit.Unit) (string, bool) {
 	if !strings.Contains(path, "::") {
-		return "", true
+		return CrateOf(caller.File), true
 	}
 	switch root := firstSegment(path); root {
 	case "crate", "self", "super":
