@@ -585,3 +585,47 @@ func TestMapNamesRustErrorIdioms(t *testing.T) {
 		t.Errorf("text map does not say wrapping has no convention, without an idiomatic form:\n%s", text)
 	}
 }
+
+// A Go service whose layers call each other through struct fields and
+// parameters, as Go code mostly does, rather than through package
+// functions.
+var fieldService = map[string]string{
+	"go.mod": "module example.com/app\n",
+	"api/h.go": `package api
+
+import "example.com/app/internal/service"
+
+type Handlers struct{ svc *service.Orders }
+
+func (h *Handlers) Create() { h.svc.Place() }
+func (h *Handlers) Cancel() { h.svc.Cancel() }
+`,
+	"internal/service/orders.go": `package service
+
+import "example.com/app/internal/store"
+
+type Orders struct{}
+
+func (o *Orders) Place()  { o.save(&store.DB{}) }
+func (o *Orders) Cancel() { db := &store.DB{}; db.Delete() }
+func (o *Orders) save(db *store.DB) { db.Insert() }
+`,
+	"internal/store/db.go": `package store
+
+type DB struct{}
+
+func (d *DB) Insert() {}
+func (d *DB) Delete() {}
+`,
+}
+
+func TestMapLayersGoCallsThroughFieldsAndParameters(t *testing.T) {
+	m := mapOf(t, repo(t, fieldService)).Maps[0]
+	var layers [][]string
+	for _, l := range m.Layers {
+		layers = append(layers, l.Modules)
+	}
+	if want := [][]string{{"api"}, {"internal/service"}, {"internal/store"}}; !reflect.DeepEqual(layers, want) {
+		t.Errorf("layers = %v, want api over service over store", layers)
+	}
+}
