@@ -49,6 +49,8 @@ type grammar struct {
 	vars map[string]string
 	// scopes are the open lexical scopes, innermost last.
 	scopes *[]*varScope
+	// generic names the type parameters of the function and its receiver.
+	generic map[string]bool
 }
 
 // Prefix keeps Go's symbols apart from other languages' alike-named kinds.
@@ -106,7 +108,7 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 				typ := ""
 				switch {
 				case t != nil:
-					typ = typeOf(syntax.Compact(t.Utf8Text(s.Src)), g.packages)
+					typ = g.typeOf(syntax.Compact(t.Utf8Text(s.Src)))
 				case values != nil && values.NamedChildCount() == uint(len(names)):
 					typ = g.literalType(values.NamedChild(uint(i)), s.Src) // var x = T{}
 				}
@@ -137,14 +139,23 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	case "func_literal":
 		s.Closures++
 		restore := g.scope(false)
-		eachOwn(n, s.Src, func(name, typ string) { g.declare(name, typeOf(typ, g.packages), true) })
+		eachOwn(n, s.Src, func(name, typ string) { g.declare(name, g.typeOf(typ), true) })
 		return func() { s.Closures--; restore() }
 	case "block":
 		// An if's body or else is a branch; other blocks run in sequence.
 		parent := n.Parent()
 		return g.scope(parent != nil && parent.Kind() == "if_statement")
-	case "if_statement", "for_statement", "type_switch_statement", "select_statement":
+	case "if_statement", "for_statement", "select_statement":
 		return g.scope(false)
+	case "type_switch_statement":
+		// switch v := x.(type): v is declared for every case.
+		restore := g.scope(false)
+		if alias := n.ChildByFieldName("alias"); alias != nil {
+			for i := uint(0); i < alias.NamedChildCount(); i++ {
+				g.declare(alias.NamedChild(i).Utf8Text(s.Src), "", true)
+			}
+		}
+		return restore
 	case "expression_case", "type_case", "communication_case", "default_case":
 		return g.scope(true)
 	}
@@ -349,17 +360,23 @@ func (g grammar) literalType(value *sitter.Node, src []byte) string {
 		value = value.NamedChild(0) // &T{}
 	}
 	if t := value.ChildByFieldName("type"); value.Kind() == "composite_literal" && t != nil {
-		return typeOf(syntax.Compact(t.Utf8Text(src)), g.packages)
+		return g.typeOf(syntax.Compact(t.Utf8Text(src)))
 	}
 	return ""
+}
+
+// typeOf returns a type as typeOf writes it, with the function's type
+// parameters in scope.
+func (g grammar) typeOf(typ string) string {
+	return typeOf(typ, g.packages, g.generic)
 }
 
 // typeOf returns a named type as Call.Type writes it, qualified by the
 // file's imports, without pointer or type arguments: *st.DB gives
 // "example.com/app/store.DB", Cache[T] gives "Cache". Predeclared types,
-// types of unknown packages and other types (slices, maps, functions)
-// give "".
-func typeOf(typ string, packages map[string]string) string {
+// type parameters (generic), types of unknown packages and other types
+// (slices, maps, functions) give "".
+func typeOf(typ string, packages map[string]string, generic map[string]bool) string {
 	typ = strings.TrimPrefix(typ, "*")
 	for _, other := range []string{"[", "map[", "chan", "func(", "interface{", "struct{"} {
 		if strings.HasPrefix(typ, other) {
@@ -375,10 +392,38 @@ func typeOf(typ string, packages map[string]string) string {
 		}
 		return packages[pkg] + "." + name
 	}
-	if predeclared[typ] {
+	if predeclared[typ] || generic[typ] {
 		return ""
 	}
 	return typ
+}
+
+// typeParams returns the names of the type parameters a function, a
+// method's receiver (Set[E]) or a type declaration (type_spec)
+// introduces.
+func typeParams(n *sitter.Node, src []byte) map[string]bool {
+	out := map[string]bool{}
+	if list := n.ChildByFieldName("type_parameters"); list != nil {
+		for i := uint(0); i < list.NamedChildCount(); i++ {
+			for _, name := range fieldNodes(list.NamedChild(i), "name") {
+				out[name.Utf8Text(src)] = true
+			}
+		}
+	}
+	var walk func(n *sitter.Node)
+	walk = func(n *sitter.Node) {
+		if n.Kind() == "type_elem" {
+			out[n.Utf8Text(src)] = true
+			return
+		}
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			walk(n.NamedChild(i))
+		}
+	}
+	if recv := n.ChildByFieldName("receiver"); recv != nil {
+		walk(recv)
+	}
+	return out
 }
 
 // predeclared are Go's predeclared types.
@@ -478,10 +523,18 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 			case "const_declaration":
 				decls.Consts = append(decls.Consts, constants(n, path, src, test)...)
 			case "type_declaration":
+				generic := map[string]map[string]bool{} // type name -> its type parameters
+				for i := uint(0); i < n.NamedChildCount(); i++ {
+					if spec := n.NamedChild(i); spec.Kind() == "type_spec" {
+						if name := spec.ChildByFieldName("name"); name != nil {
+							generic[name.Utf8Text(src)] = typeParams(spec, src)
+						}
+					}
+				}
 				for _, st := range structs(n, path, src, test) {
 					decls.Structs = append(decls.Structs, st)
 					for _, f := range st.Fields {
-						if typ := typeOf(f.Type, packages); typ != "" {
+						if typ := typeOf(f.Type, packages, generic[st.Name]); typ != "" {
 							decls.FieldTypes = append(decls.FieldTypes, unit.FieldType{Struct: st.Name, Field: f.Name, Type: typ, Test: test})
 						}
 					}
@@ -510,15 +563,15 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 		full = owner + "." + short
 	}
 	// The parameters and named results are the function's own scope.
-	vars, own := map[string]string{}, map[string]bool{}
+	vars, own, generic := map[string]string{}, map[string]bool{}, typeParams(n, src)
 	eachOwn(n, src, func(name, typ string) {
 		own[name] = true
-		if t := typeOf(typ, packages); t != "" {
+		if t := typeOf(typ, packages, generic); t != "" {
 			vars[name] = t
 		}
 	})
 	s := syntax.Flatten(n, src, grammar{receiver: receiverName(n, src), packages: packages, vars: vars,
-		scopes: &[]*varScope{{declared: own, assigned: map[string]bool{}}}})
+		scopes: &[]*varScope{{declared: own, assigned: map[string]bool{}}}, generic: generic})
 	return unit.Unit{
 		File:      path,
 		Name:      full,

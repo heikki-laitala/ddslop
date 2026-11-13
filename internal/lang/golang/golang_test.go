@@ -843,3 +843,59 @@ func (s *Server) run(ch chan *Codec) {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestTypeParametersAndTypeSwitchAliasesAreNotConcreteTypes(t *testing.T) {
+	src := `package api
+
+import "encoding/json"
+
+type Box[T any] struct {
+	v T
+	c Cache
+}
+
+func run[T any](x T, c Cache) {
+	x.Save()
+	c.Fill()
+}
+
+func (s *Set[E]) Add(x E) {
+	x.Save()
+}
+
+func (s *Server) kind(v any) {
+	switch json := v.(type) {
+	case *Codec:
+		json.Marshal()
+	}
+	switch s := v.(type) {
+	default:
+		s.Flush()
+	}
+}
+`
+	units, decls, err := Parse("api/run.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, u := range units {
+		for _, c := range u.Calls {
+			got = append(got, fmt.Sprintf("%d kind=%d qualifier=%q type=%q", c.Line, c.Kind, c.Qualifier, c.Type))
+		}
+	}
+	for _, f := range decls.FieldTypes {
+		got = append(got, fmt.Sprintf("field %s.%s %s", f.Struct, f.Field, f.Type))
+	}
+	want := []string{
+		fmt.Sprintf(`11 kind=%d qualifier="" type=""`, unit.MethodCall),
+		fmt.Sprintf(`12 kind=%d qualifier="" type="Cache"`, unit.MethodCall),
+		fmt.Sprintf(`16 kind=%d qualifier="" type=""`, unit.MethodCall),
+		fmt.Sprintf(`22 kind=%d qualifier="" type=""`, unit.MethodCall),
+		fmt.Sprintf(`26 kind=%d qualifier="" type=""`, unit.MethodCall),
+		"field Box.c Cache",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
