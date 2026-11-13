@@ -537,10 +537,13 @@ func check(root string, opts options) (report.Report, error) {
 	groups := clone.Groups(units, opts.minNodes)
 	// Without --tests, test code is checked for one thing: helpers copied
 	// between test files, a bigger bar than production code's. Test cases
-	// are repetitive by design and stay out.
+	// are repetitive by design and stay out. The helper groups join the
+	// report only: production's near-miss and block analysis never sees
+	// them.
+	var helperGroups []clone.Group
 	for _, g := range clone.Groups(helpers, max(minTestHelperNodes, opts.minNodes)) {
 		if inFiles(g.Units) > 1 { // copies within one test file are its own business
-			groups = append(groups, g)
+			helperGroups = append(helperGroups, g)
 		}
 	}
 	nearMisses := clone.NearMisses(units, max(opts.minNearNodes, opts.minNodes), opts.minSim, threads)
@@ -573,7 +576,7 @@ func check(root string, opts options) (report.Report, error) {
 	internal := internalCrates(root, files)
 	flows := parallelFlows(g, traits, opts.minNodes)
 	r := report.Build(languageOf, report.Findings{
-		Groups: groups, NearMisses: nearMisses, Blocks: blocks, Flows: flows,
+		Groups: append(groups, helperGroups...), NearMisses: nearMisses, Blocks: blocks, Flows: flows,
 		Structs:  clone.Structs(structs, minStructFields),
 		Enums:    clone.Enums(enums),
 		Consts:   clone.Constants(consts),

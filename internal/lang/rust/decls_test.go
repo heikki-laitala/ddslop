@@ -1260,3 +1260,11 @@ mod tests {
 		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+// Cargo's benchmark harness runs #[bench] functions: test cases.
+func TestBenchmarksAreTestCases(t *testing.T) {
+	src := "#[cfg(test)]\nmod benches {\n    #[bench]\n    fn saving(b: &mut Bencher) {}\n}\n"
+	if u := byName(t, mustUnits(t, src), "saving"); !u.Test || !u.TestCase {
+		t.Errorf("saving: test=%v case=%v, want a test case", u.Test, u.TestCase)
+	}
+}
