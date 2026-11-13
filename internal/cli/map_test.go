@@ -681,3 +681,57 @@ func TestMapLayersGoCallsOnConstructedValues(t *testing.T) {
 		t.Errorf("resolved %d of %d calls, want all: Place and Cancel are Orders' through New and Default", m.ResolvedCalls, m.Calls)
 	}
 }
+
+// A crate whose config and store call each other, and whose api calls
+// down into both.
+var cyclicCrate = map[string]string{
+	"Cargo.toml": "[package]\nname = \"app\"\n",
+	"src/lib.rs": "pub mod api;\npub mod config;\npub mod store;\n",
+	"src/api.rs": `pub fn serve() { crate::config::load(); crate::store::open(); }
+`,
+	"src/config.rs": `pub fn load() { crate::store::endpoint(); }
+pub fn value() -> u32 { 1 }
+`,
+	"src/store.rs": `pub fn open() { crate::config::value(); }
+pub fn endpoint() {}
+`,
+}
+
+func TestMapListsModulesCallingEachOtherInALoop(t *testing.T) {
+	root := repo(t, cyclicCrate)
+	code, stdout, stderr := run("map", "--format", "json", root)
+	if code != 0 {
+		t.Fatalf("map: exit %d, stderr %s", code, stderr)
+	}
+	var r struct {
+		Maps []struct {
+			Cycles []struct {
+				Modules []string `json:"modules"`
+				Links   []struct {
+					A       string `json:"a"`
+					B       string `json:"b"`
+					CallsAB int    `json:"calls_ab"`
+					CallsBA int    `json:"calls_ba"`
+					AB      string `json:"ab"`
+					BA      string `json:"ba"`
+				} `json:"links"`
+			} `json:"cycles"`
+		} `json:"maps"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, stdout)
+	}
+	cs := r.Maps[0].Cycles
+	if len(cs) != 1 || !reflect.DeepEqual(cs[0].Modules, []string{"config", "store"}) || len(cs[0].Links) != 1 {
+		t.Fatalf("cycles = %+v, want config and store linked both ways", cs)
+	}
+	l := cs[0].Links[0]
+	if l.A != "config" || l.B != "store" || l.CallsAB != 1 || l.CallsBA != 1 ||
+		l.AB != "src/config.rs:1 load -> endpoint" || l.BA != "src/store.rs:1 open -> value" {
+		t.Errorf("link = %+v, want config -> store at load, store -> config at open", l)
+	}
+	_, text, _ := run("map", "--format", "text", root)
+	if !strings.Contains(text, "Cycles") || !strings.Contains(text, "config <-> store") {
+		t.Errorf("text map does not show the cycle:\n%s", text)
+	}
+}
