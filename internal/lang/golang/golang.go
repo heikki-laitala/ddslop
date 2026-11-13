@@ -314,7 +314,7 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 		Calls:     s.Calls,
 		Forwards:  forwards(n, src),
 		Params:    params(n, src),
-		Results:   results(n, src),
+		Types:     types(n, src),
 		Forms:     s.Forms,
 
 		StringMatches: s.Matches,
@@ -547,40 +547,32 @@ func params(fn *sitter.Node, src []byte) []unit.Param {
 // explicitly and never stores it in a struct.
 const contextType = "context.Context"
 
-// results returns the result types of a function or function type, named
-// or not: (n, m int, err error) gives int, int, error.
-func results(fn *sitter.Node, src []byte) []string {
-	r := fn.ChildByFieldName("result")
-	if r == nil {
-		return nil
+// types returns the parameter and result types of a function or function
+// type, named or not: (ctx context.Context, a, b string) (n int, err
+// error) gives "(context.Context, string, string) (int, error)".
+func types(fn *sitter.Node, src []byte) string {
+	var params, results []string
+	eachParam(fn.ChildByFieldName("parameters"), src, func(_, t string) { params = append(params, t) })
+	switch r := fn.ChildByFieldName("result"); {
+	case r == nil:
+	case r.Kind() == "parameter_list":
+		eachParam(r, src, func(_, t string) { results = append(results, t) })
+	default:
+		results = []string{syntax.Compact(r.Utf8Text(src))}
 	}
-	if r.Kind() != "parameter_list" {
-		return []string{syntax.Compact(r.Utf8Text(src))}
-	}
-	var out []string
-	eachParam(r, src, func(_, typ string) { out = append(out, typ) })
-	return out
+	return "(" + strings.Join(params, ", ") + ") (" + strings.Join(results, ", ") + ")"
 }
 
-// funcTypes returns the signatures of a type declaration's function types,
-// without file: type command func(args []string, out io.Writer) int gives
-// parameters []string, io.Writer and result int. A Context parameter is
-// left out, as from a function's parameters.
+// funcTypes returns a type declaration's function types, declared or
+// aliased (type visit = func(path string)), without file.
 func funcTypes(n *sitter.Node, src []byte) []unit.FuncType {
 	var out []unit.FuncType
 	for i := uint(0); i < n.NamedChildCount(); i++ {
 		spec := n.NamedChild(i)
 		typ := spec.ChildByFieldName("type")
-		if spec.Kind() != "type_spec" || typ == nil || typ.Kind() != "function_type" {
-			continue
+		if (spec.Kind() == "type_spec" || spec.Kind() == "type_alias") && typ != nil && typ.Kind() == "function_type" {
+			out = append(out, unit.FuncType{Types: types(typ, src)})
 		}
-		ft := unit.FuncType{Results: results(typ, src)}
-		eachParam(typ.ChildByFieldName("parameters"), src, func(_, t string) {
-			if t != contextType {
-				ft.Params = append(ft.Params, t)
-			}
-		})
-		out = append(out, ft)
 	}
 	return out
 }

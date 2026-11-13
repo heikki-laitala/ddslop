@@ -126,8 +126,7 @@ func ofFuncType(u unit.Unit, funcTypes []unit.FuncType) bool {
 		return false
 	}
 	return slices.ContainsFunc(funcTypes, func(ft unit.FuncType) bool {
-		return !ft.Test && path.Dir(ft.File) == path.Dir(u.File) && slices.Equal(u.Results, ft.Results) &&
-			slices.EqualFunc(u.Params, ft.Params, func(p unit.Param, t string) bool { return p.Type == t })
+		return !ft.Test && ft.Types == u.Types && path.Dir(ft.File) == path.Dir(u.File)
 	})
 }
 

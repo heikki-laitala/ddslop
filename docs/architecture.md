@@ -320,8 +320,12 @@ parameter groups, as they may implement an interface whose signature they
 must keep, and so are functions with the parameter and result types of
 a function type their package declares outside test code (`type command func(args
 []string, stdout, stderr io.Writer) int`): they are its values, such as a
-command table's commands. A type in another package may only share the
-spelling of its parameter types, so it dictates nothing. On a 100-file
+command table's commands. The whole signature must match, a Context
+included, and aliases (`type visit = func(path string)`) count. A type in
+another package may only share the spelling of its types, so it dictates
+nothing; spellings are compared as written, as parameter groups compare
+them, so two files of a package importing different packages under one
+name can still be confused. On a 100-file
 Go service, every raw group hinged on a Context or an HTTP handler's
 dictated signature, so none remain.
 
