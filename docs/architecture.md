@@ -353,7 +353,9 @@ restores the outer one when it ends, an outer variable assigned in a
 nested scope is unknown after it (the scope may not have run), though
 each branch of an `if` or `switch` starts from the types before the
 statement, a variable shadowing the receiver or an imported package
-makes calls on it ordinary method calls, and a declaration takes effect
+makes calls on it ordinary method calls (type-switch aliases and select
+receives included), a type parameter is no type, and a declaration
+takes effect
 after its value, so `x = x.Reset()` calls `Reset` on the old `x`. Such a call resolves to that type's
 method in its package: the directory its import path names under the
 `go.mod` whose module path starts it (the longest, for nested modules),
@@ -373,8 +375,8 @@ through fields, moved from the second layer to the bottom, and the map's
 shared helpers went from 1 to 7, all store methods both callers use. It
 also let `check` see two parallel flows: ingesting, updating and pushing
 a memory run one pipeline (real), and getting and deleting a document
-share only a thin handler's shape (arguable). On ddslop, 747 of 3028
-(737): `pattern` moved under `codemap`, which calls it.
+share only a thin handler's shape (arguable). On ddslop, 752 of 3058
+(742): `pattern` moved under `codemap`, which calls it.
 
 Setup-teardown is not built for Go: `defer x.Close()` is Go's own idiom
 for it (18 times in that service, 2 in ddslop), and transactions, the
