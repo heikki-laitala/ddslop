@@ -31,7 +31,8 @@ type Graph struct {
 	// ResolvedOf counts, per unit, its call sites that resolved.
 	ResolvedOf []int
 	// Targets holds, per unit and parallel to its calls, the unit each
-	// call resolved to, or -1.
+	// call resolved to by name or type, or -1 (also for a call found only
+	// by its method name, which may be another type's method).
 	Targets [][]int
 	// Calls and Resolved count all call sites and the resolved ones.
 	Calls, Resolved int
@@ -128,6 +129,9 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 			g.Calls++
 			callee, byName := r.resolve(k)
 			g.Targets[i][k] = callee
+			if byName {
+				g.Targets[i][k] = -1
+			}
 			if callee < 0 {
 				continue
 			}

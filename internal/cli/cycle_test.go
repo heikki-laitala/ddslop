@@ -135,3 +135,34 @@ pub fn value() -> u32 { 1 }
 		t.Errorf("candidates = %+v, want the cycle marked at its call left out", r.Candidates)
 	}
 }
+
+// With --tests, test code's calls count, cycles included.
+func TestCheckWithTestsReportsCyclesInTestCode(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "pub mod config;\npub mod store;\n",
+		"src/config.rs": `pub fn value() -> u32 { 1 }
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn loads() { crate::store::endpoint(); }
+}
+`,
+		"src/store.rs": `pub fn endpoint() {}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn opens() { crate::config::value(); }
+}
+`,
+	}
+	root := repo(t, files)
+	_, stdout, _ := run("check", "--format", "json", root)
+	if r := cycles(t, stdout); len(r.Candidates) != 0 {
+		t.Errorf("candidates = %+v, want none without --tests", r.Candidates)
+	}
+	_, stdout, _ = run("check", "--format", "json", "--tests", root)
+	if r := cycles(t, stdout); len(r.Candidates) != 1 {
+		t.Errorf("candidates = %+v, want the test code's cycle with --tests", r.Candidates)
+	}
+}
