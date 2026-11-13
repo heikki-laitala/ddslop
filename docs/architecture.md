@@ -979,8 +979,9 @@ that crosses it.
   type (a glob import, `use b::*`, is not followed). A path rooted in a
   workspace crate, in
   `crate`, `self` or `super`, or in one of the caller's crate's modules
-  (`model::Client`, by the paths of all its files; an inline `mod` is not
-  seen) resolves in that crate alone;
+  (`model::Client`, by the paths of all its files and the inline `mod x
+  { .. }` blocks holding functions, each function recording the inline
+  module it is in, `Unit.Module`) resolves in that crate alone;
   one rooted anywhere else is an outside crate's, and calls on it, as on
   a type with no methods in the repository (`Vec`, `Option`, serde's
   `Value`), resolve to nothing. An untyped `x.m()`, or one on a repository
