@@ -713,7 +713,8 @@ func TestAnErrInAMatchesGuardIsNoVariantCheck(t *testing.T) {
 }
 
 // A value of a trait type (dyn, impl, a type parameter's bound) calls
-// the trait's methods: its type is the trait's path. Marker traits (Send,
+// the trait's methods: its type is the trait's path, marked "dyn " to
+// tell it from a concrete type of the name. Marker traits (Send,
 // 'static) say nothing of the methods; a parameter of two traits is
 // ambiguous.
 func TestMethodCallsThroughTraitsRecordTheTrait(t *testing.T) {
@@ -736,10 +737,10 @@ where
 		got = append(got, fmt.Sprintf("%s type=%q", c.Name, c.Type))
 	}
 	want := []string{
-		`get type="crate::store::Store"`,
-		`save type="Saver"`,
-		`get type="crate::store::Store"`,
-		`save type="Saver"`,
+		`get type="dyn crate::store::Store"`,
+		`save type="dyn Saver"`,
+		`get type="dyn crate::store::Store"`,
+		`save type="dyn Saver"`,
 		`get type=""`,
 		`call type=""`,
 	}
@@ -790,8 +791,8 @@ func TestMethodCallsRecordTheTypeTheCodeStates(t *testing.T) {
 		`3 save type="Store" field="" self=false`,
 		`4 fill type="Cache" field="" self=false`,
 		`5 ping type="Server" field="" self=false`,
-		`6 save type="Saver" field="" self=false`,
-		`7 save type="Saver" field="" self=false`,
+		`6 save type="dyn Saver" field="" self=false`,
+		`7 save type="dyn Saver" field="" self=false`,
 		`8 count type="" field="" self=false`,
 		`9 query type="" field="db" self=false`,
 		`10 flush type="" field="" self=true`,
@@ -1386,6 +1387,12 @@ func TestUnwrappingPatternsBindTheCallsUnwrappedResult(t *testing.T) {
     if let Some((h, _)) = find() {
         h.save();
     }
+    {
+        use crate::MyValue::Some;
+        if let Some(i) = find() {
+            i.save();
+        }
+    }
 }
 `
 	calls := byName(t, mustUnits(t, src), "run").Calls
@@ -1409,6 +1416,7 @@ func TestUnwrappingPatternsBindTheCallsUnwrappedResult(t *testing.T) {
 		"16 from=find result=1",
 		"19 from=- result=0", // unwrapped twice: no position says
 		"22 from=- result=0", // a tuple inside
+		"27 from=- result=0", // an imported variant named Some
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

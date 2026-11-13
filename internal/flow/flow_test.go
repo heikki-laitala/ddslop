@@ -1073,10 +1073,10 @@ func impl(file, name, trait string) unit.Unit {
 func TestRustCallsThroughTraitsReachTheirOnlyImplementation(t *testing.T) {
 	units := []unit.Unit{
 		fn("a/src/server.rs", "Server::run",
-			typed("crate::store::Store", "get"), // one implementation
-			typed("Store", "describe"),          // a default it leaves
-			typed("Codec", "encode"),            // two implementations
-			typed("Codec", "flush")),            // the trait's own default, but neither leaves it
+			typed("dyn crate::store::Store", "get"), // one implementation
+			typed("dyn Store", "describe"),          // a default it leaves
+			typed("dyn Codec", "encode"),            // two implementations
+			typed("dyn Codec", "flush")),            // the trait's own default, but neither leaves it
 		fn("a/src/store.rs", "Store::describe"),
 		impl("a/src/pg.rs", "PgStore::get", "Store"),
 		fn("a/src/cache.rs", "Cache::get"),
@@ -1098,5 +1098,31 @@ func TestRustCallsThroughTraitsReachTheirOnlyImplementation(t *testing.T) {
 	}
 	if got, want := fmt.Sprint(g.ByName[0]), "[false false]"; got != want {
 		t.Errorf("ByName = %s, want %s", got, want)
+	}
+}
+
+// A concrete type named like a trait is no trait: its own methods. A
+// trait's implementations are those in its crate or crates importing
+// from it; another crate's trait of the name is another trait.
+func TestRustTraitCallsKeepToTheTrait(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run",
+			typed("crate::model::Store", "get"), // the struct
+			typed("dyn Store", "put")),          // the trait
+		fn("a/src/model.rs", "Store::get"),
+		impl("a/src/pg.rs", "PgStore::get", "Store"),
+		impl("a/src/pg.rs", "PgStore::put", "Store"),
+		impl("c/src/disk.rs", "Disk::put", "Store"), // c's own trait Store
+	}
+	in := Inputs{
+		Crates:    map[string]string{"a": "a", "c": "c"},
+		RustFiles: []string{"a/src/server.rs", "a/src/model.rs", "a/src/pg.rs", "c/src/disk.rs"},
+		Impls: []unit.Impl{
+			{File: "a/src/pg.rs", Trait: "Store", Type: "PgStore"},
+			{File: "c/src/disk.rs", Trait: "Store", Type: "Disk"},
+		},
+	}
+	if got, want := callees(Build(in, units), "a/src/server.rs Server::run"), "[a/src/model.rs Store::get a/src/pg.rs PgStore::put]"; got != want {
+		t.Errorf("Server::run calls %s, want %s", got, want)
 	}
 }
