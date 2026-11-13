@@ -194,14 +194,16 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 	switch {
 	case typ == "":
 	case strings.HasSuffix(caller.File, ".rs"):
-		// A Rust type is a simple name, found as Type::f is: in the
-		// caller's file, crate, or a workspace crate it imports from. A
-		// type with no methods here (Vec, Option) is from outside the
-		// repository: its methods are none of ours.
-		if !ix.owners[typ] {
+		// A Rust type is found as Type::f is: in the caller's file, crate,
+		// or a workspace crate it imports from. A path rooted in another
+		// crate (reqwest::Client), or a type with no methods here (Vec,
+		// Option), is from outside the repository: its methods are none
+		// of ours.
+		name := unit.SimpleName(typ)
+		if !ix.owners[name] || !ix.inRepository(typ) {
 			return -1, false
 		}
-		if u := ix.pick(units, caller, ix.owned[typ+"::"+c.Name]); u >= 0 {
+		if u := ix.pick(units, caller, ix.owned[name+"::"+c.Name]); u >= 0 {
 			return u, false
 		}
 	default:
@@ -213,6 +215,22 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 		return -1, false // most likely a standard-library method
 	}
 	return ix.pick(units, caller, ix.methods[c.Name]), true
+}
+
+// inRepository reports whether a Rust type path names a type of the
+// repository: a bare name, or a path rooted in crate, self, super or a
+// workspace crate.
+func (ix index) inRepository(path string) bool {
+	if !strings.Contains(path, "::") {
+		return true
+	}
+	switch root := firstSegment(path); root {
+	case "crate", "self", "super":
+		return true
+	default:
+		_, ok := ix.crates[root]
+		return ok
+	}
 }
 
 // resolveTyped resolves a Go method call on an operand of type typ

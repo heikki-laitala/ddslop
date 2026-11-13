@@ -789,8 +789,78 @@ struct Pair(Left, Right);
 	}
 	// Vec is recorded too: the graph finds no Vec method in the repository
 	// and falls back to guessing by name, as without a type.
-	want := []string{"Server.db Database", "Server.cache Cache", "Server.names Vec", "Server.store Store"}
+	want := []string{"Server.db Database", "Server.cache Cache", "Server.names Vec", "Server.store crate::store::Store"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("field types:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestRustBindingsTakeEffectWhereTheyAreInScope(t *testing.T) {
+	src := `fn run(store: &Store, items: Vec<Item>) {
+    for store in store.items() {
+        store.save();
+    }
+    if let Some(store) = store.load() {
+        store.save();
+    } else {
+        store.save();
+    }
+    while let Some(store) = store.next() {
+        store.save();
+    }
+    let mut cache: Cache = make();
+    cache.fill();
+}
+`
+	var got []string
+	for _, c := range byName(t, mustUnits(t, src), "run").Calls {
+		got = append(got, fmt.Sprintf("%d %s %q", c.Line, c.Name, c.Type))
+	}
+	want := []string{
+		`2 items "Store"`, `3 save ""`,
+		`5 load "Store"`, `6 save ""`, `8 save "Store"`,
+		`10 next "Store"`, `11 save ""`,
+		`13 make ""`, `14 fill "Cache"`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestRustTypesKeepTheirPathQualifiedByImports(t *testing.T) {
+	src := `use reqwest::Client;
+use crate::store::{Store, Cache as Kept};
+
+struct Server {
+    http: Client,
+    store: Store,
+    other: other_crate::Thing,
+}
+
+fn run(c: Client, s: Store, k: Kept, local: Ledger, q: crate::queue::Queue) {
+    c.send();
+    s.save();
+    k.fill();
+    local.post();
+    q.push_back();
+}
+`
+	units, decls, err := Parse("a/src/lib.rs", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range byName(t, units, "run").Calls {
+		got = append(got, fmt.Sprintf("%s %s", c.Name, c.Type))
+	}
+	for _, f := range decls.FieldTypes {
+		got = append(got, fmt.Sprintf("field %s %s", f.Field, f.Type))
+	}
+	want := []string{
+		"send reqwest::Client", "save crate::store::Store", "fill crate::store::Cache", "post Ledger", "push_back crate::queue::Queue",
+		"field http reqwest::Client", "field store crate::store::Store", "field other other_crate::Thing",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("types:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

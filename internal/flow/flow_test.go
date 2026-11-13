@@ -583,3 +583,28 @@ func TestRustCallsOnOutsideTypesAreNotGuessed(t *testing.T) {
 		t.Errorf("resolved %d calls, want 2: the call on Vec reaches nothing", g.ResolvedOf[0])
 	}
 }
+
+// A type's path tells an outside crate's type from the repository's of
+// the same name: reqwest::Client is not the workspace's Client.
+func TestRustTypedCallsTellOutsideCratesByThePath(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run",
+			typed("reqwest::Client", "send"),      // an outside crate's Client
+			typed("crate::store::Store", "save"),  // this crate's
+			typed("b::Ledger", "post"),            // a workspace crate's
+			typed("super::queue::Queue", "push")), // a parent module's
+		fn("a/src/client.rs", "Client::send"),
+		fn("a/src/store.rs", "Store::save"),
+		fn("b/src/ledger.rs", "Ledger::post"),
+		fn("a/src/queue.rs", "Queue::push"),
+	}
+	in := Inputs{
+		Imports: map[string]map[string]string{"a/src/server.rs": {"Ledger": "b::Ledger"}},
+		Crates:  map[string]string{"a": "a", "b": "b"},
+	}
+	g := Build(in, units)
+	want := "[a/src/store.rs Store::save b/src/ledger.rs Ledger::post a/src/queue.rs Queue::push]"
+	if got := callees(g, "a/src/server.rs Server::run"); got != want {
+		t.Errorf("Server::run calls %s,\nwant %s", got, want)
+	}
+}
