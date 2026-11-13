@@ -57,12 +57,10 @@ jobs:
       # The latest published ddslop on this code, with no baseline: a
       # candidate it finds fails the job until it is fixed or marked
       # ddslop:ignore with a reason, and annotates the pull request as it
-      # does for users. A fork's token cannot upload, so its pull requests
-      # only fail the job.
+      # does for users: the action's defaults, as users run it.
       - uses: ./
         with:
           version: latest
-          upload-sarif: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
 
   action:
     name: Action
@@ -102,3 +100,37 @@ jobs:
           test "$OUTCOME" = failure || { echo "outcome $OUTCOME, want failure" >&2; exit 1; }
           test "$CODE" = 1 || { echo "exit code $CODE, want 1" >&2; exit 1; }
           grep -q '"ruleId": "renamed-clone"' "$SARIF" || { echo "the SARIF report has no renamed-clone result" >&2; cat "$SARIF"; exit 1; }
+      # Diff mode, as pull requests use it: the copy is reported when the
+      # change adds it, not when it was there before.
+      - name: Sample history, the copy added by the last commit
+        working-directory: ${{ runner.temp }}/sample
+        run: |
+          git init -q
+          git add src/users.rs
+          git -c user.name=ci -c user.email=ci@example.com commit -qm users
+          git add src/orders.rs
+          git -c user.name=ci -c user.email=ci@example.com commit -qm orders
+      - name: Run the action on the change adding the copy
+        id: added
+        uses: ./
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/sample
+          diff: HEAD~1
+          args: --min-nodes 20
+          upload-sarif: "false"
+      - name: Run the action on no change
+        id: unchanged
+        uses: ./
+        with:
+          path: ${{ runner.temp }}/sample
+          diff: HEAD
+          args: --min-nodes 20
+          upload-sarif: "false"
+      - name: Diff mode reported only the added copy
+        env:
+          ADDED: ${{ steps.added.outputs.exit-code }}
+          UNCHANGED: ${{ steps.unchanged.outputs.exit-code }}
+        run: |
+          test "$ADDED" = 1 || { echo "exit code $ADDED for the change adding the copy, want 1" >&2; exit 1; }
+          test "$UNCHANGED" = 0 || { echo "exit code $UNCHANGED for no change, want 0" >&2; exit 1; }
