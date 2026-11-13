@@ -573,6 +573,7 @@ func check(root string, opts options) (report.Report, error) {
 		Kinds:    pattern.StringKinds(units),
 		Params:   pattern.ParameterGroups(units, decls.FuncTypes),
 		Drifts:   drifts(units, packages(root, files)),
+		Cycles:   dependencyCycles(g, files, packages(root, files)),
 	}, summary)
 	return r, recordHealth(db, root, r.Summary.Health)
 }
@@ -596,6 +597,66 @@ func drifts(units []unit.Unit, crates map[string]string) []report.Drift {
 		}
 	}
 	return out
+}
+
+// dependencyCycles finds the modules of each Rust crate calling each other
+// in a loop (see codemap.Cycles), in the code check reports on: no
+// generated files. A pair calling each other is one cycle, closed by its
+// two calls; a group with no such pair is one, closed by each step of a
+// shortest loop. A cycle any of whose calls a ddslop:ignore marks is
+// deliberate, and left out. Go packages and Rust crates cannot form one.
+func dependencyCycles(g *flow.Graph, files []index.File, crates map[string]string) []report.Cycle {
+	generated := map[string]bool{}
+	for _, f := range files {
+		generated[f.Path] = f.Generated
+	}
+	var out []report.Cycle
+	for _, name := range crateNames(files, crates) {
+		in := codemap.InCrate(name, crates)
+		group := codemap.Grouping(func(u unit.Unit) string {
+			if generated[u.File] {
+				return ""
+			}
+			return in(u)
+		})
+		for _, c := range codemap.Cycles(g, group) {
+			for _, l := range c.Links {
+				out = appendCycle(out, g, name+"\x00"+l.A+"\x00"+l.B,
+					[]string{l.A + " -> " + l.B, l.B + " -> " + l.A}, []codemap.Site{l.AB, l.BA})
+			}
+			if len(c.Loop) > 0 {
+				var steps []string
+				var sites []codemap.Site
+				for _, h := range c.Loop {
+					steps = append(steps, h.From+" -> "+h.To)
+					sites = append(sites, h.Site)
+				}
+				out = appendCycle(out, g, name+"\x00"+strings.Join(c.Modules, "\x00"), steps, sites)
+			}
+		}
+	}
+	return out
+}
+
+// appendCycle adds a cycle closed by the calls at sites, unless a
+// ddslop:ignore marks one of their callers.
+func appendCycle(out []report.Cycle, g *flow.Graph, key string, steps []string, sites []codemap.Site) []report.Cycle {
+	c := report.Cycle{Key: key, Steps: steps}
+	for _, s := range sites {
+		if s.Caller < 0 || g.Units[s.Caller].Ignored {
+			return out
+		}
+		caller, callee := g.Units[s.Caller], g.Units[s.Callee]
+		line := caller.StartLine
+		for _, call := range caller.Calls {
+			if call.Name == shortName(callee.Name) {
+				line = call.Line
+				break
+			}
+		}
+		c.Sites = append(c.Sites, report.CycleSite{Unit: caller, Line: line})
+	}
+	return append(out, c)
 }
 
 // recordHealth adds a check's health to the index's history (see
