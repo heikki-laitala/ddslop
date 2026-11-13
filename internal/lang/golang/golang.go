@@ -94,16 +94,20 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		if form := errorComparison(n, s.Src); form.Form != "" {
 			s.Forms = append(s.Forms, form)
 		}
+	// Declarations take effect after their values, whose calls still see
+	// the names as they were: x = x.Reset() calls Reset on the old x.
 	case "var_spec":
-		typ := ""
-		if t := n.ChildByFieldName("type"); t != nil {
-			typ = typeOf(syntax.Compact(t.Utf8Text(s.Src)), g.packages)
-		}
-		for _, name := range fieldNodes(n, "name") {
-			g.declare(name.Utf8Text(s.Src), typ)
+		return func() {
+			typ := ""
+			if t := n.ChildByFieldName("type"); t != nil {
+				typ = typeOf(syntax.Compact(t.Utf8Text(s.Src)), g.packages)
+			}
+			for _, name := range fieldNodes(n, "name") {
+				g.declare(name.Utf8Text(s.Src), typ)
+			}
 		}
 	case "short_var_declaration", "assignment_statement", "range_clause":
-		g.assign(n, s.Src)
+		return func() { g.assign(n, s.Src) }
 	case "expression_switch_statement":
 		var values []string
 		for i := uint(0); i < n.NamedChildCount(); i++ {

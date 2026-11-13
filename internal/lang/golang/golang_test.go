@@ -615,3 +615,28 @@ func TestModulePathReadsGoMod(t *testing.T) {
 		}
 	}
 }
+
+func TestAnAssignmentsRightSideSeesTheTypeBeforeIt(t *testing.T) {
+	src := `package api
+
+func run(x *DB) {
+	x = x.Reset()
+	x.Close()
+	y := &Cache{}
+	y = y.Clone()
+	y.Fill()
+}
+`
+	units, _, err := Parse("api/run.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range units[0].Calls {
+		got = append(got, fmt.Sprintf("%d %s %q", c.Line, c.Name, c.Type))
+	}
+	want := []string{`4 Reset "DB"`, `5 Close ""`, `7 Clone "Cache"`, `8 Fill ""`}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
