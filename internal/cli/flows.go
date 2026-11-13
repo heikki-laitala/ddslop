@@ -219,10 +219,12 @@ func graphInputs(root string, files []index.File) flow.Inputs {
 			// Structs of one name in two Rust modules of a crate that type
 			// a field differently leave it unknown.
 			key := ft.Struct + "." + ft.Field
-			// A relative type (Db, db::Db) means each module's own: declared
-			// in two places, it is unknown unless spelled from crate::.
+			// A relative Rust type (Db, db::Db) means each module's own:
+			// declared in two places, it is unknown unless spelled from
+			// crate::. A Go package is one scope, its files often build
+			// variants of one struct.
 			known, seen := in.Fields[dir][key]
-			elsewhere := known.File != ft.File || known.Module != ft.Module
+			elsewhere := strings.HasSuffix(ft.File, ".rs") && (known.File != ft.File || known.Module != ft.Module)
 			if seen && (known.Type != ft.Type || elsewhere && !strings.HasPrefix(ft.Type, "crate::")) {
 				in.Fields[dir][key] = flow.FieldType{}
 			} else if !seen {

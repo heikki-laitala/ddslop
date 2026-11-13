@@ -255,3 +255,15 @@ func TestGraphInputsLeaveRelativeFieldTypesOfCollidingStructsUntyped(t *testing.
 		t.Errorf("b's Server.db = %q, want crate::db::Db: one type wherever written", got)
 	}
 }
+
+// A Go package may declare a struct once per build variant
+// (server_linux.go, server_windows.go): fields typed alike keep the type.
+func TestGraphInputsKeepGoFieldTypesOfBuildVariants(t *testing.T) {
+	field := func(path string) index.File {
+		return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "db", Type: "Store", File: path}}}}}
+	}
+	in := graphInputs(t.TempDir(), []index.File{field("api/server_linux.go"), field("api/server_windows.go")})
+	if got := in.Fields["api"]["Server.db"].Type; got != "Store" {
+		t.Errorf("Server.db = %q, want Store: both build variants agree", got)
+	}
+}
