@@ -432,26 +432,28 @@ type (
 	handler func(context.Context, *Request) error
 	options struct{ verbose bool }
 )
+
+type visit = func(path string)
 `
 	_, decls, err := Parse("cli/cli.go", []byte(src))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Named or not, each parameter and result counts by its type; a
-	// Context parameter is left out, as from a function's parameters.
-	if want := "[{cli/cli.go [[]string io.Writer io.Writer] [int] false} {cli/cli.go [*Request] [error] false}]"; fmt.Sprint(decls.FuncTypes) != want {
+	// Named or not, each parameter and result counts by its type, a
+	// Context too; an alias declares a function type as well.
+	if want := "[{cli/cli.go ([]string, io.Writer, io.Writer) (int) false} {cli/cli.go (context.Context, *Request) (error) false} {cli/cli.go (string) () false}]"; fmt.Sprint(decls.FuncTypes) != want {
 		t.Errorf("FuncTypes = %v, want %s", decls.FuncTypes, want)
 	}
 }
 
-func TestUnitsRecordResultTypes(t *testing.T) {
+func TestUnitsRecordTheirSignatures(t *testing.T) {
 	src := `package store
 
 func none() {}
 
 func one() error { return nil }
 
-func named() (n, m int, err error) { return 0, 0, nil }
+func named(ctx context.Context, a, b string) (n, m int, err error) { return 0, 0, nil }
 `
 	units, _, err := Parse("store/store.go", []byte(src))
 	if err != nil {
@@ -459,9 +461,9 @@ func named() (n, m int, err error) { return 0, 0, nil }
 	}
 	var got []string
 	for _, u := range units {
-		got = append(got, fmt.Sprintf("%s %v", u.Name, u.Results))
+		got = append(got, u.Name+" "+u.Types)
 	}
-	if want := "[none [] one [error] named [int int error]]"; fmt.Sprint(got) != want {
-		t.Errorf("results = %v, want %s", got, want)
+	if want := "[none () () one () (error) named (context.Context, string, string) (int, int, error)]"; fmt.Sprint(got) != want {
+		t.Errorf("signatures = %v, want %s", got, want)
 	}
 }

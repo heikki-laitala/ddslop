@@ -126,23 +126,24 @@ func TestParameterGroupsLeaveOutFunctionsOfDeclaredFunctionTypes(t *testing.T) {
 		for i := range 4 {
 			u := withParams(fmt.Sprintf("run%d", i), "args:[]string", "stdout:io.Writer", "stderr:io.Writer")
 			u.File = file
-			u.Results = []string{"int"}
+			u.Types = "([]string, io.Writer, io.Writer) (int)"
 			units = append(units, u)
 		}
 		return units
 	}
-	types := []string{"[]string", "io.Writer", "io.Writer"}
+	sig := "([]string, io.Writer, io.Writer) (int)"
 	for _, tc := range []struct {
 		name     string
 		units    []unit.Unit
 		funcType unit.FuncType
 		want     int
 	}{
-		{"same package", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli.go", Params: types, Results: []string{"int"}}, 0},
-		{"other package", commands("internal/cli/map.go"), unit.FuncType{File: "internal/report/report.go", Params: types}, 1},
-		{"test code", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli_test.go", Params: types, Test: true}, 1},
-		{"not Go", commands("internal/cli/map.rs"), unit.FuncType{File: "internal/cli/cli.go", Params: types}, 1},
-		{"other results", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli.go", Params: types, Results: []string{"bool"}}, 1},
+		{"same package", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli.go", Types: sig}, 0},
+		{"other package", commands("internal/cli/map.go"), unit.FuncType{File: "internal/report/report.go", Types: sig}, 1},
+		{"test code", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli_test.go", Types: sig, Test: true}, 1},
+		{"not Go", commands("internal/cli/map.rs"), unit.FuncType{File: "internal/cli/cli.go", Types: sig}, 1},
+		{"other results", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli.go", Types: "([]string, io.Writer, io.Writer) (bool)"}, 1},
+		{"with a Context", commands("internal/cli/map.go"), unit.FuncType{File: "internal/cli/cli.go", Types: "(context.Context, []string, io.Writer, io.Writer) (int)"}, 1},
 	} {
 		if got := len(ParameterGroups(tc.units, []unit.FuncType{tc.funcType})); got != tc.want {
 			t.Errorf("%s: got %d groups, want %d", tc.name, got, tc.want)
