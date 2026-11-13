@@ -25,7 +25,7 @@ inputs:
     description: Further arguments for ddslop check, separated by spaces.
     default: ""
   upload-sarif:
-    description: Upload the results to GitHub code scanning (needs the security-events write permission).
+    description: Upload the results to GitHub code scanning (needs the security-events write permission). Pull requests from forks, whose token cannot upload, get workflow annotations instead, as when this is "false".
     default: "true"
 
 outputs:
@@ -88,12 +88,43 @@ runs:
         echo "sarif-file=$sarif" >>"$GITHUB_OUTPUT"
         echo "exit-code=$code" >>"$GITHUB_OUTPUT"
 
+    - name: Choose where results go
+      id: report
+      shell: bash
+      env:
+        UPLOAD: ${{ inputs.upload-sarif }}
+        FORK: ${{ github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository }}
+      run: |
+        # A fork's pull request gets a read-only token: uploading would fail.
+        if [ "$UPLOAD" = true ] && [ "$FORK" = true ]; then
+          echo "::notice::ddslop: a pull request from a fork cannot upload to code scanning; results are shown as annotations"
+          UPLOAD=false
+        fi
+        echo "upload=$UPLOAD" >>"$GITHUB_OUTPUT"
+
     - name: Upload to code scanning
-      if: always() && inputs.upload-sarif == 'true' && steps.check.outputs.exit-code != '2'
+      if: always() && steps.report.outputs.upload == 'true' && steps.check.outputs.exit-code != '2'
       uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
       with:
         sarif_file: ${{ steps.check.outputs.sarif-file }}
         category: ddslop
+
+    - name: Annotate
+      if: always() && steps.report.outputs.upload != 'true' && steps.check.outputs.exit-code == '1'
+      shell: bash
+      env:
+        SARIF: ${{ steps.check.outputs.sarif-file }}
+        TARGET: ${{ inputs.path }}
+      run: |
+        # SARIF paths are relative to the analysed path; annotations take
+        # paths relative to the repository.
+        prefix=$(realpath --relative-to="$GITHUB_WORKSPACE" "$TARGET")
+        jq -r --arg prefix "$prefix" '
+          def data: gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
+          def prop: data | gsub(":"; "%3A") | gsub(","; "%2C");
+          .runs[].results[] | .locations[0].physicalLocation as $l |
+          "::error file=\(($prefix + "/" + $l.artifactLocation.uri) | ltrimstr("./") | prop),line=\($l.region.startLine),endLine=\($l.region.endLine // $l.region.startLine),title=ddslop \(.ruleId | prop)::\(.message.text | data)"
+        ' "$SARIF"
 
     - name: Result
       shell: bash
@@ -102,6 +133,6 @@ runs:
       run: |
         case "$CODE" in
           0) echo "ddslop: nothing to report" ;;
-          1) echo "::error::ddslop found duplication to refactor (see the code scanning annotations or $RUNNER_TEMP/ddslop.sarif)"; exit 1 ;;
+          1) echo "::error::ddslop found duplication to refactor (see the annotations on the changed files)"; exit 1 ;;
           *) echo "::error::ddslop failed (exit code $CODE)"; exit 2 ;;
         esac
