@@ -1292,3 +1292,15 @@ fn not_a_test() {}
 		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+// Benchmark files register their cases with macros (Criterion's
+// criterion_group!), so every function in benches/ is a test case.
+func TestFunctionsInBenchesAreTestCases(t *testing.T) {
+	units, _, err := Parse("svc/benches/save.rs", []byte("fn bench_save(c: &mut Criterion) {}\ncriterion_group!(benches, bench_save);\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := byName(t, units, "bench_save"); !u.Test || !u.TestCase {
+		t.Errorf("bench_save: test=%v case=%v, want a test case", u.Test, u.TestCase)
+	}
+}
