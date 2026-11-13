@@ -75,6 +75,7 @@ type cycleJSON struct {
 	Links       []linkJSON `json:"links"`
 	LinksMore   int        `json:"links_more"`
 	Loop        []hopJSON  `json:"loop,omitempty"`
+	LoopMore    int        `json:"loop_more,omitempty"`
 }
 
 // linkJSON is two modules of a cycle calling each other: the calls each
@@ -382,9 +383,10 @@ func cyclesJSON(g *flow.Graph, cycles []codemap.Cycle, limit int) []cycleJSON {
 		for _, l := range links[:min(limit, len(links))] {
 			cj.Links = append(cj.Links, linkJSON{A: l.A, B: l.B, CallsAB: l.CallsAB, CallsBA: l.CallsBA, AB: site(l.AB), BA: site(l.BA)})
 		}
-		for _, h := range c.Loop {
+		for _, h := range c.Loop[:min(limit, len(c.Loop))] {
 			cj.Loop = append(cj.Loop, hopJSON{From: h.From, To: h.To, Call: site(h.Site)})
 		}
+		cj.LoopMore = max(0, len(c.Loop)-limit)
 		out = append(out, cj)
 	}
 	return out
@@ -494,6 +496,9 @@ func writeCyclesText(b *strings.Builder, cycles []cycleJSON) {
 		}
 		for _, h := range c.Loop {
 			fmt.Fprintf(b, "    %s -> %s\n      %s\n", h.From, h.To, h.Call)
+		}
+		if c.LoopMore > 0 {
+			fmt.Fprintf(b, "    and %d more step(s) back\n", c.LoopMore)
 		}
 	}
 }
