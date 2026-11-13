@@ -92,7 +92,9 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 			name = strings.ReplaceAll(filepath.Base(dir), "-", "_")
 		}
 		ix.crates[name] = dir
-		ix.addModules(u.File, dir)
+		if m, ok := unitModule(u); ok {
+			ix.addModules(m, dir)
+		}
 		owner, name := split(u.Name)
 		if owner == "" {
 			ix.free[name] = append(ix.free[name], i)
@@ -104,7 +106,9 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 	}
 
 	for _, file := range in.RustFiles {
-		indexOf(file).addModules(file, CrateOf(file))
+		if m, ok := moduleOf(file); ok {
+			indexOf(file).addModules(m, CrateOf(file))
+		}
 	}
 	for file, imported := range in.Imports {
 		ix, crate := indexOf(file), CrateOf(file)
@@ -285,7 +289,7 @@ func (ix index) crateOfPath(path string, caller unit.Unit) (string, bool) {
 		return dir, true
 	}
 	// model::Client: a child module of the caller's, else another crate.
-	if pathKeyword(root) || ix.isChildModule(caller.File, root) {
+	if pathKeyword(root) || ix.isChildModule(caller, root) {
 		return CrateOf(caller.File), true
 	}
 	return "", false
@@ -297,14 +301,9 @@ func pathKeyword(root string) bool {
 	return root == "crate" || root == "self" || root == "super"
 }
 
-// addModules records the module a Rust file is, and the modules its path
-// passes through, in its crate: a/src/model/client.rs gives model and
-// model::client.
-func (ix index) addModules(file, crate string) {
-	module, ok := moduleOf(file)
-	if !ok {
-		return
-	}
+// addModules records a module of a Rust crate and the modules its path
+// passes through: model::client gives model and model::client.
+func (ix index) addModules(module, crate string) {
 	if ix.rustModules[crate] == nil {
 		ix.rustModules[crate] = map[string]bool{}
 	}
@@ -316,6 +315,20 @@ func (ix index) addModules(file, crate string) {
 		}
 		path = path[:i]
 	}
+}
+
+// unitModule returns the module a Rust unit is in within its crate: its
+// file's module, and the inline module it is declared in inside the file.
+func unitModule(u unit.Unit) (string, bool) {
+	module, ok := moduleOf(u.File)
+	switch {
+	case !ok || u.Module == "":
+	case module == "":
+		module = u.Module
+	default:
+		module += "::" + u.Module
+	}
+	return module, ok
 }
 
 // moduleOf returns the module path a Rust file is within its crate:
@@ -338,11 +351,11 @@ func moduleOf(file string) (string, bool) {
 }
 
 // modulePath returns the module a Rust path in the caller's crate names,
-// from the file it is written in: crate::a::b names a::b, self::x the
+// from the module the caller is in: crate::a::b names a::b, self::x the
 // file's module's x, super::x (super::super::x) its parent's
 // (grandparent's), and a relative x its child x.
-func modulePath(path, file string) string {
-	here, _ := moduleOf(file)
+func modulePath(path string, caller unit.Unit) string {
+	here, _ := unitModule(caller)
 	root, rest, _ := strings.Cut(path, "::")
 	switch root {
 	case "crate":
@@ -384,22 +397,23 @@ func parentModule(module string) string {
 // is the module, or -1.
 func inModule(units []unit.Unit, cands []int, dir, module string) int {
 	return only(units, cands, func(u unit.Unit) bool {
-		m, ok := moduleOf(u.File)
+		m, ok := unitModule(u)
 		return ok && CrateOf(u.File) == dir && m == module
 	})
 }
 
-// isChildModule reports whether name is a child module of the module
-// file is: a relative path (bar::read) names one of those, or a crate.
-func (ix index) isChildModule(file, name string) bool {
-	module, ok := moduleOf(file)
+// isChildModule reports whether name is a child module of the module the
+// caller is in: a relative path (bar::read) names one of those, or a
+// crate.
+func (ix index) isChildModule(caller unit.Unit, name string) bool {
+	module, ok := unitModule(caller)
 	if !ok {
 		return false
 	}
 	if module != "" {
 		name = module + "::" + name
 	}
-	return ix.rustModules[CrateOf(file)][name]
+	return ix.rustModules[CrateOf(caller.File)][name]
 }
 
 // resolveTyped resolves a Go method call on an operand of type typ
@@ -483,10 +497,10 @@ func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, 
 			return only(units, ix.free[c.Name], func(u unit.Unit) bool { return CrateOf(u.File) == dir })
 		case strings.HasSuffix(caller.File, ".go"):
 			return -1 // Go qualifies only with package names: an outside package
-		case ok, pathKeyword(root), ix.isChildModule(caller.File, root):
+		case ok, pathKeyword(root), ix.isChildModule(caller, root):
 			// The path names a module of the caller's crate: its function,
 			// else (a re-export, say) the crate's one of that name.
-			if u := inModule(units, ix.free[c.Name], CrateOf(caller.File), modulePath(c.Qualifier, caller.File)); u >= 0 {
+			if u := inModule(units, ix.free[c.Name], CrateOf(caller.File), modulePath(c.Qualifier, caller)); u >= 0 {
 				return u
 			}
 			return pickLocal(units, caller, ix.free[c.Name])
