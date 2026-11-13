@@ -718,12 +718,14 @@ duplication, and are dropped below a threshold.
   A test helper is test code that is no test case (`Unit.TestCase`: a
   function with a test attribute, or Go's `TestXxx`, `BenchmarkXxx`,
   `FuzzXxx` and `ExampleXxx` in a test file), such as a fixture, a fake's
-  method or a builder; exact and renamed copies of one are reported at 80
-  nodes (`minTestHelperNodes`, or `--min-nodes` when larger). Test cases,
+  method or a builder; exact and renamed copies of one in at least two
+  files are reported at 80 nodes (`minTestHelperNodes`, or `--min-nodes`
+  when larger), and the helpers count as analysed code in the health
+  figures. Test cases,
   near misses, blocks and constants stay out, as tests repeat on purpose.
   Measured on a 739k-line Rust workspace: 297 groups of helper copies at
   50 nodes, the smallest mostly one-line fakes and accessors, and 156 at
-  80, such as a 33-line event builder in three test files and one
+  80, 124 of them across files, such as a 33-line event builder in three test files and one
   fixture in three crates' test support; with everything in test code
   checked (`--tests`) it reports about 3,300 candidates against 819.
   ddslop itself had four JSON decoders repeating one in its tests.

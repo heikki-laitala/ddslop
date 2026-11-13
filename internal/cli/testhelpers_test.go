@@ -54,3 +54,26 @@ func TestCheckReportsCopiedTestHelpers(t *testing.T) {
 		t.Errorf("occurrences = %s, want the two helpers, not the test cases", got)
 	}
 }
+
+// Copies of a helper within one test file are its own business: only
+// helpers copied between test files are reported.
+func TestCheckLeavesHelperCopiesInOneFileAlone(t *testing.T) {
+	files := testHelperCrate()
+	files["src/orders.rs"] = "pub fn place() {}\n"
+	files["src/accounts.rs"] = "pub fn open() {}\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    fn fixture() -> Store " + helperBody +
+		"\n\n    fn seeded() -> Store " + helperBody + "\n}\n"
+	code, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := decode(t, stdout); code != 0 || len(r.Candidates) != 0 {
+		t.Errorf("exit %d, candidates %+v; want none: both copies are in one file", code, r.Candidates)
+	}
+}
+
+// The helpers compared count as analysed code, so the duplication share
+// measures the code it was found in.
+func TestHelpersCountInTheAnalysedLines(t *testing.T) {
+	_, stdout, _ := run("check", "--format", "json", repo(t, testHelperCrate()))
+	h := decodeHealth(t, stdout).Summary.Health
+	if h.DuplicatedLines == 0 || h.AnalysedLines < 2*h.DuplicatedLines || h.DuplicationPercent > 50 {
+		t.Errorf("health = %+v, want the two helpers' lines among the analysed ones", h)
+	}
+}
