@@ -219,6 +219,8 @@ func callResult(v *sitter.Node) (produced, bool) {
 		case "await_expression":
 			result |= 2
 			v = v.NamedChild(0)
+		case "parenthesized_expression":
+			v = v.NamedChild(0)
 		case "call_expression":
 			return produced{call: span(v), result: result}, true
 		default:
