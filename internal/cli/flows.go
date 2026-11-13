@@ -217,9 +217,13 @@ func graphInputs(root string, files []index.File) flow.Inputs {
 				in.Fields[dir] = map[string]flow.FieldType{}
 			}
 			// Structs of one name in two Rust modules of a crate that type
-			// a field differently leave it unknown ("").
+			// a field differently leave it unknown.
 			key := ft.Struct + "." + ft.Field
-			if known, seen := in.Fields[dir][key]; seen && known.Type != ft.Type {
+			// A relative type (Db, db::Db) means each module's own: declared
+			// in two places, it is unknown unless spelled from crate::.
+			known, seen := in.Fields[dir][key]
+			elsewhere := known.File != ft.File || known.Module != ft.Module
+			if seen && (known.Type != ft.Type || elsewhere && !strings.HasPrefix(ft.Type, "crate::")) {
 				in.Fields[dir][key] = flow.FieldType{}
 			} else if !seen {
 				in.Fields[dir][key] = flow.FieldType{Type: ft.Type, File: ft.File, Module: ft.Module}

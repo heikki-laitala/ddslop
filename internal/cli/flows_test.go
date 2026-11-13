@@ -236,3 +236,22 @@ func TestGraphInputsListRustFilesWithoutFunctions(t *testing.T) {
 		t.Errorf("RustFiles = %s, want both Rust files", got)
 	}
 }
+
+// Two modules' Server { db: Db } mean each module's own Db: a relative
+// type declared in two places is unknown; a crate:: path is the same type
+// wherever it is written.
+func TestGraphInputsLeaveRelativeFieldTypesOfCollidingStructsUntyped(t *testing.T) {
+	field := func(path, typ string) index.File {
+		return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "db", Type: typ, File: path}}}}}
+	}
+	in := graphInputs(t.TempDir(), []index.File{
+		field("a/src/one.rs", "Db"), field("a/src/two.rs", "Db"),
+		field("b/src/one.rs", "crate::db::Db"), field("b/src/two.rs", "crate::db::Db"),
+	})
+	if got := in.Fields["a"]["Server.db"].Type; got != "" {
+		t.Errorf("a's Server.db = %q, want unknown: each module's own Db", got)
+	}
+	if got := in.Fields["b"]["Server.db"].Type; got != "crate::db::Db" {
+		t.Errorf("b's Server.db = %q, want crate::db::Db: one type wherever written", got)
+	}
+}
