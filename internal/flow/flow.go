@@ -362,17 +362,21 @@ func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, 
 			return -1 // a type defined elsewhere, such as Utc::now
 		}
 		// A module path: another workspace crate's when it names one
-		// (token_credentials::decode), otherwise one of the caller's own
-		// modules (utils::log). Outside crates (serde_json::to_value) find
-		// no function of that name in the caller's crate.
+		// (auth::decode), else one of the caller's own modules (utils::log,
+		// crate::utils::log). Any other root is an outside crate's
+		// (std::fs::read, serde_json::to_value), never a function of the
+		// caller's crate that shares the name.
 		root := firstSegment(c.Qualifier)
-		if dir, ok := ix.crates[root]; ok && dir != CrateOf(caller.File) {
+		dir, ok := ix.crates[root]
+		switch {
+		case ok && dir != CrateOf(caller.File):
 			return only(units, ix.free[c.Name], func(u unit.Unit) bool { return CrateOf(u.File) == dir })
-		}
-		if strings.HasSuffix(caller.File, ".go") {
+		case strings.HasSuffix(caller.File, ".go"):
 			return -1 // Go qualifies only with package names: an outside package
+		case ok, root == "crate", root == "self", root == "super", ix.rustModules[CrateOf(caller.File)][root]:
+			return pickLocal(units, caller, ix.free[c.Name])
 		}
-		return pickLocal(units, caller, ix.free[c.Name])
+		return -1
 	case unit.MethodCall:
 		if owner != "" {
 			return ix.pick(units, caller, ix.owned[owner+"::"+c.Name])
