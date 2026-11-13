@@ -100,11 +100,16 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	// the names as they were: x = x.Reset() calls Reset on the old x.
 	case "var_spec":
 		return func() {
-			typ := ""
-			if t := n.ChildByFieldName("type"); t != nil {
-				typ = typeOf(syntax.Compact(t.Utf8Text(s.Src)), g.packages)
-			}
-			for _, name := range fieldNodes(n, "name") {
+			t, values := n.ChildByFieldName("type"), n.ChildByFieldName("value")
+			names := fieldNodes(n, "name")
+			for i, name := range names {
+				typ := ""
+				switch {
+				case t != nil:
+					typ = typeOf(syntax.Compact(t.Utf8Text(s.Src)), g.packages)
+				case values != nil && values.NamedChildCount() == uint(len(names)):
+					typ = g.literalType(values.NamedChild(uint(i)), s.Src) // var x = T{}
+				}
 				g.declare(name.Utf8Text(s.Src), typ, true)
 			}
 		}
@@ -148,6 +153,20 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		return g.scope(true)
 	}
 	return nil
+}
+
+// isReceiver reports whether name is the method's receiver here: no open
+// scope declares a variable of that name.
+func (g grammar) isReceiver(name string) bool {
+	if g.receiver == "" || name != g.receiver {
+		return false
+	}
+	for _, s := range *g.scopes {
+		if s.declared[name] {
+			return false
+		}
+	}
+	return true
 }
 
 // varScope is a lexical scope: the variables declared in it and the
@@ -215,7 +234,7 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 		switch operand.Kind() {
 		case "identifier":
 			switch name := operand.Utf8Text(src); {
-			case name == g.receiver:
+			case g.isReceiver(name):
 				c.Qualifier = "self"
 			case g.packages[name] != "":
 				c.Kind, c.Qualifier = unit.PathCall, name
@@ -225,7 +244,7 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 		case "selector_expression":
 			// s.store.Save(): a method of the receiver's field.
 			if v, f := operand.ChildByFieldName("operand"), operand.ChildByFieldName("field"); v != nil && f != nil &&
-				v.Kind() == "identifier" && g.receiver != "" && v.Utf8Text(src) == g.receiver {
+				v.Kind() == "identifier" && g.isReceiver(v.Utf8Text(src)) {
 				c.Field = f.Utf8Text(src)
 			}
 		}
@@ -317,16 +336,22 @@ func (g grammar) assign(n *sitter.Node, src []byte) {
 		}
 		typ := ""
 		if n.Kind() != "range_clause" && right != nil && right.NamedChildCount() == left.NamedChildCount() {
-			value := right.NamedChild(i)
-			if value.Kind() == "unary_expression" && value.NamedChildCount() == 1 {
-				value = value.NamedChild(0) // &T{}
-			}
-			if t := value.ChildByFieldName("type"); value.Kind() == "composite_literal" && t != nil {
-				typ = typeOf(syntax.Compact(t.Utf8Text(src)), g.packages)
-			}
+			typ = g.literalType(right.NamedChild(i), src)
 		}
 		g.declare(name.Utf8Text(src), typ, declares)
 	}
+}
+
+// literalType returns the type of a composite literal value (T{}, &T{})
+// as typeOf writes it, or "" for any other value.
+func (g grammar) literalType(value *sitter.Node, src []byte) string {
+	if value.Kind() == "unary_expression" && value.NamedChildCount() == 1 {
+		value = value.NamedChild(0) // &T{}
+	}
+	if t := value.ChildByFieldName("type"); value.Kind() == "composite_literal" && t != nil {
+		return typeOf(syntax.Compact(t.Utf8Text(src)), g.packages)
+	}
+	return ""
 }
 
 // typeOf returns a named type as Call.Type writes it, qualified by the
