@@ -547,7 +547,8 @@ func TestRustMethodCallsResolveByTheOperandsType(t *testing.T) {
 // resolves into crates the caller's crate imports from, as Type::f does.
 func TestRustTypedCallsReachImportedCrates(t *testing.T) {
 	units := []unit.Unit{
-		fn("a/src/server.rs", "Server::run", typed("Client", "send")),
+		// use b::Client: the adapter writes the type as b::Client
+		fn("a/src/server.rs", "Server::run", typed("b::Client", "send")),
 		fn("b/src/client.rs", "Client::send"),
 		fn("c/src/client.rs", "Client::send"), // a crate a does not import from
 		fn("c/src/mailer.rs", "Mailer::send"),
@@ -652,5 +653,22 @@ func TestRustModulesOfOnlyTypesKeepPathsInTheCrate(t *testing.T) {
 	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/server.rs", "a/src/model.rs", "a/src/client.rs"}}
 	if got, want := callees(Build(in, units), "a/src/server.rs Server::run"), "[a/src/client.rs Client::send]"; got != want {
 		t.Errorf("Server::run calls %s, want %s", got, want)
+	}
+}
+
+// The adapter qualifies every imported type, so a bare type name is the
+// caller's crate's own: its methods are never another crate's.
+func TestRustBareTypesStayInTheCallersCrate(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run", typed("Client", "send")),
+		fn("a/src/client.rs", "Client::close"),
+		fn("b/src/client.rs", "Client::send"),
+	}
+	in := Inputs{
+		Imports: map[string]map[string]string{"a/src/other.rs": {"Thing": "b::Thing"}}, // a depends on b
+		Crates:  map[string]string{"a": "a", "b": "b"},
+	}
+	if got := callees(Build(in, units), "a/src/server.rs Server::run"); got != "[]" {
+		t.Errorf("Server::run calls %s, want nothing: b's Client is not in scope", got)
 	}
 }

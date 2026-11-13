@@ -943,7 +943,9 @@ that crosses it.
   module's, not a parent module's, and, in a function's body, those of
   each enclosing block): `Client` imported from reqwest is
   `reqwest::Client`, and `m::Client` after `use crate::model as m` is
-  `crate::model::Client`. A path rooted in a workspace crate, in
+  `crate::model::Client`. A bare name is then the caller's crate's own
+  type (a glob import, `use b::*`, is not followed). A path rooted in a
+  workspace crate, in
   `crate`, `self` or `super`, or in one of the caller's crate's modules
   (`model::Client`, by the paths of all its files; an inline `mod` is not
   seen) resolves in that crate alone;
@@ -976,7 +978,7 @@ Typing method calls, measured on the 739k-line Rust workspace: most
 method calls with a stated operand type are on types from outside the
 repository (`Vec` 1,009, `Option` 849, serde's `Value`, maps,
 `Formatter`), which no longer get guessed. Resolved calls went from
-13,770 to 14,323 of 73,038. In its largest crate (138 modules) the
+13,770 to 14,322 of 73,038. In its largest crate (138 modules) the
 layers went from 15 to 12, the shared helpers gained methods reached
 through fields, and three upward calls appeared, each a real cycle
 between two modules that call each other: in two of them a low-level
