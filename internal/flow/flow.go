@@ -366,10 +366,8 @@ func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, 
 		// crate::utils::log). Any other root is an outside crate's
 		// (std::fs::read, serde_json::to_value), never a function of the
 		// caller's crate that shares the name.
+		// The Rust adapter writes an imported root as its import's path.
 		root := firstSegment(c.Qualifier)
-		if imported, ok := ix.imports[caller.File][root]; ok && strings.HasSuffix(caller.File, ".rs") {
-			root = firstSegment(imported) // use crate::util as helpers: helpers::log is crate::util::log
-		}
 		dir, ok := ix.crates[root]
 		switch {
 		case ok && dir != CrateOf(caller.File):
