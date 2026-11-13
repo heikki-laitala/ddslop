@@ -502,3 +502,19 @@ func TestGoMethodCallsOnACallsResultResolveByItsResultType(t *testing.T) {
 		t.Errorf("ByName = %s, want %s: only the call on an unresolved result is a guess", got, want)
 	}
 }
+
+// A producing call found only by its method name may be another type's
+// method: its result types nothing.
+func TestGoGuessedProducersTypeNothing(t *testing.T) {
+	g := Build(Inputs{Modules: map[string]string{".": "example.com/app"}}, []unit.Unit{
+		fn("api/server.go", "Server.Get",
+			method("x", "Open"), // x untyped: Open guessed by its name
+			unit.Call{Kind: unit.MethodCall, Name: "Save", From: 1}),
+		{File: "api/conn.go", Name: "conn.Open", Results: []string{"DB"}},
+		fn("api/db.go", "DB.Save"),
+		fn("api/other.go", "Other.Save"),
+	})
+	if got, want := callees(g, "api/server.go Server.Get"), "[api/conn.go conn.Open]"; got != want {
+		t.Errorf("Server.Get calls %s, want %s: Save on a guessed result stays unresolved", got, want)
+	}
+}
