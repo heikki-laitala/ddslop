@@ -972,8 +972,8 @@ that crosses it.
   `unwrap` or `expect`, the last two unwrapping as `?` does, when the
   repository defines no method of that name for the value; an adapter
   or a `?` after a field unwraps the field (`make().inner.unwrap().run()`,
-  `self.ctx?.db.query()`, each field recording what unwrapping leaves of
-  it): its own
+  `self.inner.unwrap().run()`, `self.ctx?.db.query()`, each field
+  recording what unwrapping leaves of it): its own
   `unwrap` is a call like any other, with its own result). For the last, each function records
   its result types (`Unit.Results`): as returned, and what a `?` leaves,
   the type inside a `Result` or `Option`; an `async fn` returns a future,
