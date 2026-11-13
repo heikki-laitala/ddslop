@@ -57,6 +57,7 @@ type index struct {
 // a relative type path is read there.
 type FieldType struct {
 	Type, File, Module string
+	Unwrapped          string // see unit.FieldType
 }
 
 // Inputs are what call resolution needs besides the units.
@@ -206,10 +207,17 @@ func (r *callResolver) resolveCall(c unit.Call) (int, bool) {
 			// of the call it adapts, unwrapped by one that unwraps.
 			through := c
 			through.From, through.Result = adapter.From, adapter.Result|c.Result
-			// make().inner.unwrap().run(): the fields before the adapter,
-			// then any after it.
-			through.Field = strings.Trim(adapter.Field+"."+c.Field, ".")
-			if adapter.Adapts == 2 {
+			unwraps := adapter.Adapts == 2 || c.Result&1 == 1
+			if adapter.Field != "" {
+				// make().inner.unwrap().run(): the fields before the adapter,
+				// the last unwrapped when the adapter or a ? unwraps it ("?"),
+				// then any after it.
+				through.Result = adapter.Result
+				if unwraps {
+					adapter.Field += "?"
+				}
+				through.Field = strings.Trim(adapter.Field+"."+c.Field, ".")
+			} else if unwraps {
 				through.Result |= 1
 			}
 			return r.resolveCall(through)
@@ -309,16 +317,21 @@ func (ix index) resolveRust(units []unit.Unit, caller, home unit.Unit, typ, meth
 
 // followFields follows a Rust field path (ctx.db) from a type written
 // where home is, through the struct declarations: each field's declared
-// type, read in its struct's crate. It returns the last field's type and
-// a unit standing for where that type is written, or "" when a field's
-// type is not known.
+// type, or what unwrapping leaves of it for a field marked "?" (inner?),
+// read in its struct's crate. It returns the last field's type and a unit
+// standing for where that type is written, or "" when a field's type is
+// not known.
 func (ix index) followFields(typ string, home unit.Unit, path string) (string, unit.Unit) {
 	for _, field := range strings.Split(path, ".") {
 		dir, ok := ix.crateOfPath(typ, home)
 		if !ok {
 			return "", home
 		}
+		field, unwrap := strings.CutSuffix(field, "?")
 		next := ix.fields[dir][unit.SimpleName(typ)+"."+field]
+		if unwrap {
+			next.Type = next.Unwrapped
+		}
 		if next.Type == "" {
 			return "", home
 		}

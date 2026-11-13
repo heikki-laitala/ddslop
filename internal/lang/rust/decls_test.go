@@ -797,6 +797,25 @@ struct Pair(Left, Right);
 	}
 }
 
+// A field's unwrapped type is what ? or unwrap() leaves of it: inside an
+// Option or Result, the type itself otherwise.
+func TestStructFieldTypesRecordWhatUnwrappingLeaves(t *testing.T) {
+	src := `struct Server {
+    db: Option<Arc<Database>>,
+    cache: Result<Cache, Error>,
+    store: Store,
+}
+`
+	var got []string
+	for _, f := range mustDecls(t, src).FieldTypes {
+		got = append(got, fmt.Sprintf("%s %s %s", f.Field, f.Type, f.Unwrapped))
+	}
+	want := []string{"db Option Database", "cache Result Cache", "store Store Store"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("field types:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
 func TestRustBindingsTakeEffectWhereTheyAreInScope(t *testing.T) {
 	src := `fn run(store: &Store, items: Vec<Item>) {
     for store in store.items() {

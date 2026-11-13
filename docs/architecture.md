@@ -970,7 +970,9 @@ that crosses it.
   a value built by a call (`let s = Store::new()`, `Db::connect().await?`,
   a chained `Store::open()?.get()`, also through `map_err`, `context`,
   `unwrap` or `expect`, the last two unwrapping as `?` does, when the
-  repository defines no method of that name for the value: its own
+  repository defines no method of that name for the value; an adapter
+  after a field unwraps the field (`make().inner.unwrap().run()`, each
+  field recording what unwrapping leaves of it): its own
   `unwrap` is a call like any other, with its own result). For the last, each function records
   its result types (`Unit.Results`): as returned, and what a `?` leaves,
   the type inside a `Result` or `Option`; an `async fn` returns a future,

@@ -255,6 +255,9 @@ type Decls struct {
 // "example.com/app/store.Store".
 type FieldType struct {
 	Struct, Field, Type string
+	// Unwrapped is what ? or unwrap() leaves of a Rust field's value:
+	// the type inside an Option or Result, the type itself otherwise.
+	Unwrapped string
 	// File and Module are where the struct is declared: its file and, in
 	// Rust, the inline module within it, where a relative type is read.
 	File, Module string
