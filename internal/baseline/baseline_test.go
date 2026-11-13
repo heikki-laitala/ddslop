@@ -126,3 +126,24 @@ func TestADriftIsKnownOnlyByItsOwnFingerprint(t *testing.T) {
 		t.Errorf("kept = %s, want %s", got, want)
 	}
 }
+
+// A cycle is its crate and modules: known by its fingerprint whichever
+// calls close it now, and its entry knows nothing else.
+func TestACycleIsKnownByItsFingerprintAlone(t *testing.T) {
+	base := FromReport(rep(
+		cand("rust:dependency-cycle:config-store", "dependency-cycle", occ("config.rs", "load", 1), occ("store.rs", "open", 1)),
+	))
+
+	now := rep(
+		// The same modules, now closed by other calls: known.
+		cand("rust:dependency-cycle:config-store", "dependency-cycle", occ("config.rs", "validate", 9), occ("store.rs", "access", 4)),
+		// Another pair calling each other: new.
+		cand("rust:dependency-cycle:store-cache", "dependency-cycle", occ("config.rs", "load", 1), occ("store.rs", "open", 1)),
+		// Another kind in the cycle's functions: new.
+		cand("rust:dead:load", "dead-code", occ("config.rs", "load", 1)),
+	)
+
+	if got, want := ids(Filter(now, base)), "[c1:rust:dependency-cycle:store-cache c2:rust:dead:load]"; got != want {
+		t.Errorf("kept = %s, want %s", got, want)
+	}
+}

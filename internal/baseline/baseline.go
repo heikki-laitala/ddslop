@@ -89,7 +89,9 @@ func Load(path string) (Baseline, error) {
 // drift has one occurrence, a function that other candidates and other
 // drifts can share, so it is known only by its fingerprint (the concern,
 // the form and the function) together with its occurrence, and a drift's
-// entry knows no candidate of another kind.
+// entry knows no candidate of another kind. A dependency cycle is its
+// crate and modules, whichever calls close it, so it is known by its
+// fingerprint alone, and its entry knows nothing else.
 func Filter(r report.Report, b Baseline) report.Report {
 	known := make([]map[string]bool, len(b.Candidates))
 	for i, e := range b.Candidates {
@@ -103,6 +105,14 @@ func Filter(r report.Report, b Baseline) report.Report {
 		for i, entry := range known {
 			drift := c.Kind == report.ConventionDrift || b.Candidates[i].Kind == report.ConventionDrift
 			if drift && b.Candidates[i].Fingerprint != c.Fingerprint {
+				continue
+			}
+			// A cycle is its crate and modules, whichever calls close it.
+			if c.Kind == report.DependencyCycle || b.Candidates[i].Kind == report.DependencyCycle {
+				if b.Candidates[i].Fingerprint == c.Fingerprint {
+					suppressed++
+					return false
+				}
 				continue
 			}
 			if all(c.Occurrences, entry) {
