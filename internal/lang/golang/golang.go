@@ -43,6 +43,9 @@ var leafKinds = map[string]unit.LeafKind{
 type grammar struct {
 	receiver string
 	packages map[string]string // imported name -> import path
+	// vars maps the function's variables whose type the code states to
+	// that type (see typeOf), as declarations are visited.
+	vars map[string]string
 }
 
 // Prefix keeps Go's symbols apart from other languages' alike-named kinds.
@@ -90,6 +93,16 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		if form := errorComparison(n, s.Src); form.Form != "" {
 			s.Forms = append(s.Forms, form)
 		}
+	case "var_spec":
+		typ := ""
+		if t := n.ChildByFieldName("type"); t != nil {
+			typ = typeOf(syntax.Compact(t.Utf8Text(s.Src)), g.packages)
+		}
+		for _, name := range fieldNodes(n, "name") {
+			g.declare(name.Utf8Text(s.Src), typ)
+		}
+	case "short_var_declaration", "assignment_statement", "range_clause":
+		g.assign(n, s.Src)
 	case "expression_switch_statement":
 		var values []string
 		for i := uint(0); i < n.NamedChildCount(); i++ {
@@ -132,12 +145,21 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 			return c, false
 		}
 		c.Kind, c.Name = unit.MethodCall, field.Utf8Text(src)
-		if operand.Kind() == "identifier" {
+		switch operand.Kind() {
+		case "identifier":
 			switch name := operand.Utf8Text(src); {
 			case name == g.receiver:
 				c.Qualifier = "self"
 			case g.packages[name] != "":
 				c.Kind, c.Qualifier = unit.PathCall, name
+			default:
+				c.Type = g.vars[name]
+			}
+		case "selector_expression":
+			// s.store.Save(): a method of the receiver's field.
+			if v, f := operand.ChildByFieldName("operand"), operand.ChildByFieldName("field"); v != nil && f != nil &&
+				v.Kind() == "identifier" && g.receiver != "" && v.Utf8Text(src) == g.receiver {
+				c.Field = f.Utf8Text(src)
 			}
 		}
 	default:
@@ -183,6 +205,78 @@ func errorCallForm(c unit.Call, pkg string, n *sitter.Node, src []byte) unit.For
 		}
 	}
 	return form
+}
+
+// declare records a variable's type, or forgets the variable when its
+// type is unknown ("").
+func (g grammar) declare(name, typ string) {
+	if typ == "" {
+		delete(g.vars, name)
+		return
+	}
+	g.vars[name] = typ
+}
+
+// assign updates the variables an assignment, short declaration or range
+// clause sets: one set from a composite literal (T{}, &T{}) takes its type,
+// any other is forgotten.
+func (g grammar) assign(n *sitter.Node, src []byte) {
+	left, right := n.ChildByFieldName("left"), n.ChildByFieldName("right")
+	if left == nil {
+		return
+	}
+	for i := uint(0); i < left.NamedChildCount(); i++ {
+		name := left.NamedChild(i)
+		if name.Kind() != "identifier" {
+			continue
+		}
+		typ := ""
+		if n.Kind() != "range_clause" && right != nil && right.NamedChildCount() == left.NamedChildCount() {
+			value := right.NamedChild(i)
+			if value.Kind() == "unary_expression" && value.NamedChildCount() == 1 {
+				value = value.NamedChild(0) // &T{}
+			}
+			if t := value.ChildByFieldName("type"); value.Kind() == "composite_literal" && t != nil {
+				typ = typeOf(syntax.Compact(t.Utf8Text(src)), g.packages)
+			}
+		}
+		g.declare(name.Utf8Text(src), typ)
+	}
+}
+
+// typeOf returns a named type as Call.Type writes it, qualified by the
+// file's imports, without pointer or type arguments: *st.DB gives
+// "example.com/app/store.DB", Cache[T] gives "Cache". Predeclared types,
+// types of unknown packages and other types (slices, maps, functions)
+// give "".
+func typeOf(typ string, packages map[string]string) string {
+	typ = strings.TrimPrefix(typ, "*")
+	for _, other := range []string{"[", "map[", "chan", "func(", "interface{", "struct{"} {
+		if strings.HasPrefix(typ, other) {
+			return ""
+		}
+	}
+	if i := strings.IndexByte(typ, '['); i >= 0 {
+		typ = typ[:i]
+	}
+	if pkg, name, ok := strings.Cut(typ, "."); ok {
+		if packages[pkg] == "" {
+			return ""
+		}
+		return packages[pkg] + "." + name
+	}
+	if predeclared[typ] {
+		return ""
+	}
+	return typ
+}
+
+// predeclared are Go's predeclared types.
+var predeclared = map[string]bool{
+	"any": true, "bool": true, "byte": true, "comparable": true, "complex64": true, "complex128": true,
+	"error": true, "float32": true, "float64": true, "int": true, "int8": true, "int16": true, "int32": true,
+	"int64": true, "rune": true, "string": true, "uint": true, "uint8": true, "uint16": true, "uint32": true,
+	"uint64": true, "uintptr": true,
 }
 
 // formatVerbs returns the verbs of a format string's directives, in
@@ -274,7 +368,14 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 			case "const_declaration":
 				decls.Consts = append(decls.Consts, constants(n, path, src, test)...)
 			case "type_declaration":
-				decls.Structs = append(decls.Structs, structs(n, path, src, test)...)
+				for _, st := range structs(n, path, src, test) {
+					decls.Structs = append(decls.Structs, st)
+					for _, f := range st.Fields {
+						if typ := typeOf(f.Type, packages); typ != "" {
+							decls.FieldTypes = append(decls.FieldTypes, unit.FieldType{Struct: st.Name, Field: f.Name, Type: typ})
+						}
+					}
+				}
 				for _, ft := range funcTypes(n, src) {
 					ft.File, ft.Test = path, test
 					decls.FuncTypes = append(decls.FuncTypes, ft)
@@ -298,7 +399,13 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 	if owner != "" {
 		full = owner + "." + short
 	}
-	s := syntax.Flatten(n, src, grammar{receiver: receiverName(n, src), packages: packages})
+	vars := map[string]string{}
+	eachParam(n.ChildByFieldName("parameters"), src, func(name, typ string) {
+		if t := typeOf(typ, packages); name != "" && t != "" {
+			vars[name] = t
+		}
+	})
+	s := syntax.Flatten(n, src, grammar{receiver: receiverName(n, src), packages: packages, vars: vars})
 	return unit.Unit{
 		File:      path,
 		Name:      full,

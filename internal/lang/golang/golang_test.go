@@ -469,3 +469,88 @@ func variadic(a int, rest ...string) {}
 		t.Errorf("signatures = %v, want %s", got, want)
 	}
 }
+
+func TestMethodCallsRecordTheTypeTheCodeStates(t *testing.T) {
+	src := `package api
+
+import (
+	"strings"
+
+	st "example.com/app/internal/store"
+)
+
+func (s *Server) Get(db *st.DB, q Query, names []string, n int) {
+	db.Load()
+	q.Run()
+	var b strings.Builder
+	b.WriteString("x")
+	c := &Cache{}
+	c.Fill()
+	d := st.Index{}
+	d.Find()
+	s.store.Save()
+	s.Flush()
+	names[0].Trim()
+	n.String()
+	c = other()
+	c.Fill()
+	unknown.Do()
+}
+`
+	units, _, err := Parse("api/server.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range units[0].Calls {
+		if c.Kind == unit.MethodCall {
+			got = append(got, fmt.Sprintf("%s type=%q field=%q", c.Name, c.Type, c.Field))
+		}
+	}
+	want := []string{
+		`Load type="example.com/app/internal/store.DB" field=""`,
+		`Run type="Query" field=""`,
+		`WriteString type="strings.Builder" field=""`,
+		`Fill type="Cache" field=""`,
+		`Find type="example.com/app/internal/store.Index" field=""`,
+		`Save type="" field="store"`,
+		`Flush type="" field=""`,
+		`Trim type="" field=""`,
+		`String type="" field=""`,
+		`Fill type="" field=""`,
+		`Do type="" field=""`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("method calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestStructFieldTypesAreQualifiedByTheFileImports(t *testing.T) {
+	src := `package api
+
+import st "example.com/app/internal/store"
+
+type Server struct {
+	store *st.Store
+	cache Cache
+	names []string
+	st.Logger
+}
+`
+	_, decls, err := Parse("api/server.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range decls.FieldTypes {
+		got = append(got, fmt.Sprintf("%s.%s %s", f.Struct, f.Field, f.Type))
+	}
+	want := []string{
+		"Server.store example.com/app/internal/store.Store",
+		"Server.cache Cache",
+		"Server.Logger example.com/app/internal/store.Logger",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("field types:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
