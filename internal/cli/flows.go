@@ -208,6 +208,11 @@ func graphInputs(root string, files []index.File) flow.Inputs {
 		if len(f.Imports) > 0 {
 			in.Imports[f.Path] = f.Imports
 		}
+		for _, im := range f.Decls.Impls {
+			if !im.Test {
+				in.Impls = append(in.Impls, im)
+			}
+		}
 		dir := flow.CrateOf(f.Path)
 		for _, ft := range f.Decls.FieldTypes {
 			if ft.Test {
