@@ -968,3 +968,27 @@ func TestUseDeclarationsInNestedBlocksQualifyThere(t *testing.T) {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+func TestCfgTestStructsAreTestCode(t *testing.T) {
+	src := `#[cfg(test)]
+struct Server {
+    db: FakeDb,
+}
+
+struct Client {
+    http: Http,
+}
+`
+	d := mustDecls(t, src)
+	var got []string
+	for _, s := range d.Structs {
+		got = append(got, fmt.Sprintf("struct %s test=%v", s.Name, s.Test))
+	}
+	for _, f := range d.FieldTypes {
+		got = append(got, fmt.Sprintf("field %s.%s test=%v", f.Struct, f.Field, f.Test))
+	}
+	want := "struct Server test=true\nstruct Client test=false\nfield Server.db test=true\nfield Client.http test=false"
+	if strings.Join(got, "\n") != want {
+		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
