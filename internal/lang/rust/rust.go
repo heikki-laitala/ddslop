@@ -1487,18 +1487,23 @@ func (g grammar) recordCall(s *syntax.Shaper, n *sitter.Node) {
 		case value.Kind() == "identifier":
 			op := g.vars[value.Utf8Text(s.Src)]
 			c.Type, c.From, c.Result = op.Type, op.From, op.Result
-		case value.Kind() == "field_expression":
+		case value.Kind() == "field_expression" || triedField(value):
 			// self.ctx.db.query(), req.store.get(), make().inner.run(): the
-			// fields followed from where the chain starts.
+			// fields followed from where the chain starts, one a ? unwraps
+			// marked "?" (make().inner?.run()).
 			var fields []string
-			base := value
-			for base != nil && base.Kind() == "field_expression" {
+			base, unwrap := value, ""
+			for base != nil && (base.Kind() == "field_expression" || triedField(base)) {
+				if triedField(base) {
+					base, unwrap = base.NamedChild(0), "?"
+					continue
+				}
 				f := base.ChildByFieldName("field")
 				if f == nil {
 					break
 				}
-				fields = append([]string{f.Utf8Text(s.Src)}, fields...)
-				base = base.ChildByFieldName("value")
+				fields = append([]string{f.Utf8Text(s.Src) + unwrap}, fields...)
+				base, unwrap = base.ChildByFieldName("value"), ""
 			}
 			switch {
 			case base == nil || base.Kind() == "field_expression":
@@ -1535,6 +1540,12 @@ func (g grammar) recordCall(s *syntax.Shaper, n *sitter.Node) {
 	}
 	g.calls[span(n)] = len(s.Calls)
 	s.Calls = append(s.Calls, c)
+}
+
+// triedField reports whether a node is a field a ? unwraps: inner? in
+// make().inner?.run().
+func triedField(n *sitter.Node) bool {
+	return n.Kind() == "try_expression" && n.NamedChildCount() > 0 && n.NamedChild(0).Kind() == "field_expression"
 }
 
 // recordMatch notes a match whose arm patterns hold at least

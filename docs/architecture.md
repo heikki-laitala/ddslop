@@ -966,13 +966,14 @@ that crosses it.
   (`self.ctx.db.query()`, `req.store.get()`, `make().inner.run()`, each
   field's type read where its struct is declared, in its file and inline
   module, and of two types of one name in a crate the one in the module
-  the path names), or
+  the path names, `b::foo::Db` crate `b`'s `foo`), or
   a value built by a call (`let s = Store::new()`, `Db::connect().await?`,
   a chained `Store::open()?.get()`, also through `map_err`, `context`,
   `unwrap` or `expect`, the last two unwrapping as `?` does, when the
   repository defines no method of that name for the value; an adapter
-  after a field unwraps the field (`make().inner.unwrap().run()`, each
-  field recording what unwrapping leaves of it): its own
+  or a `?` after a field unwraps the field (`make().inner.unwrap().run()`,
+  `self.ctx?.db.query()`, each field recording what unwrapping leaves of
+  it): its own
   `unwrap` is a call like any other, with its own result). For the last, each function records
   its result types (`Unit.Results`): as returned, and what a `?` leaves,
   the type inside a `Result` or `Option`; an `async fn` returns a future,

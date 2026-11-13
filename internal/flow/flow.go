@@ -295,12 +295,22 @@ func (ix index) resolveRust(units []unit.Unit, caller, home unit.Unit, typ, meth
 	}
 	cands := slices.DeleteFunc(slices.Clone(ix.owned[name+"::"+method]), func(u int) bool { return CrateOf(units[u].File) != dir })
 	// Two types of one name in a crate: the module the path names (db::Db
-	// read in server is server::db's; a bare name, home's own module).
-	if dir == CrateOf(home.File) || pathKeyword(firstSegment(typ)) {
-		module, _ := unitModule(home)
+	// read in server is server::db's; a bare name, home's own module;
+	// b::foo::Db is crate b's foo's).
+	module, named := "", true
+	switch root := firstSegment(typ); {
+	case dir == CrateOf(home.File) || pathKeyword(root):
+		module, _ = unitModule(home)
 		if i := strings.LastIndex(typ, "::"); i >= 0 {
 			module = modulePath(typ[:i], home)
 		}
+	case ix.crates[root] == dir:
+		module = strings.TrimPrefix(strings.TrimPrefix(strings.TrimSuffix(typ, name), root), "::")
+		module = strings.TrimSuffix(module, "::")
+	default:
+		named = false
+	}
+	if named {
 		if u := inModule(units, cands, dir, module); u >= 0 {
 			return u, true
 		}

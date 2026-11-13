@@ -1333,6 +1333,9 @@ func TestMethodCallsThroughFieldChainsRecordThePath(t *testing.T) {
         req.store.get();
         make().inner.run();
         self.db.ping();
+        make().inner?.run();
+        self.ctx?.db.query();
+        req.store?.get();
     }
 }
 `
@@ -1353,6 +1356,10 @@ func TestMethodCallsThroughFieldChainsRecordThePath(t *testing.T) {
 		`get type="Request" from=- field="store"`,
 		`run type="" from=make field="inner"`,
 		`ping type="" from=- field="db"`,
+		// A ? on a field unwraps it ("?"): what is inside its Option.
+		`run type="" from=make field="inner?"`,
+		`query type="" from=- field="ctx?.db"`,
+		`get type="Request" from=- field="store?"`,
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
