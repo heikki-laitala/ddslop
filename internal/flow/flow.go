@@ -163,10 +163,12 @@ func (r *callResolver) resolve(k int) (int, bool) {
 }
 
 // resolveCall resolves a call whose operand may be another call's result:
-// typed by that result, read in the producing function's package.
+// typed by that result, read in the producing function's package. A
+// producer found by its method name alone may be another type's method,
+// so its result types nothing.
 func (r *callResolver) resolveCall(c unit.Call) (int, bool) {
 	if c.From > 0 && c.From <= len(r.done) {
-		if callee, _ := r.resolve(c.From - 1); callee >= 0 && c.Result < len(r.units[callee].Results) {
+		if callee, guessed := r.resolve(c.From - 1); callee >= 0 && !guessed && c.Result < len(r.units[callee].Results) {
 			if typ := r.units[callee].Results[c.Result]; typ != "" {
 				if u, known := r.ix.resolveTyped(r.units, CrateOf(r.units[callee].File), typ, c.Name); known {
 					return u, false
