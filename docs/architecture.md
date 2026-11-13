@@ -945,7 +945,8 @@ that crosses it.
   `reqwest::Client`, and `m::Client` after `use crate::model as m` is
   `crate::model::Client`. A path rooted in a workspace crate, in
   `crate`, `self` or `super`, or in one of the caller's crate's modules
-  (`model::Client`, by its files' paths) resolves in that crate alone;
+  (`model::Client`, by the paths of all its files; an inline `mod` is not
+  seen) resolves in that crate alone;
   one rooted anywhere else is an outside crate's, and calls on it, as on
   a type with no methods in the repository (`Vec`, `Option`, serde's
   `Value`), resolve to nothing. An untyped `x.m()`, or one on a repository
