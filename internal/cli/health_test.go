@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -23,11 +22,7 @@ type healthReport struct {
 
 func decodeHealth(t *testing.T, stdout string) healthReport {
 	t.Helper()
-	var r healthReport
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not valid JSON: %v\n%s", err, stdout)
-	}
-	return r
+	return decodeJSON[healthReport](t, stdout)
 }
 
 func TestCheckSummarisesRepositoryHealth(t *testing.T) {

@@ -18,6 +18,7 @@ func lines(n int, prefix string) string {
 	return b.String()
 }
 
+// ddslop:ignore integrate's tests write files the same way; test helpers cannot be shared across packages without a package of their own
 func writeFile(t *testing.T, root, name, content string) {
 	t.Helper()
 	p := filepath.Join(root, name)

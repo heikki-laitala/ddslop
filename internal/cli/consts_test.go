@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -33,11 +32,7 @@ type targetReport struct {
 
 func decodeTargets(t *testing.T, stdout string) targetReport {
 	t.Helper()
-	var r targetReport
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not valid JSON: %v\n%s", err, stdout)
-	}
-	return r
+	return decodeJSON[targetReport](t, stdout)
 }
 
 func TestCheckReportsConstantsDeclaredTwice(t *testing.T) {
