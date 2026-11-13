@@ -2,6 +2,7 @@ package flow
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/heikki-laitala/ddslop/internal/unit"
@@ -516,5 +517,50 @@ func TestGoGuessedProducersTypeNothing(t *testing.T) {
 	})
 	if got, want := callees(g, "api/server.go Server.Get"), "[api/conn.go conn.Open]"; got != want {
 		t.Errorf("Server.Get calls %s, want %s: Save on a guessed result stays unresolved", got, want)
+	}
+}
+
+func TestRustMethodCallsResolveByTheOperandsType(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run",
+			typed("Store", "save"), // store: &Store
+			unit.Call{Kind: unit.MethodCall, Field: "db", Name: "query"}, // self.db.query()
+			typed("Vec", "frobnicate")),                                  // no Vec method here: guessed by name
+		fn("a/src/store.rs", "Store::save"),
+		fn("a/src/cache.rs", "Cache::save"),
+		fn("b/src/store.rs", "Store::save"), // another crate's Store
+		fn("a/src/db.rs", "Database::query"),
+		fn("a/src/other.rs", "Other::query"),
+		fn("a/src/thing.rs", "Thing::frobnicate"),
+	}
+	g := Build(Inputs{Fields: map[string]map[string]string{"a": {"Server.db": "Database"}}}, units)
+	want := "[a/src/store.rs Store::save a/src/db.rs Database::query a/src/thing.rs Thing::frobnicate]"
+	if got := callees(g, "a/src/server.rs Server::run"); got != want {
+		t.Errorf("Server::run calls %s,\nwant %s", got, want)
+	}
+	if got, want := fmt.Sprint(g.ByName[0]), "[false false true]"; got != want {
+		t.Errorf("ByName = %s, want %s: only the call on Vec is a guess", got, want)
+	}
+}
+
+// A Rust type often comes from another workspace crate: the call
+// resolves into crates the caller's crate imports from, as Type::f does.
+func TestRustTypedCallsReachImportedCrates(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run", typed("Client", "send")),
+		fn("b/src/client.rs", "Client::send"),
+		fn("c/src/client.rs", "Client::send"), // a crate a does not import from
+		fn("c/src/mailer.rs", "Mailer::send"),
+	}
+	in := Inputs{
+		Imports: map[string]map[string]string{"a/src/server.rs": {"Client": "b::Client"}},
+		Crates:  map[string]string{"a": "a", "b": "b", "c": "c"},
+	}
+	g := Build(in, units)
+	if got, want := callees(g, "a/src/server.rs Server::run"), "[b/src/client.rs Client::send]"; got != want {
+		t.Errorf("Server::run calls %s, want %s", got, want)
+	}
+	if !slices.Equal(g.ByName[0], []bool{false}) {
+		t.Errorf("ByName = %v, want a named call", g.ByName[0])
 	}
 }
