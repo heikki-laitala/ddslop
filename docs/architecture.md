@@ -961,8 +961,10 @@ that crosses it.
   does.
 - `self.m()` resolves to the caller's type. `x.m()` on a value whose type
   the code states resolves as `Type::m()` does: a parameter (`store: &mut
-  Store`, `Self`), a typed `let` or one bound to a struct literal, the
-  impl's field (`self.db.query()`, typed by the struct's declaration), or
+  Store`, `Self`), a typed `let` or one bound to a struct literal, a
+  field chain from the impl, a typed variable or a call's result
+  (`self.ctx.db.query()`, `req.store.get()`, `make().inner.run()`, each
+  field typed by its struct's declaration in that struct's crate), or
   a value built by a call (`let s = Store::new()`, `Db::connect().await?`,
   a chained `Store::open()?.get()`, also through `map_err`, `context`,
   `unwrap` or `expect`, the last two unwrapping as `?` does, when the
@@ -1034,6 +1036,9 @@ as a break depends on the weights of both, so one of them came and went
 as review fixes changed which calls resolve. `check` reported the same
 candidates. Typing values built by calls then resolved 14,524 calls
 (14,322); the layers, breaks, helpers and `check` stayed the same.
+Following field chains past the impl's own fields resolved 101 more on
+the workspace (14,891 to 14,992) and showed two more real cycles, each
+reached through a field of a typed variable.
 
 ### Entry points
 
