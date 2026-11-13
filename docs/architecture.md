@@ -993,7 +993,10 @@ that crosses it.
   resolves to nothing rather than to a method guessed by its name. It
   drops a
   variable's type where a `let`, a pattern (`match`, `if let`, `for`) or a
-  closure parameter shadows it, until its block ends; a `let` takes effect
+  closure parameter shadows it, until its block ends, except that `Some(x)`
+  or `Ok(x)` (in `if let`, `while let`, a let-else or a `match` arm) binds
+  what a `?` leaves of the call it matches, or of a variable holding one
+  (`if let Some(s) = find()`); a `let` takes effect
   after its value, a `for` pattern in its body alone, and an `if let`'s
   or `while let`'s bindings from right after their value (so later
   operands of a let chain see them), not in an `else`. A field whose struct name two modules of a crate
@@ -1057,7 +1060,9 @@ reached through a field of a typed variable. Typing values of a trait
 rather than by name alone there (13,607 to 13,669) and 5 on the
 service; calls on traits with several implementations, no longer
 guessed, took all resolved calls from 15,057 to 15,054. `check`
-reported the same candidates.
+reported the same candidates. Binding `Some(x)` and `Ok(x)` to what
+unwrapping a call leaves resolved 40 more by type on the workspace
+(13,669 to 13,709) and 10 on the service.
 
 ### Entry points
 
