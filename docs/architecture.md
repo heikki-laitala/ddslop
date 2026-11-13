@@ -2013,8 +2013,8 @@ Built, following pruner's release setup:
   ddslop on its own code with no baseline, both the built binary and the
   latest release through the action, failing on any candidate; the
   action uploads its SARIF to code scanning, so pull requests carry the
-  same annotations as users'. A fork's pull request, whose token cannot
-  upload, and `upload-sarif: "false"` get workflow annotations from the
+  same annotations as users'. Pull requests from forks and Dependabot,
+  whose token cannot upload, and `upload-sarif: "false"` get workflow annotations from the
   SARIF instead. The action job also runs the action on a sample with a
   renamed copy, whole and in diff mode on a sample history. The repository has the ddslop skill
   installed for Claude Code and Codex (`ddslop init --claude --codex`).

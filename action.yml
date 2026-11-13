@@ -25,7 +25,7 @@ inputs:
     description: Further arguments for ddslop check, separated by spaces.
     default: ""
   upload-sarif:
-    description: Upload the results to GitHub code scanning (needs the security-events write permission). Pull requests from forks, whose token cannot upload, get workflow annotations instead, as when this is "false".
+    description: Upload the results to GitHub code scanning (needs the security-events write permission). Pull requests from forks and Dependabot, whose token cannot upload, get workflow annotations instead, as when this is "false".
     default: "true"
 
 outputs:
@@ -94,10 +94,12 @@ runs:
       env:
         UPLOAD: ${{ inputs.upload-sarif }}
         FORK: ${{ github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository }}
+        DEPENDABOT: ${{ github.event.pull_request && github.actor == 'dependabot[bot]' }}
       run: |
-        # A fork's pull request gets a read-only token: uploading would fail.
-        if [ "$UPLOAD" = true ] && [ "$FORK" = true ]; then
-          echo "::notice::ddslop: a pull request from a fork cannot upload to code scanning; results are shown as annotations"
+        # Pull requests from forks and Dependabot get a read-only token:
+        # uploading would fail.
+        if [ "$UPLOAD" = true ] && { [ "$FORK" = true ] || [ "$DEPENDABOT" = true ]; }; then
+          echo "::notice::ddslop: this pull request's token cannot upload to code scanning; results are shown as annotations"
           UPLOAD=false
         fi
         echo "upload=$UPLOAD" >>"$GITHUB_OUTPUT"
