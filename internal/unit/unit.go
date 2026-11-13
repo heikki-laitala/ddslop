@@ -137,6 +137,14 @@ type Call struct {
 	Qualifier string
 	Name      string
 	Line      int
+	// Type is the type of a method call's operand where the code states
+	// it (a parameter, var x T, x := T{}), as a Go package's import path
+	// and the type name ("example.com/app/store.DB"), or the name alone
+	// for the caller's own package. Go only.
+	Type string
+	// Field is the receiver's field a method is called on: store in
+	// s.store.Save(). Go only.
+	Field string
 }
 
 // Statement is one statement of a block, as positions in its unit.
@@ -210,6 +218,16 @@ type Decls struct {
 	TypeNames []string
 	// FuncTypes are the function types the file declares; Go only.
 	FuncTypes []FuncType
+	// FieldTypes are the types of the file's struct fields, written as
+	// Call.Type; fields of other types (slices, maps) are left out. Go
+	// only.
+	FieldTypes []FieldType
+}
+
+// FieldType is the type of one struct field: Server.store is a
+// "example.com/app/store.Store".
+type FieldType struct {
+	Struct, Field, Type string
 }
 
 // FuncType is a function type declaration: type command func(args
