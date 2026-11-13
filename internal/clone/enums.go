@@ -35,6 +35,7 @@ const minDistinctVariants = 3
 // Enums groups enums declaring the same variants, names and payloads, in
 // any order. Groups are ordered by duplicated size, largest first, then by
 // the location of their first enum.
+// ddslop:ignore one group.Collect call with its own key and filter, like Structs; shape, not logic
 func Enums(enums []unit.Enum) []EnumGroup {
 	groups := group.Collect(enums, func(e unit.Enum) (string, bool) { return variantKey(e), len(e.Variants) >= 2 },
 		func(_ string, members []unit.Enum) (EnumGroup, bool) {

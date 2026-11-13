@@ -311,7 +311,7 @@ are left out, since they may satisfy an interface. The rule "the
 arguments are the parameters, in order, as is or borrowed" lives once in
 `syntax.PassesOn`; the per-grammar rest of wrapper detection and of the
 grammar hooks stays per adapter until a third language (extract on the
-third occurrence), recorded in ddslop's own baseline. Go functions also
+third occurrence), marked `ddslop:ignore` in ddslop's own code. Go functions also
 record their parameters (a `context.Context` left out: Go passes it
 explicitly and never stores it in a struct, so it is never part of a
 parameter object) and their switches on strings (`case "a", "b":`), so
