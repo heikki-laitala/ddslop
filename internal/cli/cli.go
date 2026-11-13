@@ -525,6 +525,7 @@ func check(root string, opts options) (report.Report, error) {
 		decls.Traits = append(decls.Traits, f.Decls.Traits...)
 		decls.Impls = append(decls.Impls, f.Decls.Impls...)
 		decls.TypeNames = append(decls.TypeNames, f.Decls.TypeNames...)
+		decls.FuncTypes = append(decls.FuncTypes, f.Decls.FuncTypes...)
 	}
 	summary.Units = len(units)
 	summary.Version = versionString()
@@ -570,7 +571,7 @@ func check(root string, opts options) (report.Report, error) {
 		Traits:   simplify.SingleImpl(decls, internal),
 		Scopes:   pattern.Scopes(units),
 		Kinds:    pattern.StringKinds(units),
-		Params:   pattern.ParameterGroups(units),
+		Params:   pattern.ParameterGroups(units, decls.FuncTypes),
 		Drifts:   drifts(units, packages(root, files)),
 	}, summary)
 	return r, recordHealth(db, root, r.Summary.Health)

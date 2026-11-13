@@ -31,14 +31,16 @@ const (
 // the group is everything those functions share, so a group is never
 // reported again inside a larger one taken by the same functions. Methods
 // called via a trait or interface are left out, since it dictates their
-// parameters, and so is test code. Groups are ordered by size, the parameters a struct would
+// parameters, and so are functions whose parameter types are those of one
+// of funcTypes (the commands of a command table, values of its function
+// type), and test code. Groups are ordered by size, the parameters a struct would
 // save: parameters times extra functions.
-func ParameterGroups(units []unit.Unit) []ParamGroup {
+func ParameterGroups(units []unit.Unit, funcTypes [][]string) []ParamGroup {
 	var eligible []unit.Unit
 	var keys [][]string
 	bySubset := map[string][]int{}
 	for _, u := range units {
-		if u.Test || u.ViaInterface() || len(u.Params) < minGroupParams || len(u.Params) > maxGroupedParams {
+		if u.Test || u.ViaInterface() || len(u.Params) < minGroupParams || len(u.Params) > maxGroupedParams || ofFuncType(u, funcTypes) {
 			continue
 		}
 		k := paramKeys(u)
@@ -112,6 +114,14 @@ func ParameterGroups(units []unit.Unit) []ParamGroup {
 		}
 	}
 	return kept
+}
+
+// ofFuncType reports whether a unit's parameter types, in order, are
+// those of one of funcTypes.
+func ofFuncType(u unit.Unit, funcTypes [][]string) bool {
+	return slices.ContainsFunc(funcTypes, func(types []string) bool {
+		return slices.EqualFunc(u.Params, types, func(p unit.Param, t string) bool { return p.Type == t })
+	})
 }
 
 // familyParams is how many parameters two groups share to be one concept.

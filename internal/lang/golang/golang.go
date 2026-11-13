@@ -275,6 +275,7 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 				decls.Consts = append(decls.Consts, constants(n, path, src, test)...)
 			case "type_declaration":
 				decls.Structs = append(decls.Structs, structs(n, path, src, test)...)
+				decls.FuncTypes = append(decls.FuncTypes, funcTypes(n, src)...)
 			}
 		}
 		marked = syntax.MarkIgnored(root, src, units, &decls)
@@ -527,22 +528,56 @@ func addressOf(n *sitter.Node, src []byte) *sitter.Node {
 }
 
 // params returns a function's parameters that could be grouped, the
-// receiver aside: a, b int gives two. A context.Context is left out, since
-// Go passes it explicitly and never stores it in a struct.
+// receiver aside: a, b int gives two.
 func params(fn *sitter.Node, src []byte) []unit.Param {
-	list := fn.ChildByFieldName("parameters")
 	var out []unit.Param
+	eachParam(fn, src, func(name, typ string) {
+		if name != "" {
+			out = append(out, unit.Param{Name: name, Type: typ})
+		}
+	})
+	return out
+}
+
+// funcTypes returns the parameter types of a type declaration's function
+// types: type command func(args []string, out io.Writer) int gives
+// [[]string io.Writer].
+func funcTypes(n *sitter.Node, src []byte) [][]string {
+	var out [][]string
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		spec := n.NamedChild(i)
+		typ := spec.ChildByFieldName("type")
+		if spec.Kind() != "type_spec" || typ == nil || typ.Kind() != "function_type" {
+			continue
+		}
+		var types []string
+		eachParam(typ, src, func(_, t string) { types = append(types, t) })
+		out = append(out, types)
+	}
+	return out
+}
+
+// eachParam calls each with the name ("" when unnamed) and type of every
+// parameter of a function or function type, a, b int giving two. A
+// context.Context is left out, since Go passes it explicitly and never
+// stores it in a struct.
+func eachParam(fn *sitter.Node, src []byte, each func(name, typ string)) {
+	list := fn.ChildByFieldName("parameters")
 	for i := uint(0); list != nil && i < list.NamedChildCount(); i++ {
 		p := list.NamedChild(i)
 		typ := p.ChildByFieldName("type")
 		if typ == nil || typ.Utf8Text(src) == "context.Context" {
 			continue
 		}
-		for _, name := range fieldNodes(p, "name") {
-			out = append(out, unit.Param{Name: name.Utf8Text(src), Type: syntax.Compact(typ.Utf8Text(src))})
+		t := syntax.Compact(typ.Utf8Text(src))
+		names := fieldNodes(p, "name")
+		if len(names) == 0 {
+			each("", t)
+		}
+		for _, name := range names {
+			each(name.Utf8Text(src), t)
 		}
 	}
-	return out
 }
 
 // receiverType returns a method's receiver type name, without pointer or

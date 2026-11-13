@@ -317,7 +317,10 @@ explicitly and never stores it in a struct, so it is never part of a
 parameter object) and their switches on strings (`case "a", "b":`), so
 parameter groups and string kinds work for Go; methods are left out of
 parameter groups, as they may implement an interface whose signature they
-must keep. On a 100-file Go service, every raw group hinged on a Context
+must keep, and so are functions with the parameter types of a function
+type the code declares (`type command func(args []string, stdout, stderr
+io.Writer) int`): they are its values, such as a command table's
+commands. On a 100-file Go service, every raw group hinged on a Context
 or an HTTP handler's dictated signature, so none remain.
 
 Feature flows work for Go too. A generated file's interfaces give the
@@ -807,7 +810,8 @@ and its fallback idiom for a concern is the proposal's pattern.
   pattern `parameter-object`; Fowler's "introduce parameter object"): the
   same parameters, names and types, taken by at least 4 functions, at
   least 3 of them. Trait methods are left out, since the trait dictates
-  their parameters. For each set of functions sharing 3 parameters, the
+  their parameters, and so are Go functions whose parameter types are
+  those of a declared function type, its values. For each set of functions sharing 3 parameters, the
   group is everything they share, so no group repeats inside a larger one
   taken by the same functions; then groups sharing 2 parameters are one
   concept, represented by the largest (an ingest context taken as four
