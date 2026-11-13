@@ -533,12 +533,17 @@ func check(root string, opts options) (report.Report, error) {
 	}
 	summary.Units = len(units)
 	summary.Version = versionString()
-	summary.Health.AnalysedLines = report.AnalysedLines(units, structs, consts)
+	// The helpers compared for copies are analysed code too.
+	summary.Health.AnalysedLines = report.AnalysedLines(units, structs, consts) + report.AnalysedLines(helpers, nil, nil)
 	groups := clone.Groups(units, opts.minNodes)
 	// Without --tests, test code is checked for one thing: helpers copied
 	// between test files, a bigger bar than production code's. Test cases
 	// are repetitive by design and stay out.
-	groups = append(groups, clone.Groups(helpers, max(minTestHelperNodes, opts.minNodes))...)
+	for _, g := range clone.Groups(helpers, max(minTestHelperNodes, opts.minNodes)) {
+		if inFiles(g.Units) > 1 { // copies within one test file are its own business
+			groups = append(groups, g)
+		}
+	}
 	nearMisses := clone.NearMisses(units, max(opts.minNearNodes, opts.minNodes), opts.minSim, threads)
 	// Functions reported together. A near-miss member represents its whole
 	// shape, so a family also covers the member's exact and renamed copies.
@@ -757,6 +762,15 @@ var parallelFlowOptions = flow.ParallelOptions{
 	MinCover:       0.2,
 	MinStepSim:     0.7,
 	SharedFraction: 0.25,
+}
+
+// inFiles counts the files units are in.
+func inFiles(units []unit.Unit) int {
+	files := map[string]bool{}
+	for _, u := range units {
+		files[u.File] = true
+	}
+	return len(files)
 }
 
 // minTestHelperNodes is the smallest test helper (a function in test code
