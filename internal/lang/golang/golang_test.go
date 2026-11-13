@@ -724,3 +724,46 @@ func run(ok bool, n int) {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestAShadowedReceiverIsAnOrdinaryVariable(t *testing.T) {
+	src := `package api
+
+func (s *Server) Run() {
+	s.store.Save()
+	s.Flush()
+	{
+		s := &Other{}
+		s.store.Save()
+		s.Flush()
+	}
+	go func(s *Remote) {
+		s.Flush()
+	}(nil)
+	s.Flush()
+	var db = &DB{}
+	db.Load()
+}
+`
+	units, _, err := Parse("api/run.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range units[0].Calls {
+		if c.Kind == unit.MethodCall {
+			got = append(got, fmt.Sprintf("%d %s qualifier=%q type=%q field=%q", c.Line, c.Name, c.Qualifier, c.Type, c.Field))
+		}
+	}
+	want := []string{
+		`4 Save qualifier="" type="" field="store"`,
+		`5 Flush qualifier="self" type="" field=""`,
+		`8 Save qualifier="" type="" field=""`,
+		`9 Flush qualifier="" type="Other" field=""`,
+		`12 Flush qualifier="" type="Remote" field=""`,
+		`14 Flush qualifier="self" type="" field=""`,
+		`16 Load qualifier="" type="DB" field=""`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("method calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
