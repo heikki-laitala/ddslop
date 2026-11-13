@@ -47,6 +47,9 @@ type grammar struct {
 	// vars maps the function's variables whose type the code states to
 	// that type (see typeOf), as declarations are visited.
 	vars map[string]string
+	// declared holds, per open scope, innermost last, the names declared
+	// in it.
+	declared *[]map[string]bool
 }
 
 // Prefix keeps Go's symbols apart from other languages' alike-named kinds.
@@ -143,13 +146,29 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	return nil
 }
 
-// scope opens a lexical scope: the variables declared in it are
-// forgotten, and the ones it shadows restored, by the function it returns.
+// scope opens a lexical scope, closed by the function it returns: the
+// variables declared in it are forgotten and the ones they shadow
+// restored, and an outer variable assigned in it becomes unknown, as the
+// scope may not have run (an if's body, a loop).
 func (g grammar) scope() func() {
 	outer := maps.Clone(g.vars)
+	*g.declared = append(*g.declared, map[string]bool{})
 	return func() {
-		clear(g.vars)
-		maps.Copy(g.vars, outer)
+		declared := (*g.declared)[len(*g.declared)-1]
+		*g.declared = (*g.declared)[:len(*g.declared)-1]
+		inner := g.vars
+		for name := range inner {
+			if _, ok := outer[name]; !ok {
+				delete(inner, name)
+			}
+		}
+		for name, typ := range outer {
+			if declared[name] || inner[name] == typ {
+				inner[name] = typ
+			} else {
+				delete(inner, name)
+			}
+		}
 	}
 }
 
@@ -232,9 +251,18 @@ func errorCallForm(c unit.Call, pkg string, n *sitter.Node, src []byte) unit.For
 	return form
 }
 
-// declare records a variable's type, or forgets the variable when its
-// type is unknown ("").
+// declare records a variable declared in the current scope, with its
+// type, or "" when unknown.
 func (g grammar) declare(name, typ string) {
+	if n := len(*g.declared); n > 0 {
+		(*g.declared)[n-1][name] = true
+	}
+	g.set(name, typ)
+}
+
+// set records a variable's type, or forgets the variable when its type is
+// unknown ("").
+func (g grammar) set(name, typ string) {
 	if typ == "" {
 		delete(g.vars, name)
 		return
@@ -249,6 +277,11 @@ func (g grammar) assign(n *sitter.Node, src []byte) {
 	left, right := n.ChildByFieldName("left"), n.ChildByFieldName("right")
 	if left == nil {
 		return
+	}
+	// := declares; = assigns, also in a range clause.
+	declares := n.Kind() == "short_var_declaration"
+	for i := uint(0); i < n.ChildCount(); i++ {
+		declares = declares || n.Child(i).Kind() == ":="
 	}
 	for i := uint(0); i < left.NamedChildCount(); i++ {
 		name := left.NamedChild(i)
@@ -265,7 +298,11 @@ func (g grammar) assign(n *sitter.Node, src []byte) {
 				typ = typeOf(syntax.Compact(t.Utf8Text(src)), g.packages)
 			}
 		}
-		g.declare(name.Utf8Text(src), typ)
+		if declares {
+			g.declare(name.Utf8Text(src), typ)
+		} else {
+			g.set(name.Utf8Text(src), typ)
+		}
 	}
 }
 
@@ -430,7 +467,8 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 			vars[name] = t
 		}
 	})
-	s := syntax.Flatten(n, src, grammar{receiver: receiverName(n, src), packages: packages, vars: vars})
+	s := syntax.Flatten(n, src, grammar{receiver: receiverName(n, src), packages: packages, vars: vars,
+		declared: &[]map[string]bool{}})
 	return unit.Unit{
 		File:      path,
 		Name:      full,

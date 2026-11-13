@@ -640,3 +640,43 @@ func run(x *DB) {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestAssignmentsInANestedScopeLeaveTheOuterTypeUnknown(t *testing.T) {
+	src := `package api
+
+func run(ok bool, items []*Other) {
+	x := &DB{}
+	{
+		x = &Other{}
+	}
+	x.Save()
+	y := &DB{}
+	if ok {
+		y = &Other{}
+	}
+	y.Save()
+	z := &DB{}
+	for _, z = range items {
+	}
+	z.Save()
+	w := &DB{}
+	{
+		w := &Other{}
+		w.Save()
+	}
+	w.Save()
+}
+`
+	units, _, err := Parse("api/run.go", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range units[0].Calls {
+		got = append(got, fmt.Sprintf("%d %q", c.Line, c.Type))
+	}
+	want := []string{`8 ""`, `13 ""`, `17 ""`, `21 "Other"`, `23 "DB"`}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
