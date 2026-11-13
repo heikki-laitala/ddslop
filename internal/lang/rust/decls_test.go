@@ -890,6 +890,8 @@ func TestRustImportsQualifyOnlyWhereTheyAreVisible(t *testing.T) {
 fn local(c: Client) {
     use reqwest::Client;
     c.send();
+    let r: Client = make();
+    r.send();
 }
 
 fn other(c: Client, s: Store) {
@@ -911,11 +913,33 @@ mod inner {
 			got = append(got, fmt.Sprintf("%s %s %s", u.Name, c.Name, c.Type))
 		}
 	}
+	// A use in a function's body is not in scope in its signature: the
+	// parameter is the module's Client, the let's reqwest's.
 	want := []string{
-		"local send reqwest::Client",
+		"local send Client", "local make ", "local send reqwest::Client",
 		"other send Client", "other save crate::store::Store",
 		"run fill crate::cache::Cache", "run save Store",
 	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestImportedModulesExpandAtTheRootOfATypePath(t *testing.T) {
+	src := `use crate::model as m;
+use crate::store;
+
+fn run(c: m::Client, s: store::Store, o: other::Thing) {
+    c.send();
+    s.save();
+    o.go();
+}
+`
+	var got []string
+	for _, c := range byName(t, mustUnits(t, src), "run").Calls {
+		got = append(got, fmt.Sprintf("%s %s", c.Name, c.Type))
+	}
+	want := []string{"send crate::model::Client", "save crate::store::Store", "go other::Thing"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}

@@ -252,6 +252,10 @@ func typePath(t, self string, generic map[string]bool, imports map[string]string
 	case !strings.Contains(path, "::") && imports[path] != "":
 		return imports[path]
 	}
+	// An imported module at the root: m::Client after use crate::model as m.
+	if root, rest, ok := strings.Cut(path, "::"); ok && imports[root] != "" {
+		return imports[root] + "::" + rest
+	}
 	return path
 }
 
@@ -807,12 +811,10 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 	if owner != "" {
 		name = owner + "::" + name
 	}
-	imports := maps.Clone(e.visibleImports(n))
-	if body := n.ChildByFieldName("body"); body != nil {
-		maps.Copy(imports, usesIn(body, e.src)) // use declarations in the function's own body
-	}
-	g := grammar{self: unit.SimpleName(owner), generic: typeParameters(n, e.src), imports: imports, vars: map[string]string{},
-		entries: &map[[2]uint]map[string]string{}}
+	// The signature sees its module's imports; the body also those its
+	// own use declarations add.
+	g := grammar{self: unit.SimpleName(owner), generic: typeParameters(n, e.src), imports: e.visibleImports(n),
+		vars: map[string]string{}, entries: &map[[2]uint]map[string]string{}}
 	if impl := enclosingImpl(n); impl != nil {
 		maps.Copy(g.generic, typeParameters(impl, e.src))
 	}
@@ -826,6 +828,12 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 			if p.Kind() == "parameter" && pattern != nil && typ != nil && pattern.Kind() == "identifier" {
 				g.set(pattern.Utf8Text(e.src), g.typeOf(typ.Utf8Text(e.src)))
 			}
+		}
+	}
+	if body := n.ChildByFieldName("body"); body != nil {
+		if local := usesIn(body, e.src); len(local) > 0 {
+			g.imports = maps.Clone(g.imports)
+			maps.Copy(g.imports, local)
 		}
 	}
 	s := syntax.Flatten(n, e.src, g)
