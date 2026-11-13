@@ -644,3 +644,40 @@ func TestMapOfASubdirectoryUsesTheModuleAboveIt(t *testing.T) {
 		t.Errorf("layers = %v, want service over store", layers)
 	}
 }
+
+// A Go service whose handlers get their service from a constructor and
+// call it through the variable, and chain calls on a getter's result.
+var constructedService = map[string]string{
+	"go.mod": "module example.com/app\n",
+	"api/h.go": `package api
+
+import "example.com/app/internal/service"
+
+func Create() { svc := service.New(); svc.Place() }
+func Cancel() { service.Default().Cancel() }
+`,
+	"internal/service/orders.go": `package service
+
+type Orders struct{}
+
+func New() *Orders     { return &Orders{} }
+func Default() *Orders { return &Orders{} }
+
+func (o *Orders) Place()  {}
+func (o *Orders) Cancel() {}
+`,
+	"other/orders.go": `package other
+
+type Orders struct{}
+
+func (o *Orders) Place()  {}
+func (o *Orders) Cancel() {}
+`,
+}
+
+func TestMapLayersGoCallsOnConstructedValues(t *testing.T) {
+	m := mapOf(t, repo(t, constructedService)).Maps[0]
+	if m.ResolvedCalls != m.Calls {
+		t.Errorf("resolved %d of %d calls, want all: Place and Cancel are Orders' through New and Default", m.ResolvedCalls, m.Calls)
+	}
+}
