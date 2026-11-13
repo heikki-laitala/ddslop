@@ -924,3 +924,19 @@ func TestRustInlineModulesResolve(t *testing.T) {
 		}
 	}
 }
+
+// A path naming a module that does not declare the function (it
+// re-exports one) falls back only to the crate's single function of that
+// name, never to the caller's own file's.
+func TestRustModulePathFallbackSkipsTheCallersOwnFunction(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/lib.rs", "root", path("inner", "f")),
+		fn("a/src/lib.rs", "f"),
+		fn("a/src/other.rs", "f"), // what inner re-exports
+		{File: "a/src/lib.rs", Name: "marker", Module: "inner"},
+	}
+	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/lib.rs", "a/src/other.rs"}}
+	if got := callees(Build(in, units), "a/src/lib.rs root"); got != "[]" {
+		t.Errorf("root calls %s, want nothing: two functions named f, neither inner's", got)
+	}
+}
