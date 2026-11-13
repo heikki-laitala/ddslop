@@ -543,6 +543,7 @@ func check(root string, opts options) (report.Report, error) {
 	var helperGroups []clone.Group
 	for _, g := range clone.Groups(helpers, max(minTestHelperNodes, opts.minNodes)) {
 		if inFiles(g.Units) > 1 { // copies within one test file are its own business
+			g.TestHelpers = true
 			helperGroups = append(helperGroups, g)
 		}
 	}
@@ -767,11 +768,12 @@ var parallelFlowOptions = flow.ParallelOptions{
 }
 
 // isHelper reports whether a test unit is a helper compared for copies
-// without --tests: no test case, not marked ignored, and not in a
-// testdata directory, whose files are fixtures the Go tool never builds.
+// without --tests: no test case, not marked ignored, and not a Go file in
+// a testdata directory, a fixture the Go tool never builds (Rust reserves
+// no such directory).
 func isHelper(u unit.Unit) bool {
-	inTestdata := slices.Contains(strings.Split(filepath.ToSlash(u.File), "/"), "testdata")
-	return !u.TestCase && !u.Ignored && !inTestdata
+	goFixture := strings.HasSuffix(u.File, ".go") && slices.Contains(strings.Split(filepath.ToSlash(u.File), "/"), "testdata")
+	return !u.TestCase && !u.Ignored && !goFixture
 }
 
 // inFiles counts the files units are in.

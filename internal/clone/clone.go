@@ -13,6 +13,9 @@ import (
 // and start line.
 type Group struct {
 	Units []unit.Unit
+	// TestHelpers marks copies among test helpers (see check), reported
+	// with fingerprints of their own.
+	TestHelpers bool
 }
 
 // first is where the group's first copy is.

@@ -280,6 +280,7 @@ func Build(languageOf func(file string) string, f Findings, summary Summary) Rep
 	for _, g := range f.Groups {
 		candidates = append(candidates, groupCandidate(languageOf(g.Units[0].File), g))
 	}
+
 	for _, nm := range f.NearMisses {
 		candidates = append(candidates, nearMissCandidate(languageOf(nm.Units[0].File), nm))
 	}
@@ -468,10 +469,20 @@ func mostlyParameters(c Candidate) bool {
 	return clone.MostlyParameters(c.Score.Nodes, c.Suggestion.Parameters)
 }
 
+// groupFingerprint identifies a group by its shape. A group of test
+// helpers gets its own: the same shape may be copied in production too,
+// and each candidate stays addressable (ddslop explain).
+func groupFingerprint(language string, g clone.Group) string {
+	if g.TestHelpers {
+		return fmt.Sprintf("%s:test-helper:%016x", language, g.Units[0].Shape)
+	}
+	return fmt.Sprintf("%s:%016x", language, g.Units[0].Shape)
+}
+
 func groupCandidate(language string, g clone.Group) Candidate {
 	first := g.Units[0]
 	c := Candidate{
-		Fingerprint: fmt.Sprintf("%s:%016x", language, first.Shape),
+		Fingerprint: groupFingerprint(language, g),
 		Language:    language,
 		Kind:        exactClone,
 		Similarity:  1,
