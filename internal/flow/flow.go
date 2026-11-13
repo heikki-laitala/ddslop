@@ -36,15 +36,16 @@ type Graph struct {
 
 // index finds units by name.
 type index struct {
-	free    map[string][]int             // free functions by name
-	methods map[string][]int             // methods by method name
-	owned   map[string][]int             // methods by "Owner::method", owner simplified
-	owners  map[string]bool              // the types with methods, simplified
-	crates  map[string]string            // workspace crate name -> crate directory
-	imports map[string]map[string]string // file -> imported name -> path
-	deps    map[string]map[string]bool   // crate directory -> workspace crates it imports from
-	fields  map[string]map[string]string // Go package directory -> "Struct.field" -> type
-	modules map[string]string            // go.mod directory -> module path
+	free        map[string][]int             // free functions by name
+	methods     map[string][]int             // methods by method name
+	owned       map[string][]int             // methods by "Owner::method", owner simplified
+	owners      map[string]bool              // the types with methods, simplified
+	rustModules map[string]map[string]bool   // Rust crate directory -> its module names, from its files' paths
+	crates      map[string]string            // workspace crate name -> crate directory
+	imports     map[string]map[string]string // file -> imported name -> path
+	deps        map[string]map[string]bool   // crate directory -> workspace crates it imports from
+	fields      map[string]map[string]string // Go package directory -> "Struct.field" -> type
+	modules     map[string]string            // go.mod directory -> module path
 }
 
 // Inputs are what call resolution needs besides the units.
@@ -70,7 +71,8 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		ext := filepath.Ext(file)
 		if langs[ext] == nil {
 			langs[ext] = &index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{}, owners: map[string]bool{},
-				crates: map[string]string{}, imports: in.Imports, deps: map[string]map[string]bool{},
+				rustModules: map[string]map[string]bool{},
+				crates:      map[string]string{}, imports: in.Imports, deps: map[string]map[string]bool{},
 				fields: in.Fields, modules: in.Modules}
 		}
 		return langs[ext]
@@ -83,6 +85,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 			name = strings.ReplaceAll(filepath.Base(dir), "-", "_")
 		}
 		ix.crates[name] = dir
+		ix.addModules(u.File, dir)
 		owner, name := split(u.Name)
 		if owner == "" {
 			ix.free[name] = append(ix.free[name], i)
@@ -236,8 +239,32 @@ func (ix index) crateOfPath(path string, caller unit.Unit) (string, bool) {
 	case "crate", "self", "super":
 		return CrateOf(caller.File), true
 	default:
-		dir, ok := ix.crates[root]
-		return dir, ok
+		if dir, ok := ix.crates[root]; ok {
+			return dir, true
+		}
+		// model::Client: a module of the caller's crate, else another crate.
+		if ix.rustModules[CrateOf(caller.File)][root] {
+			return CrateOf(caller.File), true
+		}
+		return "", false
+	}
+}
+
+// addModules records the module names a Rust file's path shows in its
+// crate: a/src/model/client.rs gives model and client.
+func (ix index) addModules(file, crate string) {
+	file = filepath.ToSlash(file)
+	_, rest, ok := strings.Cut(file, "src/")
+	if !strings.HasSuffix(file, ".rs") || !ok {
+		return
+	}
+	if ix.rustModules[crate] == nil {
+		ix.rustModules[crate] = map[string]bool{}
+	}
+	for _, segment := range strings.Split(strings.TrimSuffix(rest, ".rs"), "/") {
+		if segment != "lib" && segment != "main" && segment != "mod" {
+			ix.rustModules[crate][segment] = true
+		}
 	}
 }
 

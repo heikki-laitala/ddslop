@@ -788,8 +788,10 @@ struct Pair(Left, Right);
 		got = append(got, fmt.Sprintf("%s.%s %s", f.Struct, f.Field, f.Type))
 	}
 	// Vec is recorded too: the graph finds no Vec method in the repository
-	// and falls back to guessing by name, as without a type.
-	want := []string{"Server.db Database", "Server.cache Cache", "Server.names Vec", "Server.store crate::store::Store"}
+	// and falls back to guessing by name, as without a type. A field of no
+	// type (inner: T) is recorded as unknown, so that a struct of the same
+	// name elsewhere cannot type it.
+	want := []string{"Server.db Database", "Server.cache Cache", "Server.names Vec", "Server.inner ", "Server.store crate::store::Store"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("field types:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
@@ -942,5 +944,27 @@ fn run(c: m::Client, s: store::Store, o: other::Thing) {
 	want := []string{"send crate::model::Client", "save crate::store::Store", "go other::Thing"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestUseDeclarationsInNestedBlocksQualifyThere(t *testing.T) {
+	src := `fn run() {
+    {
+        use reqwest::Client;
+        let c: Client = make();
+        c.send();
+    }
+    let l: Client = make();
+    l.send();
+}
+`
+	var got []string
+	for _, c := range byName(t, mustUnits(t, src), "run").Calls {
+		if c.Kind == unit.MethodCall {
+			got = append(got, fmt.Sprintf("%d %s", c.Line, c.Type))
+		}
+	}
+	if want := "5 reqwest::Client\n8 Client"; strings.Join(got, "\n") != want {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }

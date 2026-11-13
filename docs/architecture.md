@@ -937,14 +937,18 @@ that crosses it.
   after its value, a `for` pattern in its body alone, and an `if let`'s
   or `while let`'s bindings from right after their value (so later
   operands of a let chain see them), not in an `else`. A field whose struct name two modules of a crate
-  declare with different types is unknown. A type keeps its path,
+  declare with different types, or one of them with none it can tell
+  (`db: T`), is unknown. A type keeps its path,
   qualified by the `use` imports visible where it is written (its
-  module's, not a parent module's, and those in the function's own
-  body): `Client` imported from reqwest is `reqwest::Client`. A path
-  rooted in a crate outside the workspace, or a type with no methods in
-  the repository (`Vec`, `Option`, serde's `Value`), is from outside it,
-  and calls on it resolve to nothing; a path rooted in a workspace crate
-  or in `crate`, `self` or `super` resolves in that crate alone. An untyped `x.m()`, or one on a repository
+  module's, not a parent module's, and, in a function's body, those of
+  each enclosing block): `Client` imported from reqwest is
+  `reqwest::Client`, and `m::Client` after `use crate::model as m` is
+  `crate::model::Client`. A path rooted in a workspace crate, in
+  `crate`, `self` or `super`, or in one of the caller's crate's modules
+  (`model::Client`, by its files' paths) resolves in that crate alone;
+  one rooted anywhere else is an outside crate's, and calls on it, as on
+  a type with no methods in the repository (`Vec`, `Option`, serde's
+  `Value`), resolve to nothing. An untyped `x.m()`, or one on a repository
   type without that method (a trait's default, perhaps), resolves only
   when one method of that name exists, and never for common
   standard-library method names (`as_ref`, `len`, `push`, `find`,
@@ -971,13 +975,15 @@ Typing method calls, measured on the 739k-line Rust workspace: most
 method calls with a stated operand type are on types from outside the
 repository (`Vec` 1,009, `Option` 849, serde's `Value`, maps,
 `Formatter`), which no longer get guessed. Resolved calls went from
-13,770 to 14,309 of 73,038. In its largest crate (138 modules) the
+13,770 to 14,323 of 73,038. In its largest crate (138 modules) the
 layers went from 15 to 12, the shared helpers gained methods reached
-through fields, and two upward calls appeared, both real cycles: a
-low-level module calling a method of a type that a module above it
-defines, on a value it holds. A third came from a call on an outside
-type sharing a name with one of the workspace's, and went once types
-kept their path. `check` reported the same candidates.
+through fields, and three upward calls appeared, each a real cycle
+between two modules that call each other: in two of them a low-level
+module calls a method of a type a module above it defines, on a value
+it holds. Whether the map shows the weaker direction of such a cycle
+as a break depends on the weights of both, so one of them came and went
+as review fixes changed which calls resolve. `check` reported the same
+candidates.
 
 ### Entry points
 
