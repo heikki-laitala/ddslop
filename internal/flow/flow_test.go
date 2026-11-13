@@ -642,3 +642,15 @@ func TestRustRelativeModulePathsStayInTheCallersCrate(t *testing.T) {
 		t.Errorf("Server::run calls %s, want %s", got, want)
 	}
 }
+
+// A module of only types has no units, but its file still names it.
+func TestRustModulesOfOnlyTypesKeepPathsInTheCrate(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/server.rs", "Server::run", typed("model::Client", "send")),
+		fn("a/src/client.rs", "Client::send"), // model.rs declares Client; client.rs implements it
+	}
+	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/server.rs", "a/src/model.rs", "a/src/client.rs"}}
+	if got, want := callees(Build(in, units), "a/src/server.rs Server::run"), "[a/src/client.rs Client::send]"; got != want {
+		t.Errorf("Server::run calls %s, want %s", got, want)
+	}
+}

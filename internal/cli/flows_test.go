@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -226,5 +227,12 @@ func TestMarkTestMarksFieldTypes(t *testing.T) {
 	markTest(&f)
 	if !f.Decls.FieldTypes[0].Test {
 		t.Error("field type not marked as test code")
+	}
+}
+
+func TestGraphInputsListRustFilesWithoutFunctions(t *testing.T) {
+	in := graphInputs(t.TempDir(), []index.File{{Path: "a/src/model.rs"}, {Path: "a/src/lib.rs"}, {Path: "web/x.go"}})
+	if got := fmt.Sprint(in.RustFiles); got != "[a/src/model.rs a/src/lib.rs]" {
+		t.Errorf("RustFiles = %s, want both Rust files", got)
 	}
 }

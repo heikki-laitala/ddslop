@@ -176,7 +176,8 @@ func treeOrder(steps []flow.Step) []flow.Step {
 
 // graphInputs collects what call resolution needs: each file's imports,
 // each crate's name from its Cargo.toml under root, the types of Go
-// struct fields, and the module path of each go.mod above a Go file.
+// struct fields, the module path of each go.mod above a Go file, and the
+// Rust files, whose paths name their crates' modules.
 func graphInputs(root string, files []index.File) flow.Inputs {
 	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{},
 		Fields: map[string]map[string]string{}, Modules: map[string]string{}}
@@ -201,6 +202,9 @@ func graphInputs(root string, files []index.File) flow.Inputs {
 		}
 	}
 	for _, f := range files {
+		if strings.HasSuffix(f.Path, ".rs") {
+			in.RustFiles = append(in.RustFiles, f.Path)
+		}
 		if len(f.Imports) > 0 {
 			in.Imports[f.Path] = f.Imports
 		}

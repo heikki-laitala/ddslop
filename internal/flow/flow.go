@@ -61,6 +61,9 @@ type Inputs struct {
 	Fields map[string]map[string]string
 	// Modules maps the directory of each go.mod to its module path.
 	Modules map[string]string
+	// RustFiles are the Rust files analysed, functions or not: their
+	// paths name their crates' modules.
+	RustFiles []string
 }
 
 // Build resolves every unit's calls. A call finds only functions of its
@@ -96,6 +99,9 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		ix.owners[owner] = true
 	}
 
+	for _, file := range in.RustFiles {
+		indexOf(file).addModules(file, CrateOf(file))
+	}
 	for file, imported := range in.Imports {
 		ix, crate := indexOf(file), CrateOf(file)
 		for _, path := range imported {
