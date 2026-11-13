@@ -172,7 +172,7 @@ func errorValue(n *sitter.Node, src []byte) string {
 					return "string"
 				}
 			}
-		case callee.Utf8Text(src) == "String::from":
+		case callee.Utf8Text(src) == "String::from" || strings.HasSuffix(callee.Utf8Text(src), "::String::from"):
 			return "string"
 		case isVariantPath(callee.Utf8Text(src)):
 			return "variant"

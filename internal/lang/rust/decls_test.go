@@ -587,6 +587,9 @@ func TestUnitsRecordHowTheyMakeErrors(t *testing.T) {
     if s == "o" {
         return core::result::Result::Err(r#"bad"#.to_string());
     }
+    if s == "n" {
+        return Err(std::string::String::from("bad"));
+    }
     Ok(0)
 }
 `
@@ -602,6 +605,7 @@ func TestUnitsRecordHowTheyMakeErrors(t *testing.T) {
 		"24 error-values anyhow",
 		"33 error-values variant",
 		"36 error-values string",
+		"39 error-values string",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
