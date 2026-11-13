@@ -180,8 +180,15 @@ func (r *callResolver) resolve(k int) (int, bool) {
 func (r *callResolver) resolveCall(c unit.Call) (int, bool) {
 	if c.From > 0 && c.From <= len(r.done) {
 		if callee, guessed := r.resolve(c.From - 1); callee >= 0 && !guessed && c.Result < len(r.units[callee].Results) {
-			if typ := r.units[callee].Results[c.Result]; typ != "" {
-				if u, known := r.ix.resolveTyped(r.units, CrateOf(r.units[callee].File), typ, c.Name); known {
+			producer := r.units[callee]
+			if typ := producer.Results[c.Result]; typ != "" {
+				resolve := func() (int, bool) {
+					if strings.HasSuffix(producer.File, ".rs") {
+						return r.ix.resolveRust(r.units, r.caller, producer, typ, c.Name)
+					}
+					return r.ix.resolveTyped(r.units, CrateOf(producer.File), typ, c.Name)
+				}
+				if u, known := resolve(); known {
 					return u, false
 				}
 			}
@@ -203,19 +210,7 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 	switch {
 	case typ == "":
 	case strings.HasSuffix(caller.File, ".rs"):
-		// A Rust type is found as Type::f is: in the caller's file, crate,
-		// or a workspace crate it imports from. A path rooted in another
-		// crate (reqwest::Client), or a type with no methods here (Vec,
-		// Option), is from outside the repository: its methods are none
-		// of ours.
-		name := unit.SimpleName(typ)
-		dir, inRepo := ix.crateOfPath(typ, caller)
-		if !ix.owners[name] || !inRepo {
-			return -1, false
-		}
-		// The type's crate is known: look there alone.
-		cands := slices.DeleteFunc(slices.Clone(ix.owned[name+"::"+c.Name]), func(u int) bool { return CrateOf(units[u].File) != dir })
-		if u := ix.pick(units, caller, cands); u >= 0 {
+		if u, done := ix.resolveRust(units, caller, caller, typ, c.Name); done {
 			return u, false
 		}
 	default:
@@ -227,6 +222,24 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 		return -1, false // most likely a standard-library method
 	}
 	return ix.pick(units, caller, ix.methods[c.Name]), true
+}
+
+// resolveRust resolves a Rust method call on a value of the type path
+// typ, written where home is (the caller for a type it states, the
+// producing function for a call's result): in the crate the path names,
+// as Type::f is. A path rooted in another crate (reqwest::Client), or a
+// type with no methods here (Vec, Option), is from outside the
+// repository: its methods are none of ours (done, -1). A repository type
+// without the method is not done: the caller guesses by name.
+func (ix index) resolveRust(units []unit.Unit, caller, home unit.Unit, typ, method string) (int, bool) {
+	name := unit.SimpleName(typ)
+	dir, inRepo := ix.crateOfPath(typ, home)
+	if !ix.owners[name] || !inRepo {
+		return -1, true
+	}
+	cands := slices.DeleteFunc(slices.Clone(ix.owned[name+"::"+method]), func(u int) bool { return CrateOf(units[u].File) != dir })
+	u := ix.pick(units, caller, cands)
+	return u, u >= 0
 }
 
 // crateOfPath tells where a Rust type path's type is declared: the
