@@ -122,7 +122,14 @@ runs:
         # SARIF paths are relative to the analysed path; annotations take
         # paths relative to the repository. Below fail-over the check
         # passes but still reports its candidates: warnings, not errors.
-        prefix=$(realpath --relative-to="$GITHUB_WORKSPACE" "$TARGET")
+        # Plain shell: macOS has no realpath --relative-to.
+        abs=$(cd "$TARGET" && pwd -P)
+        ws=$(cd "$GITHUB_WORKSPACE" && pwd -P)
+        case "$abs" in
+          "$ws") prefix=. ;;
+          "$ws"/*) prefix=${abs#"$ws"/} ;;
+          *) prefix=$abs ;; # outside the repository: annotations cannot attach
+        esac
         level=error
         if [ "$CODE" = 0 ]; then level=warning; fi
         jq -r --arg prefix "$prefix" --arg level "$level" '
