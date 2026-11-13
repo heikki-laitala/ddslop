@@ -40,7 +40,7 @@ type index struct {
 	methods     map[string][]int             // methods by method name
 	owned       map[string][]int             // methods by "Owner::method", owner simplified
 	owners      map[string]bool              // the types with methods, simplified
-	rustModules map[string]map[string]bool   // Rust crate directory -> its module names, from its files' paths
+	rustModules map[string]map[string]bool   // Rust crate directory -> its modules' paths (foo::bar), from its files' paths
 	crates      map[string]string            // workspace crate name -> crate directory
 	imports     map[string]map[string]string // file -> imported name -> path
 	deps        map[string]map[string]bool   // crate directory -> workspace crates it imports from
@@ -278,30 +278,65 @@ func (ix index) crateOfPath(path string, caller unit.Unit) (string, bool) {
 		if dir, ok := ix.crates[root]; ok {
 			return dir, true
 		}
-		// model::Client: a module of the caller's crate, else another crate.
-		if ix.rustModules[CrateOf(caller.File)][root] {
+		// model::Client: a child module of the caller's, else another crate.
+		if ix.isChildModule(caller.File, root) {
 			return CrateOf(caller.File), true
 		}
 		return "", false
 	}
 }
 
-// addModules records the module names a Rust file's path shows in its
-// crate: a/src/model/client.rs gives model and client.
+// addModules records the module a Rust file is, and the modules its path
+// passes through, in its crate: a/src/model/client.rs gives model and
+// model::client.
 func (ix index) addModules(file, crate string) {
-	file = filepath.ToSlash(file)
-	_, rest, ok := strings.Cut(file, "src/")
-	if !strings.HasSuffix(file, ".rs") || !ok {
+	module, ok := moduleOf(file)
+	if !ok {
 		return
 	}
 	if ix.rustModules[crate] == nil {
 		ix.rustModules[crate] = map[string]bool{}
 	}
-	for _, segment := range strings.Split(strings.TrimSuffix(rest, ".rs"), "/") {
-		if segment != "lib" && segment != "main" && segment != "mod" {
-			ix.rustModules[crate][segment] = true
+	for path := module; path != ""; {
+		ix.rustModules[crate][path] = true
+		i := strings.LastIndex(path, "::")
+		if i < 0 {
+			break
 		}
+		path = path[:i]
 	}
+}
+
+// moduleOf returns the module path a Rust file is within its crate:
+// src/foo/bar.rs and src/foo/bar/mod.rs are foo::bar, src/lib.rs and
+// src/main.rs the crate's root (""). A file outside src/ is none.
+func moduleOf(file string) (string, bool) {
+	file = filepath.ToSlash(file)
+	_, rest, ok := strings.Cut(file, "src/")
+	if !strings.HasSuffix(file, ".rs") || !ok {
+		return "", false
+	}
+	segments := strings.Split(strings.TrimSuffix(rest, ".rs"), "/")
+	switch last := segments[len(segments)-1]; {
+	case last == "mod":
+		segments = segments[:len(segments)-1]
+	case len(segments) == 1 && (last == "lib" || last == "main"):
+		segments = nil
+	}
+	return strings.Join(segments, "::"), true
+}
+
+// isChildModule reports whether name is a child module of the module
+// file is: a relative path (bar::read) names one of those, or a crate.
+func (ix index) isChildModule(file, name string) bool {
+	module, ok := moduleOf(file)
+	if !ok {
+		return false
+	}
+	if module != "" {
+		name = module + "::" + name
+	}
+	return ix.rustModules[CrateOf(file)][name]
 }
 
 // resolveTyped resolves a Go method call on an operand of type typ
@@ -352,6 +387,12 @@ func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, 
 		return ix.resolveFree(units, caller, c.Name)
 	case unit.PathCall:
 		typ := unit.SimpleName(c.Qualifier)
+		if strings.HasSuffix(caller.File, ".rs") && strings.Contains(c.Qualifier, "::") && !isModule(typ) && typ != "Self" {
+			// chrono::Utc::now: a type's path keeps to its crate, as a
+			// typed method call does.
+			u, _ := ix.resolveRust(units, caller, caller, c.Qualifier, c.Name)
+			return u
+		}
 		if typ == "Self" {
 			typ = owner
 		}
@@ -374,7 +415,7 @@ func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, 
 			return only(units, ix.free[c.Name], func(u unit.Unit) bool { return CrateOf(u.File) == dir })
 		case strings.HasSuffix(caller.File, ".go"):
 			return -1 // Go qualifies only with package names: an outside package
-		case ok, root == "crate", root == "self", root == "super", ix.rustModules[CrateOf(caller.File)][root]:
+		case ok, root == "crate", root == "self", root == "super", ix.isChildModule(caller.File, root):
 			return pickLocal(units, caller, ix.free[c.Name])
 		}
 		return -1

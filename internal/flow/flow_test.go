@@ -71,7 +71,7 @@ func TestPathCalls(t *testing.T) {
 		fn("a/src/util.rs", "log"),
 		fn("a/src/led.rs", "Ledger::create",
 			path("Accounts", "create"), path("Endpoint", "priced"),
-			path("Self", "finish"), path("util", "log"), path("Missing", "nothing")),
+			path("Self", "finish"), path("crate::util", "log"), path("Missing", "nothing")),
 	})
 
 	want := "[a/src/acc.rs Accounts::create a/src/end.rs Endpoint<P>::priced a/src/led.rs Ledger::finish a/src/util.rs log]"
@@ -635,11 +635,11 @@ func TestRustQualifiedTypesStayInTheirCrate(t *testing.T) {
 // outside crate.
 func TestRustRelativeModulePathsStayInTheCallersCrate(t *testing.T) {
 	units := []unit.Unit{
-		fn("a/src/server.rs", "Server::run", typed("model::Client", "send"), typed("reqwest::Client", "close")),
+		fn("a/src/lib.rs", "Server::run", typed("model::Client", "send"), typed("reqwest::Client", "close")),
 		fn("a/src/model/client.rs", "Client::send"),
 		fn("a/src/model/client.rs", "Client::close"),
 	}
-	if got, want := callees(Build(Inputs{Crates: map[string]string{"a": "a"}}, units), "a/src/server.rs Server::run"), "[a/src/model/client.rs Client::send]"; got != want {
+	if got, want := callees(Build(Inputs{Crates: map[string]string{"a": "a"}}, units), "a/src/lib.rs Server::run"), "[a/src/model/client.rs Client::send]"; got != want {
 		t.Errorf("Server::run calls %s, want %s", got, want)
 	}
 }
@@ -647,11 +647,11 @@ func TestRustRelativeModulePathsStayInTheCallersCrate(t *testing.T) {
 // A module of only types has no units, but its file still names it.
 func TestRustModulesOfOnlyTypesKeepPathsInTheCrate(t *testing.T) {
 	units := []unit.Unit{
-		fn("a/src/server.rs", "Server::run", typed("model::Client", "send")),
+		fn("a/src/lib.rs", "Server::run", typed("model::Client", "send")),
 		fn("a/src/client.rs", "Client::send"), // model.rs declares Client; client.rs implements it
 	}
-	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/server.rs", "a/src/model.rs", "a/src/client.rs"}}
-	if got, want := callees(Build(in, units), "a/src/server.rs Server::run"), "[a/src/client.rs Client::send]"; got != want {
+	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/lib.rs", "a/src/model.rs", "a/src/client.rs"}}
+	if got, want := callees(Build(in, units), "a/src/lib.rs Server::run"), "[a/src/client.rs Client::send]"; got != want {
 		t.Errorf("Server::run calls %s, want %s", got, want)
 	}
 }
@@ -800,6 +800,46 @@ func TestRustExpandedModulePathsResolve(t *testing.T) {
 	}
 	in := Inputs{Crates: map[string]string{"a": "a", "b": "b"}, RustFiles: []string{"a/src/run.rs", "a/src/util.rs", "b/src/lib.rs"}}
 	if got, want := callees(Build(in, units), "a/src/run.rs run"), "[a/src/util.rs log b/src/lib.rs post]"; got != want {
+		t.Errorf("run calls %s, want %s", got, want)
+	}
+}
+
+// A relative module path names a child of the caller's module: from the
+// crate root, bar is no module when only src/foo/bar.rs exists.
+func TestRustRelativeModulePathsNameChildModules(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/lib.rs", "root", path("bar", "read"), path("foo", "load")),
+		fn("a/src/foo.rs", "inside", path("bar", "write")), // foo's child bar
+		fn("a/src/foo/bar.rs", "read"),
+		fn("a/src/foo/bar.rs", "write"),
+		fn("a/src/foo.rs", "load"),
+	}
+	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/lib.rs", "a/src/foo.rs", "a/src/foo/bar.rs"}}
+	g := Build(in, units)
+	if got, want := callees(g, "a/src/lib.rs root"), "[a/src/foo.rs load]"; got != want {
+		t.Errorf("root calls %s, want %s: bar is no module of the crate root", got, want)
+	}
+	if got, want := callees(g, "a/src/foo.rs inside"), "[a/src/foo/bar.rs write]"; got != want {
+		t.Errorf("inside calls %s, want %s: bar is foo's child", got, want)
+	}
+}
+
+// Type::f on a path keeps to the type's crate: chrono::Utc::now is not
+// the repository's Utc::now.
+func TestRustTypePathCallsKeepToTheirCrate(t *testing.T) {
+	units := []unit.Unit{
+		fn("a/src/run.rs", "run", path("chrono::Utc", "now"), path("crate::clock::Clock", "now"), path("b::Ledger", "open")),
+		fn("a/src/clock.rs", "Utc::now"),
+		fn("a/src/clock.rs", "Clock::now"),
+		fn("a/src/ledger.rs", "Ledger::open"),
+		fn("b/src/ledger.rs", "Ledger::open"),
+	}
+	in := Inputs{
+		Imports:   map[string]map[string]string{"a/src/run.rs": {"Ledger": "b::Ledger"}},
+		Crates:    map[string]string{"a": "a", "b": "b"},
+		RustFiles: []string{"a/src/run.rs", "a/src/clock.rs", "a/src/ledger.rs", "b/src/ledger.rs"},
+	}
+	if got, want := callees(Build(in, units), "a/src/run.rs run"), "[a/src/clock.rs Clock::now b/src/ledger.rs Ledger::open]"; got != want {
 		t.Errorf("run calls %s, want %s", got, want)
 	}
 }
