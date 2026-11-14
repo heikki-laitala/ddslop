@@ -6,7 +6,6 @@ package codemap
 import (
 	"path"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/flow"
@@ -159,6 +158,13 @@ func CratePath(file string, crates map[string]string) (name, rel string) {
 	return name, rel
 }
 
+// CrateFacts are what resolving a crate's references needs to know of it:
+// its modules, as Module names them, the functions and constants of its
+// root module, and the names extern crate self gives the crate.
+type CrateFacts struct {
+	Modules, RootValues, SelfAliases map[string]bool
+}
+
 // ReferencedModule returns the module of its crate a reference written in
 // a Rust file names, as Module names it, or "" for none. super and self
 // are read from where the path is written: the file's place in the crate
@@ -167,7 +173,7 @@ func CratePath(file string, crates map[string]string) (name, rel string) {
 // them), or a path ending at one of rootValues (the root module's
 // functions and constants), names the root module. It is for a file of the library target,
 // whose crate:: is the crate Module names (see the caller).
-func ReferencedModule(file string, crates map[string]string, ref unit.Reference, modules, rootValues map[string]bool) string {
+func ReferencedModule(file string, crates map[string]string, ref unit.Reference, crate CrateFacts) string {
 	name, rel := CratePath(file, crates)
 	if name == "" {
 		return ""
@@ -177,31 +183,27 @@ func ReferencedModule(file string, crates map[string]string, ref unit.Reference,
 		here = append(here, strings.Split(ref.Module, "::")...)
 	}
 	segments := strings.Split(ref.Path, "::")
+	if ref.Relative {
+		if !crate.SelfAliases[segments[0]] {
+			return "" // another crate's path, or a module-relative one
+		}
+		segments[0] = "crate"
+	}
 	for i, s := range segments {
 		segments[i] = strings.TrimPrefix(s, "r#") // mod r#type is type.rs
 	}
-	var at []string
-	switch segments[0] {
-	case "crate":
-		segments = segments[1:]
-	case "self":
-		at, segments = here, segments[1:]
-	case "super":
-		at = here
-		for len(segments) > 0 && segments[0] == "super" {
-			if len(at) == 0 {
-				return "" // above the crate root
-			}
-			at, segments = at[:len(at)-1], segments[1:]
-		}
-	default:
+	resolved, ok := flow.ResolvePath(strings.Join(segments, "::"), strings.Join(here, "::"))
+	if !ok {
 		return ""
 	}
-	at = append(slices.Clone(at), segments...)
+	var at []string
+	if resolved != "" {
+		at = strings.Split(resolved, "::")
+	}
 	// A path ending at a root value's name (crate::foo for the root's fn
 	// foo) names that value, though a module foo may exist beside it.
-	rootValue := ref.Leaf && len(at) == 1 && (ref.Macro || rootValues[at[0]])
-	if len(at) > 0 && modules[moduleName(name, at[0])] && !rootValue {
+	rootValue := ref.Leaf && len(at) == 1 && (ref.Macro || crate.RootValues[at[0]])
+	if len(at) > 0 && crate.Modules[moduleName(name, at[0])] && !rootValue {
 		return moduleName(name, at[0])
 	}
 	return moduleName(name, "")

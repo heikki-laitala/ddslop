@@ -298,3 +298,33 @@ func TestABinarysCallsCloseNoCycleOfTheLibrarys(t *testing.T) {
 		t.Errorf("candidates = %+v, want none: the binary's call is not the library's", r.Candidates)
 	}
 }
+
+// extern crate self as root at the crate root names the crate in every
+// module: root::foo::Y in a.rs is a dependency on foo.
+func TestAnExternCrateSelfAliasNamesTheCrateEverywhere(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "extern crate self as root;\npub mod a;\npub mod foo;\n",
+		"src/a.rs":   "pub const A: u8 = 1;\npub const X: u8 = root::foo::Y;\n",
+		"src/foo.rs": "pub const Y: u8 = 1;\npub const Z: u8 = crate::a::A;\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	r := cycles(t, stdout)
+	if len(r.Candidates) != 1 || strings.Join(r.Candidates[0].Values, ", ") != "a -> foo, foo -> a" {
+		t.Errorf("candidates = %+v, want a and foo depending on each other", r.Candidates)
+	}
+}
+
+// wrap!(crate::foo!()) invokes the root's macro foo, not the module foo.
+func TestANestedRootMacroIsNotTheModuleOfItsName(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "pub mod bar;\npub mod foo;\n#[macro_export]\nmacro_rules! foo { () => { 1 } }\n",
+		"src/bar.rs": "pub fn b() -> u8 { std::convert::identity(crate::foo!()) + wrap!(crate::foo!()) }\n",
+		"src/foo.rs": "pub fn f() -> u8 { crate::bar::b() }\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 0 {
+		t.Errorf("candidates = %+v, want none: bar invokes the root's macro foo", r.Candidates)
+	}
+}

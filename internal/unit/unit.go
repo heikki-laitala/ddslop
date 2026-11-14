@@ -152,7 +152,14 @@ type Reference struct {
 	Leaf bool
 	// Macro is true when the path is a macro's (crate::foo!()): macros
 	// are never modules.
-	Macro         bool
+	Macro bool
+	// Relative is true for a path beginning with a name its file does not
+	// bind (root::foo): it names the crate only through an alias the
+	// crate's root declares (extern crate self as root).
+	Relative bool
+	// Alias, on a crate's root file, is a name extern crate self as Alias
+	// gives the crate in every module.
+	Alias         string
 	Test, Ignored bool
 }
 
