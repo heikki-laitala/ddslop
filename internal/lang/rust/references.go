@@ -85,7 +85,8 @@ func (r *referrer) walk(n *sitter.Node, c at) {
 		r.pathFrom(n, []string{name}, c)
 		return
 	case "extern_crate_declaration":
-		if name, alias := n.ChildByFieldName("name"), n.ChildByFieldName("alias"); name != nil && alias != nil && name.Utf8Text(r.src) == "self" && c.module == "" {
+		if name, alias := n.ChildByFieldName("name"), n.ChildByFieldName("alias"); name != nil && alias != nil && name.Utf8Text(r.src) == "self" &&
+			n.Parent() != nil && n.Parent().Kind() == "source_file" { // the crate root's own, not a block's
 			r.refs = append(r.refs, unit.Reference{Path: "crate", Line: syntax.Line(n.StartPosition()), Item: "extern crate",
 				Alias: alias.Utf8Text(r.src), Test: c.test, Ignored: c.ignored})
 		}

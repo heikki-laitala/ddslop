@@ -442,3 +442,18 @@ func TestARootReexportedValueIsNotTheModuleOfItsName(t *testing.T) {
 		t.Errorf("candidates = %+v, want none: crate::foo is the re-exported value", r.Candidates)
 	}
 }
+
+// extern crate self as root inside a function of the crate root holds in
+// that block alone: another module's root is not this crate.
+func TestABlockLocalCrateAliasIsNotCrateWide(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "pub mod a;\npub mod foo;\nfn f() { extern crate self as root; }\n",
+		"src/a.rs":   "pub const A: u8 = 1;\npub const X: u8 = root::foo::X;\n",
+		"src/foo.rs": "pub const X: u8 = 1;\npub const Z: u8 = crate::a::A;\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 0 {
+		t.Errorf("candidates = %+v, want none: a's root is not this crate", r.Candidates)
+	}
+}
