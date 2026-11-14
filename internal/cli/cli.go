@@ -657,9 +657,9 @@ func dependencyCycles(g *flow.Graph, files []index.File, crates map[string]strin
 	return out
 }
 
-// dependencies lists what the modules of one crate depend on besides
-// their calls: the modules their paths name (see codemap.ReferencedModule),
-// in files order and each file's source order.
+// dependencies lists what the modules of one crate's library depend on
+// besides their calls: the modules their paths name (see
+// codemap.ReferencedModule), in files order and each file's source order.
 func dependencies(files []index.File, crates map[string]string, name string, generated map[string]bool, tests bool) []codemap.Dependency {
 	modules := map[string]bool{}
 	for _, f := range files {
@@ -667,9 +667,15 @@ func dependencies(files []index.File, crates map[string]string, name string, gen
 			modules[codemap.Module(f.Path, crates)] = true
 		}
 	}
+	libraries := map[string]bool{}
+	for _, f := range files {
+		if crate, rel := codemap.CratePath(f.Path, crates); rel == "lib.rs" {
+			libraries[crate] = true
+		}
+	}
 	var deps []codemap.Dependency
 	for _, f := range files {
-		if generated[f.Path] || codemap.Crate(f.Path, crates) != name {
+		if generated[f.Path] || codemap.Crate(f.Path, crates) != name || !inLibrary(f.Path, crates, libraries) {
 			continue
 		}
 		from := codemap.Module(f.Path, crates)
@@ -683,6 +689,15 @@ func dependencies(files []index.File, crates map[string]string, name string, gen
 		}
 	}
 	return deps
+}
+
+// inLibrary reports whether a Rust file belongs to its package's library
+// target, whose crate:: paths name the modules Module names: a file under
+// src/, but no binary's (src/bin, or src/main.rs beside a library). A
+// build script, an example or a binary is a crate of its own.
+func inLibrary(file string, crates map[string]string, libraries map[string]bool) bool {
+	crate, rel := codemap.CratePath(file, crates)
+	return rel != "" && !strings.HasPrefix(rel, "bin/") && (rel != "main.rs" || !libraries[crate])
 }
 
 // cycleGraph is the call graph cycles are found in: the non-test code's,
