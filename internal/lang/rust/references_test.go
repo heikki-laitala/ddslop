@@ -13,6 +13,9 @@ import (
 func show(refs []unit.Reference) string {
 	var lines []string
 	for _, r := range refs {
+		if r.Relative {
+			continue // see TestReferencesKeepPathsFromNamesTheFileDoesNotBind
+		}
 		s := fmt.Sprintf("%s@%d %s", r.Path, r.Line, r.Item)
 		if r.Module != "" {
 			s += " in " + r.Module
@@ -86,6 +89,43 @@ func TestReferencesFollowAliasesOfARoot(t *testing.T) {
 	want := "crate@1 use\nsuper@2 use\ncrate::foo@3 X\nsuper::T@4 Z leaf\ncrate::bar@5 f"
 	if got := show(References("src/x.rs", []byte(src))); got != want {
 		t.Errorf("references:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// An alias holds in the block or module that declares it: a sibling
+// function binding the same name otherwise does not see it.
+func TestRootAliasesHoldInTheirScope(t *testing.T) {
+	src := "fn a() { use crate as root; let _ = root::foo::X; }\nfn b() { use crate::external as root; let _ = root::foo::X; }\n"
+	want := "crate@1 use\ncrate::foo@1 a\ncrate::external@2 use"
+	if got := show(References("src/x.rs", []byte(src))); got != want {
+		t.Errorf("references:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// crate::foo!() nested in another macro's arguments is a macro's path.
+func TestANestedMacroPathIsAMacros(t *testing.T) {
+	refs := References("src/x.rs", []byte("fn f() { wrap!(crate::foo!()); wrap!(crate::bar::X); }\n"))
+	if len(refs) != 2 || !refs[0].Macro || refs[1].Macro {
+		t.Errorf("references = %+v, want crate::foo a macro's path and crate::bar not", refs)
+	}
+}
+
+// A path from a name the file does not bind may reach the crate through an
+// alias its root declares, so it is kept, marked relative; one a use in
+// scope binds is not, nor a use list's entry. One from an outside crate
+// (serde::Serialize) is kept too: it names this crate only if its root
+// aliases itself so.
+func TestReferencesKeepPathsFromNamesTheFileDoesNotBind(t *testing.T) {
+	src := "use crate::{a::X};\nuse serde::Serialize as Ser;\nconst Y: u8 = root::foo::Y;\nconst Z: u8 = Ser::z();\nextern crate self as me;\n"
+	var got []string
+	for _, r := range References("src/lib.rs", []byte(src)) {
+		if r.Relative || r.Alias != "" {
+			got = append(got, fmt.Sprintf("%s@%d relative=%v alias=%q", r.Path, r.Line, r.Relative, r.Alias))
+		}
+	}
+	want := "serde::Serialize@2 relative=true alias=\"\"\nroot::foo@3 relative=true alias=\"\"\ncrate@5 relative=false alias=\"me\""
+	if strings.Join(got, "\n") != want {
+		t.Errorf("references:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
 

@@ -500,10 +500,21 @@ func moduleOf(file string) (string, bool) {
 // (grandparent's), and a relative x its child x.
 func modulePath(path string, caller unit.Unit) string {
 	here, _ := unitModule(caller)
+	if resolved, ok := ResolvePath(path, here); ok {
+		return resolved
+	}
+	return joinModule(here, path)
+}
+
+// ResolvePath returns the module path a Rust path rooted at crate, self or
+// super names, read from the module here it is written in: crate::a::b is
+// a::b, self::x is here's x, super::x (super::super::x) its parent's
+// (grandparent's). ok is false for a path with no such root.
+func ResolvePath(path, here string) (resolved string, ok bool) {
 	root, rest, _ := strings.Cut(path, "::")
 	switch root {
 	case "crate":
-		return rest
+		return rest, true
 	case "super":
 		for {
 			here = parentModule(here)
@@ -518,8 +529,13 @@ func modulePath(path string, caller unit.Unit) string {
 		}
 	case "self":
 	default:
-		rest = path
+		return "", false
 	}
+	return joinModule(here, rest), true
+}
+
+// joinModule joins a module path and a path within it.
+func joinModule(here, rest string) string {
 	switch {
 	case here == "":
 		return rest

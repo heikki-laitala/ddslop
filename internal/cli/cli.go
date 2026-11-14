@@ -669,7 +669,7 @@ func dependencies(files []index.File, crates map[string]string, name string, gen
 			modules[codemap.Module(f.Path, crates)] = true
 		}
 	}
-	rootValues := map[string]bool{}
+	rootValues, selfAliases := map[string]bool{}, map[string]bool{}
 	for _, f := range files {
 		crate, rel := codemap.CratePath(f.Path, crates)
 		root := rel == "lib.rs" || rel == "main.rs" && !libraries[crate]
@@ -684,7 +684,13 @@ func dependencies(files []index.File, crates map[string]string, name string, gen
 		for _, k := range f.Decls.Consts {
 			rootValues[strings.TrimPrefix(k.Name, "r#")] = true
 		}
+		for _, r := range f.References {
+			if r.Alias != "" && (tests || !r.Test) {
+				selfAliases[r.Alias] = true
+			}
+		}
 	}
+	facts := codemap.CrateFacts{Modules: modules, RootValues: rootValues, SelfAliases: selfAliases}
 	var deps []codemap.Dependency
 	for _, f := range files {
 		if generated[f.Path] || codemap.Crate(f.Path, crates) != name || !inLibrary(f.Path, crates, libraries) {
@@ -695,7 +701,7 @@ func dependencies(files []index.File, crates map[string]string, name string, gen
 			if r.Test && !tests {
 				continue
 			}
-			if to := codemap.ReferencedModule(f.Path, crates, r, modules, rootValues); to != "" && to != from {
+			if to := codemap.ReferencedModule(f.Path, crates, r, facts); to != "" && to != from {
 				deps = append(deps, codemap.Dependency{From: from, To: to, File: f.Path, Item: r.Item, Line: r.Line, Ignored: r.Ignored})
 			}
 		}
