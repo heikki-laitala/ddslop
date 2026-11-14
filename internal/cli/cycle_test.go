@@ -73,7 +73,7 @@ func TestCheckIgnoresACycleMarkedAtACallSite(t *testing.T) {
 }
 
 // In diff mode a cycle is reported when the change touched one of its
-// call sites: the change that closed the loop.
+// call sites, as the change closing it here does.
 func TestDiffReportsTheChangeClosingACycle(t *testing.T) {
 	files := maps.Clone(cyclicCrate)
 	files["src/store.rs"] = "pub fn open() {}\npub fn endpoint() {}\n" // no call back yet
