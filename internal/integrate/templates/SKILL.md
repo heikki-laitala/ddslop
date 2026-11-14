@@ -200,7 +200,8 @@ What to do per `kind`:
 - `dependency-cycle` (`break-cycle`): modules of a Rust crate depending
   on each other in a loop, through calls or through paths naming the
   other module (`crate::store::Endpoint` in a constant, a type, a struct
-  literal, an `impl` or a `use`); `values` lists the dependencies closing
+  literal, an `impl` or a `use`; a `pub use` re-export, as a crate's
+  facade makes, is none); `values` lists the dependencies closing
   it (`a -> b`, `b -> a`), each occurrence a call or, where no call makes
   that dependency, the first line naming the module, under the item it
   is in. Remove one direction: usually the one out of the lower-level

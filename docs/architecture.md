@@ -1624,6 +1624,8 @@ since a binary, a build script or an example is a crate of its own,
 whose `crate::` names its own modules). A site is a call where one makes the edge, else the first line
 naming the module, under the item it is written in; test code counts only
 with `--tests`, and a `ddslop:ignore` on the line leaves the cycle out.
+A `pub use` re-export is no dependency: a crate root re-exporting its
+children while they use its items is Rust's facade, not a cycle.
 The map's cycles stay those of calls, as its layers are. Measured on
 that workspace: 139 candidates where calls alone gave 31, the constants
 pair among them.
