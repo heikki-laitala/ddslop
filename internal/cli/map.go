@@ -432,12 +432,19 @@ func packages(root string, files []index.File) *codemap.Packages {
 func crateNames(files []index.File, crates *codemap.Packages) []string {
 	var names []string
 	for _, f := range files {
-		if c := codemap.Crate(f.Path, crates); c != "" && !rust.IsTestPath(f.Path) {
+		if c := codemap.Crate(f.Path, crates); c != "" && !isTestFile(f.Path, crates) {
 			names = append(names, c)
 		}
 	}
 	slices.Sort(names)
 	return slices.Compact(names)
+}
+
+// isTestFile reports whether a Rust file holds tests by its place, unless
+// a manifest roots its library there (see rust.IsTestPath).
+func isTestFile(file string, crates *codemap.Packages) bool {
+	_, _, _, library := crates.Libraries.Locate(file)
+	return rust.IsTestPath(file) && !library
 }
 
 // crateSummary counts a crate's modules and the layers they form.

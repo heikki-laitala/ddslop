@@ -15,11 +15,17 @@ import (
 // declarations and in macro arguments. A visibility such as
 // pub(in crate::a) is no dependency, and is left out.
 func References(path string, src []byte) []unit.Reference {
+	return ReferencesAs(syntax.Source{Path: path, Src: src, Test: IsTestPath(path)})
+}
+
+// ReferencesAs is References with whether the file is test code by its
+// place given (see ParseAs).
+func ReferencesAs(file syntax.Source) []unit.Reference {
 	var refs []unit.Reference
-	_ = syntax.Parse(language, src, func(root *sitter.Node) {
-		ignored, _ := syntax.Ignored(root, src)
-		r := referrer{src: src, ignored: ignored, aliases: aliasesIn(root, src)}
-		r.walk(root, at{test: IsTestPath(path)})
+	_ = syntax.Parse(language, file.Src, func(root *sitter.Node) {
+		ignored, _ := syntax.Ignored(root, file.Src)
+		r := referrer{src: file.Src, ignored: ignored, aliases: aliasesIn(root, file.Src)}
+		r.walk(root, at{test: file.Test})
 		refs = r.refs
 	})
 	return refs
