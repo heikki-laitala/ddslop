@@ -18,7 +18,7 @@ func References(path string, src []byte) []unit.Reference {
 	var refs []unit.Reference
 	_ = syntax.Parse(language, src, func(root *sitter.Node) {
 		ignored, _ := syntax.Ignored(root, src)
-		r := referrer{src: src, ignored: ignored}
+		r := referrer{src: src, ignored: ignored, aliases: rootAliases(root, src)}
 		r.walk(root, at{test: IsTestPath(path)})
 		refs = r.refs
 	})
@@ -28,6 +28,9 @@ func References(path string, src []byte) []unit.Reference {
 type referrer struct {
 	src     []byte
 	ignored map[int]bool // lines ddslop:ignore markers apply to
+	// aliases are the names use declarations give a root-only path (use
+	// crate as root), by the inline module they are declared in.
+	aliases map[string]map[string][]string
 	refs    []unit.Reference
 }
 
@@ -56,7 +59,14 @@ func (r *referrer) walk(n *sitter.Node, c at) {
 	case "visibility_modifier":
 		return
 	case "crate", "super", "self":
-		r.pathFrom(n, c)
+		r.pathFrom(n, []string{n.Kind()}, c)
+		return
+	case "identifier":
+		// root::foo::Y, with use crate as root in scope
+		if alias := r.aliases[c.module][n.Utf8Text(r.src)]; alias != nil && n.Parent() != nil &&
+			n.Parent().Kind() != "use_as_clause" && isPathOf(n.Parent(), n) {
+			r.pathFrom(n, slices.Clone(alias), c)
+		}
 		return
 	case "token_tree":
 		r.tokens(n, c)
@@ -98,11 +108,10 @@ func (r *referrer) walk(n *sitter.Node, c at) {
 	}
 }
 
-// pathFrom records the path that root (crate, super or self) begins, if
-// it begins one: self is also a method's receiver, and crate a
-// visibility.
-func (r *referrer) pathFrom(root *sitter.Node, c at) {
-	segments := []string{root.Kind()}
+// pathFrom records the path that root (crate, super, self, or an alias of
+// one, whose segments start segments) begins, if it begins one: self is
+// also a method's receiver, and crate a visibility.
+func (r *referrer) pathFrom(root *sitter.Node, segments []string, c at) {
 	cur := root
 	for {
 		parent := cur.Parent()
@@ -133,7 +142,7 @@ func (r *referrer) pathFrom(root *sitter.Node, c at) {
 			// a::b::C and a::b::* enter b; a::b and a::b as c end there
 			leaf := outer == nil || outer.Kind() == "use_as_clause" ||
 				outer.Kind() != "use_wildcard" && !isPathOf(outer, parent)
-			r.add(segments, root, c, leaf)
+			r.addMacro(segments, root, c, leaf, outer != nil && outer.Kind() == "macro_invocation")
 			return
 		}
 		cur = parent
@@ -225,14 +234,16 @@ func (r *referrer) tokens(tree *sitter.Node, c at) {
 			r.tokens(tok, inner)
 			continue
 		}
-		root := tok.Kind()
-		if root != "crate" && root != "super" && root != "self" {
+		var segments []string
+		switch tok.Kind() {
+		case "crate", "super", "self":
+			segments = []string{tok.Kind()}
+		case "identifier":
+			segments = slices.Clone(r.aliases[c.module][tok.Utf8Text(r.src)])
+		}
+		if segments == nil || i > 0 && (toks[i-1].Kind() == "$" || toks[i-1].Kind() == "::") {
 			continue
 		}
-		if i > 0 && (toks[i-1].Kind() == "$" || toks[i-1].Kind() == "::") {
-			continue
-		}
-		segments := []string{root}
 		for j := i + 1; j+1 < len(toks) && toks[j].Kind() == "::"; j += 2 {
 			next := toks[j+1]
 			segments = append(segments, next.Utf8Text(r.src))
@@ -245,11 +256,77 @@ func (r *referrer) tokens(tree *sitter.Node, c at) {
 }
 
 func (r *referrer) add(segments []string, n *sitter.Node, c at, leaf bool) {
+	r.addMacro(segments, n, c, leaf, false)
+}
+
+// addMacro records a path, macro telling whether it is a macro's.
+func (r *referrer) addMacro(segments []string, n *sitter.Node, c at, leaf, macro bool) {
 	line := syntax.Line(n.StartPosition())
 	r.refs = append(r.refs, unit.Reference{
-		Path: strings.Join(segments, "::"), Line: line, Module: c.module, Item: c.item, Leaf: leaf && !c.inUse,
-		Test: c.test, Ignored: c.ignored || r.ignored[line],
+		Path: strings.Join(segments, "::"), Line: line, Module: c.module, Item: c.item,
+		Leaf: leaf && !c.inUse, Macro: macro, Test: c.test, Ignored: c.ignored || r.ignored[line],
 	})
+}
+
+// rootAliases returns the names use declarations give a root-only path
+// (use crate as root, use super::{self as up}), by the inline module they
+// are declared in: an alias is not seen in a child module.
+func rootAliases(root *sitter.Node, src []byte) map[string]map[string][]string {
+	out := map[string]map[string][]string{}
+	add := func(module, alias string, segments []string) {
+		if out[module] == nil {
+			out[module] = map[string][]string{}
+		}
+		out[module][alias] = segments
+	}
+	var walk func(n *sitter.Node, module string)
+	walk = func(n *sitter.Node, module string) {
+		switch n.Kind() {
+		case "mod_item":
+			if name := n.ChildByFieldName("name"); name != nil && n.ChildByFieldName("body") != nil {
+				module = joinPath(module, name.Utf8Text(src))
+			}
+		case "use_as_clause":
+			path, alias := n.ChildByFieldName("path"), n.ChildByFieldName("alias")
+			if alias == nil {
+				return
+			}
+			if path != nil && path.Kind() == "self" && n.Parent() != nil && n.Parent().Kind() == "use_list" {
+				// a::{self as b}: the list's prefix
+				if list := n.Parent().Parent(); list != nil && list.Kind() == "scoped_use_list" {
+					if chain := rootChain(list.ChildByFieldName("path")); chain != nil {
+						add(module, alias.Utf8Text(src), chain)
+					}
+				}
+			} else if chain := rootChain(path); chain != nil {
+				add(module, alias.Utf8Text(src), chain)
+			}
+			return
+		}
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			walk(n.NamedChild(i), module)
+		}
+	}
+	walk(root, "")
+	return out
+}
+
+// rootChain returns the segments of a root-only path, crate, self, super
+// or super::super, or nil for any other.
+func rootChain(n *sitter.Node) []string {
+	if n == nil {
+		return nil
+	}
+	switch n.Kind() {
+	case "crate", "super", "self":
+		return []string{n.Kind()}
+	case "scoped_identifier":
+		name := n.ChildByFieldName("name")
+		if prefix := rootChain(n.ChildByFieldName("path")); prefix != nil && name != nil && name.Kind() == "super" {
+			return append(prefix, "super")
+		}
+	}
+	return nil
 }
 
 // joinPath appends name to a :: path.

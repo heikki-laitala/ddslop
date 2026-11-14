@@ -79,6 +79,16 @@ func TestReferencesKnowWhetherThePathEndsAtTheirName(t *testing.T) {
 	}
 }
 
+// use crate as root makes root a name for the crate: root::foo::Y enters
+// foo as crate::foo::Y does, where the alias is in scope.
+func TestReferencesFollowAliasesOfARoot(t *testing.T) {
+	src := "use crate as root;\nuse super::{self as up};\nconst X: u8 = root::foo::Y;\nconst Z: up::T = 1;\nfn f() { m!(root::bar::Z) }\nmod inner { const W: u8 = root::q::W; }\n"
+	want := "crate@1 use\nsuper@2 use\ncrate::foo@3 X\nsuper::T@4 Z leaf\ncrate::bar@5 f"
+	if got := show(References("src/x.rs", []byte(src))); got != want {
+		t.Errorf("references:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestReferencesInAnImplNameItsMethods(t *testing.T) {
 	src := `impl<T> Store<T> {
     fn open(&self) { crate::config::load(); }
