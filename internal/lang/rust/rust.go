@@ -1760,25 +1760,29 @@ func isUpper(name string) bool {
 // Cargo.toml: the [lib] name if set, otherwise the [package] name, with
 // dashes as underscores. It returns "" when there is no package.
 func CrateName(cargoToml []byte) string {
-	section := ""
-	names := map[string]string{} // section -> name
+	name := manifestValue(cargoToml, "lib", "name")
+	if name == "" {
+		name = manifestValue(cargoToml, "package", "name")
+	}
+	return strings.ReplaceAll(name, "-", "_")
+}
+
+// manifestValue returns a string key's value in one section of a
+// Cargo.toml, unquoted, or "" when the section does not set it.
+func manifestValue(cargoToml []byte, section, key string) string {
+	current := ""
 	for line := range strings.Lines(string(cargoToml)) {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "[") {
-			section = strings.Trim(line, "[] ")
+			current = strings.Trim(line, "[] ")
 			continue
 		}
-		key, value, ok := strings.Cut(line, "=")
-		if !ok || strings.TrimSpace(key) != "name" || (section != "package" && section != "lib") {
-			continue
+		k, value, ok := strings.Cut(line, "=")
+		if ok && current == section && strings.TrimSpace(k) == key {
+			return strings.Trim(strings.TrimSpace(value), `"'`)
 		}
-		names[section] = strings.Trim(strings.TrimSpace(value), `"'`)
 	}
-	name := names["lib"]
-	if name == "" {
-		name = names["package"]
-	}
-	return strings.ReplaceAll(name, "-", "_")
+	return ""
 }
 
 // TestModules returns the names of the modules a file declares out of
@@ -1848,4 +1852,10 @@ func publishValue(manifest []byte, want string) string {
 		}
 	}
 	return ""
+}
+
+// LibPath returns the [lib] path a Cargo.toml sets for its library's root
+// file, relative to the package, or "" when it keeps Cargo's default.
+func LibPath(cargoToml []byte) string {
+	return manifestValue(cargoToml, "lib", "path")
 }
