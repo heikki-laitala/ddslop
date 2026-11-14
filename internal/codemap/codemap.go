@@ -115,7 +115,7 @@ func moduleName(name, top string) string {
 // rustModule returns a Rust file's crate name and the module directly
 // under the crate's src/ ("" for the crate's root module).
 func rustModule(file string, crates map[string]string) (name, top string) {
-	name, rel := crateFile(file, crates)
+	name, rel := CratePath(file, crates)
 	top, _, nested := strings.Cut(rel, "/")
 	if !nested {
 		top = strings.TrimSuffix(top, ".rs")
@@ -126,7 +126,7 @@ func rustModule(file string, crates map[string]string) (name, top string) {
 	return name, top
 }
 
-// crateFile returns a Rust file's crate name and its path under the
+// CratePath returns a Rust file's crate name and its path under the
 // crate's src/ ("" outside it). crates maps the directories holding a
 // package's Cargo.toml: a file belongs to the nearest one above it, as
 // Cargo has it, and one outside src/ (build.rs, examples/) to that crate's
@@ -134,7 +134,8 @@ func rustModule(file string, crates map[string]string) (name, top string) {
 // no crate (both results ""), such as a script beside a virtual
 // workspace's members. Without any manifest, the crate directory is the
 // one call resolution uses.
-func crateFile(file string, crates map[string]string) (name, rel string) {
+func CratePath(file string, crates map[string]string) (name, rel string) {
+	file = filepath.ToSlash(file)
 	dir := flow.CrateOf(file)
 	if root, ok := packageOf(file, crates); ok {
 		dir = root
@@ -163,11 +164,11 @@ func crateFile(file string, crates map[string]string) (name, rel string) {
 // are read from where the path is written: the file's place in the crate
 // and the inline module within it. A path naming an item of the root
 // module rather than one of modules (the crate's modules, as Module names
-// them) names the root module. A binary under src/bin is a crate of its
-// own, whose paths name none of the library's modules.
+// them) names the root module. It is for a file of the library target,
+// whose crate:: is the crate Module names (see the caller).
 func ReferencedModule(file string, crates map[string]string, ref unit.Reference, modules map[string]bool) string {
-	name, rel := crateFile(filepath.ToSlash(file), crates)
-	if name == "" || strings.HasPrefix(rel, "bin/") {
+	name, rel := CratePath(file, crates)
+	if name == "" {
 		return ""
 	}
 	here := fileModules(rel)

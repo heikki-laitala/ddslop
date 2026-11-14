@@ -1619,8 +1619,9 @@ code, types, `use` declarations and macro arguments, a `pub(in ..)`
 visibility excepted) as an edge beside the calls
 (`codemap.ReferencedModule` resolves `super` and `self` from the file's
 place in the crate and its inline module; a path naming an item of the
-root module names the root, and a binary under `src/bin` is a crate of
-its own). A site is a call where one makes the edge, else the first line
+root module names the root; only the library target's files count,
+since a binary, a build script or an example is a crate of its own,
+whose `crate::` names its own modules). A site is a call where one makes the edge, else the first line
 naming the module, under the item it is written in; test code counts only
 with `--tests`, and a `ddslop:ignore` on the line leaves the cycle out.
 The map's cycles stay those of calls, as its layers are. Measured on

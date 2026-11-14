@@ -140,3 +140,23 @@ func TestABinarysCratePathsAreNotTheLibrarys(t *testing.T) {
 		t.Errorf("candidates = %+v, want none: the binary's crate::capacity is its own", r.Candidates)
 	}
 }
+
+// src/main.rs beside a library, build.rs and examples are Cargo targets of
+// their own: their crate:: paths name their own modules, so a binary's
+// mod a is not the library's a.
+func TestOtherCargoTargetsPathsAreNotTheLibrarys(t *testing.T) {
+	library := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "pub mod a;\npub const VERSION: u8 = 1;\n",
+		"src/a.rs":   "pub const V: u8 = crate::VERSION;\n",
+	}
+	target := "mod a { pub const X: u8 = 1; }\nfn main() { let _ = crate::a::X; }\n"
+	for _, path := range []string{"src/main.rs", "build.rs", "examples/demo.rs"} {
+		files := maps.Clone(library)
+		files[path] = target
+		_, stdout, _ := run("check", "--format", "json", repo(t, files))
+		if r := cycles(t, stdout); len(r.Candidates) != 0 {
+			t.Errorf("%s: candidates = %+v, want none: its crate::a is its own", path, r.Candidates)
+		}
+	}
+}
