@@ -1767,6 +1767,16 @@ func CrateName(cargoToml []byte) string {
 	return strings.ReplaceAll(name, "-", "_")
 }
 
+// tableHeader returns the table a TOML line opens ([lib], [[bin]]), its
+// comment left out, or false for a line that opens none.
+func tableHeader(line string) (string, bool) {
+	if !strings.HasPrefix(line, "[") {
+		return "", false
+	}
+	header, _, _ := strings.Cut(line, "#")
+	return strings.Trim(strings.TrimSpace(header), "[] "), true
+}
+
 // tomlString returns a TOML value as written: a quoted string's contents,
 // up to its closing quote, or a bare value up to a comment.
 func tomlString(value string) string {
@@ -1785,8 +1795,8 @@ func manifestValue(cargoToml []byte, section, key string) string {
 	current := ""
 	for line := range strings.Lines(string(cargoToml)) {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "[") {
-			current = strings.Trim(line, "[] ")
+		if header, ok := tableHeader(line); ok {
+			current = header
 			continue
 		}
 		k, value, ok := strings.Cut(line, "=")
@@ -1846,8 +1856,8 @@ func publishValue(manifest []byte, want string) string {
 	section := ""
 	for line := range strings.Lines(string(manifest)) {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "[") {
-			section = strings.Trim(line, "[] ")
+		if header, ok := tableHeader(line); ok {
+			section = header
 			continue
 		}
 		key, value, ok := strings.Cut(line, "=")

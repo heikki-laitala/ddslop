@@ -527,7 +527,7 @@ func ResolvePath(path, here string) (resolved string, ok bool) {
 		return rest, true
 	case "super":
 		for {
-			here = parentModule(here)
+			here = parentOf(here, "::", "")
 			next, more, found := strings.Cut(rest, "::")
 			if next != "super" {
 				break
@@ -555,12 +555,14 @@ func joinModule(here, rest string) string {
 	return here + "::" + rest
 }
 
-// parentModule returns a module path's parent: "" for a top module.
-func parentModule(module string) string {
-	if i := strings.LastIndex(module, "::"); i >= 0 {
-		return module[:i]
+// parentOf returns the parent of a path whose parts sep separates, or none
+// for a path of one part: a module's parent (crate::a for crate::a::b) or
+// a file's directory.
+func parentOf(path, sep, none string) string {
+	if i := strings.LastIndex(path, sep); i >= 0 {
+		return path[:i]
 	}
-	return ""
+	return none
 }
 
 // inModule returns the only candidate in the crate directory whose file
@@ -810,21 +812,14 @@ func (l Libraries) ModuleOf(file string) (string, bool) {
 	return modulePathOf(rel), true
 }
 
-// dirOf returns a slash path's directory, "." for none.
-func dirOf(file string) string {
-	if i := strings.LastIndex(file, "/"); i >= 0 {
-		return file[:i]
-	}
-	return "."
-}
-
 // owns reports whether a file under the directory of a moved library's
 // root file, dir, is that library's: not in another package nested in its
 // crate's, nor one of that package's other Cargo targets (a binary, a
-// build script, an example, a test or a bench). A library moved out of
-// src/ leaves src/ to the package's binary.
+// build script, an example, a test or a bench) outside the library's own
+// directory. A library moved out of src/ leaves src/ to the package's
+// binary.
 func (l Libraries) owns(file, dir, crate string) bool {
-	for d := dirOf(file); d != crate && d != "."; d = dirOf(d) {
+	for d := parentOf(file, "/", "."); d != crate && d != "."; d = parentOf(d, "/", ".") {
 		if l.Packages[d] {
 			return false
 		}
@@ -835,12 +830,14 @@ func (l Libraries) owns(file, dir, crate string) bool {
 		}
 		return strings.TrimPrefix(p, crate+"/")
 	}
-	rel := within(file)
+	rel, home := within(file), within(dir)+"/"
 	if rel == "build.rs" || rel == "src/main.rs" {
 		return false
 	}
+	// A target directory is another target's, unless the manifest roots
+	// the library in it (autoexamples = false, path = "examples/lib.rs").
 	for _, target := range []string{"src/bin/", "examples/", "benches/", "tests/"} {
-		if strings.HasPrefix(rel, target) {
+		if strings.HasPrefix(rel, target) && !strings.HasPrefix(home, target) {
 			return false
 		}
 	}
@@ -858,12 +855,12 @@ func (l Libraries) Locate(file string) (crate, rel string, root, ok bool) {
 	}
 	depth := -1
 	for r, c := range l.Roots {
-		dir := dirOf(r)
+		dir := parentOf(r, "/", ".")
 		inside, found := file, dir == "."
 		if !found {
 			inside, found = strings.CutPrefix(file, dir+"/")
 		}
-		if found && strings.Count(dir, "/") > depth && l.owns(file, dir, c) {
+		if found && strings.Count(dir, "/") > depth && (file == r || l.owns(file, dir, c)) {
 			crate, rel, root, ok, depth = c, inside, file == r, true, strings.Count(dir, "/")
 		}
 	}
