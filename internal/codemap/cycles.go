@@ -33,14 +33,30 @@ type Hop struct {
 }
 
 // Site is a call: the calling unit, the called one, and the call's index
-// among the caller's calls (-1 when the graph does not say).
-type Site struct{ Caller, Callee, Call int }
+// among the caller's calls (-1 when the graph does not say). For an edge
+// no call makes, it is the Dependency that does instead.
+type Site struct {
+	Caller, Callee, Call int
+	Dependency           *Dependency
+}
 
-// Cycles finds the groups of modules in the grouping whose calls form a
-// loop, largest first, counting every call between modules: also the weak
-// ones the layers set aside as upward breaks, as they close loops too.
-func Cycles(g *flow.Graph, group Grouping) []Cycle {
+// Dependency is a module depending on another without calling it: a path
+// naming it, written in an item of a file at a line (see unit.Reference).
+type Dependency struct {
+	From, To   string
+	File, Item string
+	Line       int
+	Ignored    bool
+}
+
+// Cycles finds the groups of modules in the grouping whose calls, and
+// deps, form a loop, largest first, counting every call between modules:
+// also the weak ones the layers set aside as upward breaks, as they close
+// loops too. A site is a call where one makes the edge, else its first
+// dependency.
+func Cycles(g *flow.Graph, group Grouping, deps []Dependency) []Cycle {
 	names, all := moduleGraph(g, group)
+	names, all = withDependencies(names, all, deps)
 	members := map[int][]int{}
 	for m, c := range all.components() {
 		members[c] = append(members[c], m)
@@ -57,6 +73,9 @@ func Cycles(g *flow.Graph, group Grouping) []Cycle {
 					return Site{Caller: caller, Callee: callee, Call: call}
 				}
 			}
+		}
+		if e := all[a][b]; e != nil && len(e.deps) > 0 {
+			return Site{Caller: -1, Callee: -1, Call: -1, Dependency: &deps[e.deps[0]]}
 		}
 		return Site{Caller: -1, Callee: -1, Call: -1}
 	}
@@ -91,6 +110,37 @@ func Cycles(g *flow.Graph, group Grouping) []Cycle {
 		return cmp.Or(cmp.Compare(len(y.Modules), len(x.Modules)), cmp.Compare(x.Modules[0], y.Modules[0]))
 	})
 	return out
+}
+
+// withDependencies adds deps to a module graph as edges, with the modules
+// only they name: a module of constants and types calls nothing.
+func withDependencies(names []string, es edges, deps []Dependency) ([]string, edges) {
+	if len(deps) == 0 {
+		return names, es
+	}
+	all := slices.Clone(names)
+	for _, d := range deps {
+		all = append(all, d.From, d.To)
+	}
+	all, index, out := newModuleGraph(all)
+	for a, targets := range es {
+		for b, e := range targets {
+			out[index[names[a]]][index[names[b]]] = e
+		}
+	}
+	for i, d := range deps {
+		a, b := index[d.From], index[d.To]
+		if a == b {
+			continue
+		}
+		e := out[a][b]
+		if e == nil {
+			e = &edge{}
+			out[a][b] = e
+		}
+		e.deps = append(e.deps, i)
+	}
+	return all, out
 }
 
 // shortestLoop returns the steps of a shortest loop from start back to it

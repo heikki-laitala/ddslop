@@ -323,7 +323,7 @@ func buildMap(root, lang string, files []index.File, opts mapOptions) (mapJSON, 
 		}
 		m.Breaks = append(m.Breaks, bj)
 	}
-	m.Cycles = cyclesJSON(g, codemap.Cycles(g, layerGroup), limit)
+	m.Cycles = cyclesJSON(g, codemap.Cycles(g, layerGroup, nil), limit)
 	helpers := codemap.Helpers(g, helperGroup, g.Entries(traits))
 	for _, h := range helpers[:min(limit, len(helpers))] {
 		u := g.Units[h.Unit]
@@ -444,7 +444,7 @@ func crateSummary(g *flow.Graph, crates map[string]string, name string) crateJSO
 	}
 	slices.Sort(modules)
 	cycled := 0
-	for _, c := range codemap.Cycles(g, in) {
+	for _, c := range codemap.Cycles(g, in, nil) {
 		cycled += len(c.Modules)
 	}
 	return crateJSON{Name: name, Modules: len(slices.Compact(modules)), Layers: len(codemap.Layers(g, in).Layers), CycleModules: cycled}

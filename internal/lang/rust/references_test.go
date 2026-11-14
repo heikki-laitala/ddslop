@@ -13,7 +13,7 @@ import (
 func show(refs []unit.Reference) string {
 	var lines []string
 	for _, r := range refs {
-		s := fmt.Sprintf("%s@%d", r.Path, r.Line)
+		s := fmt.Sprintf("%s@%d %s", r.Path, r.Line, r.Item)
 		if r.Module != "" {
 			s += " in " + r.Module
 		}
@@ -40,18 +40,32 @@ pub(in crate::hidden) fn f() -> crate::e::T<crate::f::U> {
 pub const C: u64 = crate::settle::LATE + std::u64::MAX;
 impl crate::m::M {}
 `
-	want := `crate::a@1
-crate::b@1
-crate::c@2
-super::d@3
-crate::e@4
-crate::f@4
-crate::g@5
-super::super::i@5
-crate::telemetry@6
-self::inner@7
-crate::settle@9
-crate::m@10`
+	want := `crate::a@1 use
+crate::b@1 use
+crate::c@2 use
+super::d@3 use
+crate::e@4 f
+crate::f@4 f
+crate::g@5 f
+super::super::i@5 f
+crate::telemetry@6 f
+self::inner@7 f
+crate::settle@9 C
+crate::m@10 crate::m::M`
+	if got := show(References("src/x.rs", []byte(src))); got != want {
+		t.Errorf("references:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestReferencesInAnImplNameItsMethods(t *testing.T) {
+	src := `impl<T> Store<T> {
+    fn open(&self) { crate::config::load(); }
+}
+trait Read {
+    fn read(&self) -> crate::config::Value { todo!() }
+}
+`
+	want := "crate::config@2 Store<T>::open\ncrate::config@5 Read::read"
 	if got := show(References("src/x.rs", []byte(src))); got != want {
 		t.Errorf("references:\n%s\nwant:\n%s", got, want)
 	}
@@ -72,14 +86,14 @@ fn checks() { crate::c::k(); }
 // ddslop:ignore reads the store's endpoint on purpose
 pub const D: u32 = crate::d::E;
 `
-	want := `super::super::a@3 in outer::inner
-crate::b@8 in tests test
-crate::c@11 test
-crate::d@13 ignored`
+	want := `super::super::a@3 f in outer::inner
+crate::b@8 use in tests test
+crate::c@11 checks test
+crate::d@13 D ignored`
 	if got := show(References("src/x.rs", []byte(src))); got != want {
 		t.Errorf("references:\n%s\nwant:\n%s", got, want)
 	}
-	if got := show(References("tests/api.rs", []byte("use app::x;\nfn f() { crate::a::b(); }\n"))); got != "crate::a@2 test" {
+	if got := show(References("tests/api.rs", []byte("use app::x;\nfn f() { crate::a::b(); }\n"))); got != "crate::a@2 f test" {
 		t.Errorf("a test file's references = %q, want them marked test", got)
 	}
 }
