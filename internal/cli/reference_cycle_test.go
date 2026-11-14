@@ -426,3 +426,19 @@ func TestAReexportIsNoDependency(t *testing.T) {
 		t.Errorf("plain use: candidates = %+v, want the root and client depending on each other", r.Candidates)
 	}
 }
+
+// A root that re-exports a value foo beside its module foo: crate::foo()
+// names the value, not the module.
+func TestARootReexportedValueIsNotTheModuleOfItsName(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml":    "[package]\nname = \"app\"\n",
+		"src/lib.rs":    "pub mod bar;\npub mod foo;\npub mod values;\npub use values::foo;\n",
+		"src/values.rs": "pub fn foo() -> u8 { 1 }\n",
+		"src/bar.rs":    "pub fn b() -> u8 { crate::foo() }\n",
+		"src/foo.rs":    "pub fn f() -> u8 { crate::bar::b() }\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 0 {
+		t.Errorf("candidates = %+v, want none: crate::foo is the re-exported value", r.Candidates)
+	}
+}

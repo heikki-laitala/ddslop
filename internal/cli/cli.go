@@ -684,6 +684,11 @@ func dependencies(files []index.File, crates map[string]string, name string, gen
 		for _, k := range f.Decls.Consts {
 			rootValues[strings.TrimPrefix(k.Name, "r#")] = true
 		}
+		// a name the root imports (pub use values::foo) beside its mod foo
+		// cannot be a module too: it is a value
+		for name := range f.Imports {
+			rootValues[strings.TrimPrefix(name, "r#")] = true
+		}
 		for _, r := range f.References {
 			if r.Alias != "" && (tests || !r.Test) {
 				selfAliases[r.Alias] = true
