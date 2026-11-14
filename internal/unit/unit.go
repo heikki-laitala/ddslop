@@ -130,6 +130,21 @@ type Scope struct {
 	Nodes int
 }
 
+// Reference is a path naming another module of the same crate, such as
+// crate::store::Endpoint or super::config::load: a dependency on that
+// module whether or not it calls a function there, as a constant, a type
+// or a use does too. Rust only.
+type Reference struct {
+	// Path is the reference's leading segments, up to the first name
+	// after crate, self and super: "crate::store", "super::super::config".
+	Path string
+	Line int
+	// Module is the inline module the path is written in within its file
+	// (outer::inner), "" for none: where super and self are read from.
+	Module        string
+	Test, Ignored bool
+}
+
 // CallKind says how a call names its callee.
 type CallKind int
 
