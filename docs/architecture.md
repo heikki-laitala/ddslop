@@ -1615,9 +1615,9 @@ the map exists to point at. Go codebases have none.
 `break-cycle`, concern `layers`): a pair calling each other, with its
 two calls as occurrences, or a group with no such pair, with each step
 of its shortest loop. Each occurrence is the call's line, so diff mode
-reports a cycle when a change touched one of its calls: the change that
-closed the loop, but also an edit on a line of a loop already there,
-which is not the edit to undo. CI fails on it; a cycle the code already
+reports a cycle when a change touched one of its calls: that may be the
+change that closed the loop, or only an edit on a line of a loop already
+there, which is not the edit to undo. CI fails on it; a cycle the code already
 had goes into the baseline, which knows it by its fingerprint (the crate and the
 modules) whichever calls close it later. Like the map, it does not say
 which call is the wrong way. Generated files are left out, and a

@@ -208,9 +208,9 @@ What to do per `kind`:
   module (a `config` building another module's types: move the type
   down, or let the module build it from raw values; a helper or constant
   both sides need: move it to a module neither depends on). In diff mode
-  it is reported when your change touched one of its sites. That is the
-  change that closed the loop, but also an edit on a line of a loop that
-  was already there. If your change added that dependency, depend the
+  it is reported when your change touched one of its sites: that may be
+  the change that closed the loop, or only an edit on a line of a loop
+  that was already there. If your change added that dependency, depend the
   other way round, or not at all; if the dependency was there before,
   leave the cycle unless asked. Mark a deliberate pair with
   `ddslop:ignore` on one of its sites, saying why.
