@@ -200,7 +200,7 @@ func ReferencedModule(file string, crates map[string]string, ref unit.Reference,
 	at = append(slices.Clone(at), segments...)
 	// A path ending at a root value's name (crate::foo for the root's fn
 	// foo) names that value, though a module foo may exist beside it.
-	rootValue := ref.Leaf && len(at) == 1 && rootValues[at[0]]
+	rootValue := ref.Leaf && len(at) == 1 && (ref.Macro || rootValues[at[0]])
 	if len(at) > 0 && modules[moduleName(name, at[0])] && !rootValue {
 		return moduleName(name, at[0])
 	}

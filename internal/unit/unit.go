@@ -149,7 +149,10 @@ type Reference struct {
 	// (crate::foo, not crate::foo::Bar): it may name a value of the module
 	// it is in rather than a module of that name. A use imports every
 	// namespace of a name, so its paths are never leaves.
-	Leaf          bool
+	Leaf bool
+	// Macro is true when the path is a macro's (crate::foo!()): macros
+	// are never modules.
+	Macro         bool
 	Test, Ignored bool
 }
 

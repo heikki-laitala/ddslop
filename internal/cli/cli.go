@@ -629,16 +629,18 @@ func dependencyCycles(g *flow.Graph, files []index.File, crates map[string]strin
 	for _, f := range files {
 		generated[f.Path] = f.Generated
 	}
+	libraries := libraryCrates(files, crates)
 	var out []report.Cycle
 	for _, name := range crateNames(files, crates) {
 		in := codemap.InCrate(name, crates)
 		group := codemap.Grouping(func(u unit.Unit) string {
-			if generated[u.File] {
+			// a binary, a build script or an example is a crate of its own
+			if generated[u.File] || !inLibrary(u.File, crates, libraries) {
 				return ""
 			}
 			return in(u)
 		})
-		for _, c := range codemap.Cycles(g, group, dependencies(files, crates, name, generated, tests)) {
+		for _, c := range codemap.Cycles(g, group, dependencies(files, crates, name, generated, libraries, tests)) {
 			for _, l := range c.Links {
 				out = appendCycle(out, g, name+"\x00"+l.A+"\x00"+l.B,
 					[]string{l.A + " -> " + l.B, l.B + " -> " + l.A}, []codemap.Site{l.AB, l.BA})
@@ -660,17 +662,11 @@ func dependencyCycles(g *flow.Graph, files []index.File, crates map[string]strin
 // dependencies lists what the modules of one crate's library depend on
 // besides their calls: the modules their paths name (see
 // codemap.ReferencedModule), in files order and each file's source order.
-func dependencies(files []index.File, crates map[string]string, name string, generated map[string]bool, tests bool) []codemap.Dependency {
+func dependencies(files []index.File, crates map[string]string, name string, generated, libraries map[string]bool, tests bool) []codemap.Dependency {
 	modules := map[string]bool{}
 	for _, f := range files {
 		if codemap.Crate(f.Path, crates) == name {
 			modules[codemap.Module(f.Path, crates)] = true
-		}
-	}
-	libraries := map[string]bool{}
-	for _, f := range files {
-		if crate, rel := codemap.CratePath(f.Path, crates); rel == "lib.rs" {
-			libraries[crate] = true
 		}
 	}
 	rootValues := map[string]bool{}
@@ -682,11 +678,11 @@ func dependencies(files []index.File, crates map[string]string, name string, gen
 		}
 		for _, u := range f.Units {
 			if u.Module == "" && !strings.Contains(u.Name, "::") {
-				rootValues[u.Name] = true
+				rootValues[strings.TrimPrefix(u.Name, "r#")] = true
 			}
 		}
 		for _, k := range f.Decls.Consts {
-			rootValues[k.Name] = true
+			rootValues[strings.TrimPrefix(k.Name, "r#")] = true
 		}
 	}
 	var deps []codemap.Dependency
@@ -705,6 +701,18 @@ func dependencies(files []index.File, crates map[string]string, name string, gen
 		}
 	}
 	return deps
+}
+
+// libraryCrates returns the crates whose package has a library target
+// (src/lib.rs).
+func libraryCrates(files []index.File, crates map[string]string) map[string]bool {
+	libraries := map[string]bool{}
+	for _, f := range files {
+		if crate, rel := codemap.CratePath(f.Path, crates); rel == "lib.rs" {
+			libraries[crate] = true
+		}
+	}
+	return libraries
 }
 
 // inLibrary reports whether a Rust file belongs to its package's library
