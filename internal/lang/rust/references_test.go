@@ -57,6 +57,14 @@ crate::m@10 crate::m::M`
 	}
 }
 
+func TestReferencesIncludeWildcardImportsOfARoot(t *testing.T) {
+	src := "use crate::*;\nuse super::*;\nuse self::inner::*;\n"
+	want := "crate@1 use\nsuper@2 use\nself::inner@3 use"
+	if got := show(References("src/x.rs", []byte(src))); got != want {
+		t.Errorf("references:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestReferencesInAnImplNameItsMethods(t *testing.T) {
 	src := `impl<T> Store<T> {
     fn open(&self) { crate::config::load(); }
