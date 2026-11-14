@@ -26,7 +26,7 @@ func TestCheckReportsCyclesInALibraryMovedOutOfSrc(t *testing.T) {
 	if got := strings.Join(r.Candidates[0].Values, ", "); got != "config -> store, store -> config" {
 		t.Errorf("values = %s, want the moved library's modules", got)
 	}
-	if got := sites(r, 0); got != "lib/config.rs:load:1 lib/store/client.rs:open:2" {
+	if got := sites(r); got != "lib/config.rs:load:1 lib/store/client.rs:open:2" {
 		t.Errorf("occurrences = %s, want config's path and store's call", got)
 	}
 }
