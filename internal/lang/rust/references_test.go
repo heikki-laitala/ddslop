@@ -129,6 +129,14 @@ func TestReferencesKeepPathsFromNamesTheFileDoesNotBind(t *testing.T) {
 	}
 }
 
+// In macro arguments too, only a path from an unbound name is relative.
+func TestMacroArgumentsMarkOnlyUnboundPathsRelative(t *testing.T) {
+	refs := References("src/x.rs", []byte("fn f() { m!(root::a::X, crate::b::Y); }\n"))
+	if len(refs) != 2 || !refs[0].Relative || refs[1].Relative {
+		t.Errorf("references = %+v, want root::a relative and crate::b not", refs)
+	}
+}
+
 func TestReferencesInAnImplNameItsMethods(t *testing.T) {
 	src := `impl<T> Store<T> {
     fn open(&self) { crate::config::load(); }

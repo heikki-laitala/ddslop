@@ -256,12 +256,16 @@ func (r *referrer) tokens(tree *sitter.Node, c at) {
 			continue
 		}
 		var segments []string
+		relative := false
 		switch tok.Kind() {
 		case "crate", "super", "self":
 			segments = []string{tok.Kind()}
 		case "identifier":
 			if bound, ok := r.aliasAt(tok.Utf8Text(r.src), c.module, tok); ok {
 				segments = slices.Clone(bound)
+			} else if i+1 < len(toks) && toks[i+1].Kind() == "::" {
+				// a name the file does not bind, as in a structured path
+				segments, relative = []string{tok.Utf8Text(r.src)}, true
 			}
 		}
 		if segments == nil || i > 0 && (toks[i-1].Kind() == "$" || toks[i-1].Kind() == "::") {
@@ -275,7 +279,9 @@ func (r *referrer) tokens(tree *sitter.Node, c at) {
 				if j+2 < len(toks) {
 					after = toks[j+2].Kind()
 				}
-				r.addMacro(segments, tok, c, after != "::", after == "!")
+				tc := c
+				tc.relative = relative
+				r.addMacro(segments, tok, tc, after != "::", after == "!")
 				break
 			}
 		}
@@ -335,8 +341,15 @@ func aliasesIn(root *sitter.Node, src []byte) []alias {
 		}
 		switch n.Kind() {
 		case "mod_item":
-			if name := n.ChildByFieldName("name"); name != nil && n.ChildByFieldName("body") != nil {
-				module = joinPath(module, name.Utf8Text(src))
+			if name := n.ChildByFieldName("name"); name != nil {
+				bind(name.Utf8Text(src), nil) // a module root hides an alias root
+				if n.ChildByFieldName("body") != nil {
+					module = joinPath(module, name.Utf8Text(src))
+				}
+			}
+		case "struct_item", "enum_item", "union_item", "trait_item", "type_item":
+			if name := n.ChildByFieldName("name"); name != nil {
+				bind(name.Utf8Text(src), nil)
 			}
 		case "use_declaration":
 			if arg := n.ChildByFieldName("argument"); arg != nil {
