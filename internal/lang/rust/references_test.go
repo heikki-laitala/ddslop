@@ -72,7 +72,8 @@ func TestReferencesIncludeWildcardAndAliasedImportsOfARoot(t *testing.T) {
 // may name a root value rather than the module foo.
 func TestReferencesKnowWhetherThePathEndsAtTheirName(t *testing.T) {
 	src := "pub fn f() -> u8 { crate::foo() + crate::foo::BAR }\nuse crate::{foo, bar::Baz, qux as q};\nfn g() { m!(crate::foo, crate::foo::X) }\n"
-	want := "crate::foo@1 f leaf\ncrate::foo@1 f\ncrate::foo@2 use leaf\ncrate::bar@2 use\ncrate::qux@2 use leaf\ncrate::foo@3 g leaf\ncrate::foo@3 g"
+	// A use imports every namespace of its name, so its path is no value.
+	want := "crate::foo@1 f leaf\ncrate::foo@1 f\ncrate::foo@2 use\ncrate::bar@2 use\ncrate::qux@2 use\ncrate::foo@3 g leaf\ncrate::foo@3 g"
 	if got := show(References("src/x.rs", []byte(src))); got != want {
 		t.Errorf("references:\n%s\nwant:\n%s", got, want)
 	}
