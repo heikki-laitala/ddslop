@@ -1492,7 +1492,14 @@ crate's modules), which names each file once.
   under `src/` (`acme_orders::store`), `lib.rs` and `main.rs` being the
   crate itself, and a crate at the repository root (`src/` at the top)
   unnamed (`store`), whatever its manifest says, so adding a root
-  `build.rs` renames nothing. Modules are those with functions: a module
+  `build.rs` renames nothing. A library whose manifest moves its root
+  file (`[lib] path = "lib/core.rs"`, read by `rust.LibPath`) keeps its
+  modules beside that file instead: `lib/store/client.rs` is
+  `acme_orders::store`, and `lib/core.rs` the crate itself. The same
+  libraries (`flow.Libraries`) place its files in their crate for call
+  resolution, which otherwise reads a crate from where `src/` is, so
+  `crate::` calls between them resolve; without them such a library had
+  no modules at all. Modules are those with functions: a module
   of only types or constants takes part in no call, so it has no place
   in the layers, and placing it on top as a source would be wrong.
 - Only calls that name their callee count: `f()`, `Type::f()`,
