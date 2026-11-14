@@ -343,7 +343,9 @@ func aliasesIn(root *sitter.Node, src []byte) []alias {
 		switch n.Kind() {
 		case "mod_item":
 			if name := n.ChildByFieldName("name"); name != nil {
-				bind(name.Utf8Text(src), nil) // a module root hides an alias root
+				// foo::Y enters the module foo, and a module root hides an
+				// alias root
+				bind(name.Utf8Text(src), []string{"self", name.Utf8Text(src)})
 				if n.ChildByFieldName("body") != nil {
 					module = joinPath(module, name.Utf8Text(src))
 				}

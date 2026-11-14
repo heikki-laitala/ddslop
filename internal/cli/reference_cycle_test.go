@@ -385,3 +385,17 @@ func TestAGenericParameterHidesTheCratesAlias(t *testing.T) {
 		t.Errorf("candidates = %+v, want none: root::foo is h's type parameter's", r.Candidates)
 	}
 }
+
+// In the crate root, foo::Y names the child module foo: a dependency on
+// it, as crate::foo::Y is.
+func TestAPathThroughAChildModuleDependsOnIt(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "pub mod foo;\npub const ROOT: u8 = foo::Y;\npub const R: u8 = 1;\n",
+		"src/foo.rs": "pub const Y: u8 = crate::R;\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 1 {
+		t.Errorf("candidates = %+v, want the root and foo depending on each other", r.Candidates)
+	}
+}
