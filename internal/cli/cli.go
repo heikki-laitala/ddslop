@@ -809,7 +809,11 @@ func internalCrates(root string, files []index.File) func(file string) bool {
 		if languageOf(f.Path) == "go" {
 			internal[dir] = golang.Internal(f.Path, f.Decls.Package)
 		} else {
-			internal[dir] = rust.Unpublished(manifest(root, dir), workspace)
+			pkg := libraries.PackageOf(f.Path) // a placed target's crate is not its package
+			if pkg == "" {
+				pkg = dir
+			}
+			internal[dir] = rust.Unpublished(manifest(root, pkg), workspace)
 		}
 	}
 	return func(file string) bool { return internal[libraries.CrateOf(file)] }

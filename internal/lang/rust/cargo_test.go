@@ -86,9 +86,11 @@ func TestTargetPaths(t *testing.T) {
 	}
 }
 
+// A module a #[path] places is listed by that path (a file, its .rs
+// ending telling it from a name).
 func TestDeclaredModulesListAFilesOutOfLineModules(t *testing.T) {
-	src := []byte("mod cli;\npub mod store;\nmod inline { }\n#[cfg(test)]\nmod tests;\n")
-	if got, want := DeclaredModules(src), []string{"cli", "store", "tests"}; !slices.Equal(got, want) {
+	src := []byte("mod cli;\npub mod store;\nmod inline { }\n#[cfg(test)]\nmod tests;\n#[path = \"commands/run.rs\"]\nmod run;\n")
+	if got, want := DeclaredModules(src), []string{"cli", "store", "tests", "commands/run.rs"}; !slices.Equal(got, want) {
 		t.Errorf("DeclaredModules = %q, want %q", got, want)
 	}
 }

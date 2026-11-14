@@ -835,18 +835,24 @@ func (l Libraries) targetOf(file string) string {
 // MovedPackage returns the directory of the package a Rust file belongs
 // to, its nearest, when that package's library is a moved one, or "".
 func (l Libraries) MovedPackage(file string) string {
-	file = filepath.ToSlash(file)
 	if !strings.HasSuffix(file, ".rs") {
 		return "" // a Go package keeps its directory
 	}
-	for d := parentOf(file, "/", "."); ; d = parentOf(d, "/", ".") {
+	pkg := l.PackageOf(file)
+	for _, crate := range l.Roots {
+		if pkg != "" && crate == pkg {
+			return pkg
+		}
+	}
+	return ""
+}
+
+// PackageOf returns the directory of the package a file belongs to, the
+// nearest one holding it, or "" for none.
+func (l Libraries) PackageOf(file string) string {
+	for d := parentOf(filepath.ToSlash(file), "/", "."); ; d = parentOf(d, "/", ".") {
 		if l.Packages[d] {
-			for _, crate := range l.Roots {
-				if crate == d {
-					return d
-				}
-			}
-			return ""
+			return d
 		}
 		if d == "." {
 			return ""
