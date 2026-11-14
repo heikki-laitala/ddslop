@@ -178,3 +178,17 @@ func TestAWildcardImportOfTheRootIsADependencyOnIt(t *testing.T) {
 		t.Errorf("occurrences = %s, want the root's path and a's wildcard import", got)
 	}
 }
+
+// use crate as root names the root module: paths through the alias are
+// dependencies on it.
+func TestAnAliasOfTheRootIsADependencyOnIt(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "pub mod a;\npub const Y: u8 = crate::a::X;\n",
+		"src/a.rs":   "use crate as root;\npub const X: u8 = 1;\npub const Z: u8 = root::Y;\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 1 {
+		t.Errorf("candidates = %+v, want the root and a depending on each other", r.Candidates)
+	}
+}
