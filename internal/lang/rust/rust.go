@@ -1799,6 +1799,17 @@ func tomlString(value string) string {
 // manifestValue returns a string key's value in one section of a
 // Cargo.toml, unquoted, or "" when the section does not set it.
 func manifestValue(cargoToml []byte, section, key string) string {
+	if values := manifestValues(cargoToml, key, section); len(values) > 0 {
+		return values[0]
+	}
+	return ""
+}
+
+// manifestValues returns a string key's values in the given sections of a
+// Cargo.toml, unquoted, in manifest order: an array of tables ([[bin]])
+// repeats its section.
+func manifestValues(cargoToml []byte, key string, sections ...string) []string {
+	var out []string
 	current := ""
 	for line := range strings.Lines(string(cargoToml)) {
 		line = strings.TrimSpace(line)
@@ -1807,11 +1818,11 @@ func manifestValue(cargoToml []byte, section, key string) string {
 			continue
 		}
 		k, value, ok := strings.Cut(line, "=")
-		if ok && current == section && strings.TrimSpace(k) == key {
-			return tomlString(strings.TrimSpace(value))
+		if ok && slices.Contains(sections, current) && strings.TrimSpace(k) == key {
+			out = append(out, tomlString(strings.TrimSpace(value)))
 		}
 	}
-	return ""
+	return out
 }
 
 // TestModules returns the names of the modules a file declares out of
@@ -1881,6 +1892,13 @@ func publishValue(manifest []byte, want string) string {
 		}
 	}
 	return ""
+}
+
+// TargetPaths returns the paths a Cargo.toml sets for its other targets'
+// root files ([[bin]], [[example]], [[test]], [[bench]]), relative to the
+// package, in manifest order.
+func TargetPaths(cargoToml []byte) []string {
+	return manifestValues(cargoToml, "path", "bin", "example", "test", "bench")
 }
 
 // LibPath returns the [lib] path a Cargo.toml sets for its library's root

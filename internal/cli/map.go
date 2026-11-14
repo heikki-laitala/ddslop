@@ -402,7 +402,9 @@ func located(u unit.Unit) string {
 // directory above one holding a Cargo.toml, with the crate's name, and the
 // libraries whose manifests move their root file out of src/lib.rs.
 func packages(root string, files []index.File) *codemap.Packages {
-	out := &codemap.Packages{Names: map[string]string{}, Libraries: flow.Libraries{Roots: map[string]string{}, Packages: map[string]bool{}}}
+	out := &codemap.Packages{Names: map[string]string{}, Libraries: flow.Libraries{
+		Roots: map[string]string{}, Packages: map[string]bool{}, Targets: map[string]bool{},
+	}}
 	seen := map[string]bool{}
 	for _, f := range files {
 		if languageOf(f.Path) != "rust" {
@@ -414,6 +416,9 @@ func packages(root string, files []index.File) *codemap.Packages {
 			if name := rust.CrateName(manifest); name != "" {
 				out.Names[filepath.ToSlash(dir)] = name
 				out.Libraries.Packages[filepath.ToSlash(dir)] = true
+				for _, target := range rust.TargetPaths(manifest) {
+					out.Libraries.Targets[path.Join(filepath.ToSlash(dir), target)] = true
+				}
 				if lib := rust.LibPath(manifest); lib != "" && path.Clean(lib) != "src/lib.rs" {
 					out.Libraries.Roots[path.Join(filepath.ToSlash(dir), lib)] = filepath.ToSlash(dir)
 				}
