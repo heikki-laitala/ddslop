@@ -94,3 +94,30 @@ func TestALibraryRootedUnderTestsIsNoTestCode(t *testing.T) {
 		t.Errorf("candidates = %+v, want config and store calling each other; stderr = %s", r.Candidates, stderr)
 	}
 }
+
+// A binary the manifest roots beside a moved library keeps the modules it
+// declares: tool.rs's mod cli is the binary's, not the library's.
+func TestAPlacedBinaryKeepsItsModulesFromAMovedLibrary(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n\n[lib]\npath = \"core.rs\"\n\n[[bin]]\nname = \"tool\"\npath = \"tool.rs\"\n",
+		"core.rs":    "pub mod config;\npub mod store;\n",
+		"config.rs":  "pub fn load() -> u16 { crate::store::open() }\n",
+		"store.rs":   "pub fn open() -> u16 { 1 }\n",
+		"tool.rs":    "mod cli;\nfn main() { cli::run(); }\n",
+		"cli.rs":     "pub fn run() { app::config::load(); }\n",
+	}
+	_, stdout, stderr := run("map", "--format", "json", repo(t, files))
+	var r mapOutput
+	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s\n%s", err, stdout, stderr)
+	}
+	var modules []string
+	for _, m := range r.Maps {
+		for _, l := range m.Layers {
+			modules = append(modules, l.Modules...)
+		}
+	}
+	if slices.Contains(modules, "cli") || slices.Contains(modules, "tool") {
+		t.Errorf("modules = %v, want none of the binary's", modules)
+	}
+}

@@ -402,8 +402,9 @@ func located(u unit.Unit) string {
 // directory above one holding a Cargo.toml, with the crate's name, and the
 // libraries whose manifests move their root file out of src/lib.rs.
 func packages(root string, files []index.File) *codemap.Packages {
+	var placed []string // the root files of targets manifests place
 	out := &codemap.Packages{Names: map[string]string{}, Libraries: flow.Libraries{
-		Roots: map[string]string{}, Packages: map[string]bool{}, Targets: map[string]bool{},
+		Roots: map[string]string{}, Packages: map[string]bool{}, Targets: map[string]string{},
 	}}
 	seen := map[string]bool{}
 	for _, f := range files {
@@ -417,7 +418,7 @@ func packages(root string, files []index.File) *codemap.Packages {
 				out.Names[filepath.ToSlash(dir)] = name
 				out.Libraries.Packages[filepath.ToSlash(dir)] = true
 				for _, target := range rust.TargetPaths(manifest) {
-					out.Libraries.Targets[path.Join(filepath.ToSlash(dir), target)] = true
+					placed = append(placed, path.Join(filepath.ToSlash(dir), target))
 				}
 				if lib := rust.LibPath(manifest); lib != "" && path.Clean(lib) != "src/lib.rs" {
 					out.Libraries.Roots[path.Join(filepath.ToSlash(dir), lib)] = filepath.ToSlash(dir)
@@ -428,7 +429,33 @@ func packages(root string, files []index.File) *codemap.Packages {
 			}
 		}
 	}
+	addTargets(out.Libraries, placed, files)
 	return out
+}
+
+// addTargets maps each placed target's files to its root file (see
+// flow.Libraries.Targets): the root, the modules it declares beside it,
+// and the directory of a main.rs root, unless a library is rooted there.
+func addTargets(libraries flow.Libraries, roots []string, files []index.File) {
+	declared := map[string][]string{}
+	for _, f := range files {
+		declared[filepath.ToSlash(f.Path)] = f.Modules
+	}
+	libraryDirs := map[string]bool{}
+	for root := range libraries.Roots {
+		libraryDirs[path.Dir(root)] = true
+	}
+	for _, root := range roots {
+		dir := path.Dir(root)
+		libraries.Targets[root] = root
+		if path.Base(root) == "main.rs" && !libraryDirs[dir] {
+			libraries.Targets[dir+"/"] = root
+		}
+		for _, m := range declared[root] {
+			libraries.Targets[path.Join(dir, m+".rs")] = root
+			libraries.Targets[path.Join(dir, m)+"/"] = root
+		}
+	}
 }
 
 // crateNames returns the crates of the Rust files outside test paths,

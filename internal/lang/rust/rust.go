@@ -1825,12 +1825,24 @@ func manifestValues(cargoToml []byte, key string, sections ...string) []string {
 	return out
 }
 
+// DeclaredModules returns the names of the modules a file declares out of
+// line (mod name;), at its top level, in source order.
+func DeclaredModules(src []byte) []string {
+	return outOfLineModules(src, func([]string) bool { return true })
+}
+
 // TestModules returns the names of the modules a file declares out of
 // line under #[cfg(test)] ("#[cfg(test)] mod name;"): their files hold
 // test code.
 //
 // Only declarations at the top level of the file are considered.
 func TestModules(src []byte) []string {
+	return outOfLineModules(src, func(attrs []string) bool { return slices.ContainsFunc(attrs, isCfgTest) })
+}
+
+// outOfLineModules returns the names of the modules a file declares out
+// of line at its top level whose attributes keep accepts.
+func outOfLineModules(src []byte, keep func(attrs []string) bool) []string {
 	var names []string
 	_ = syntax.Parse(language, src, func(root *sitter.Node) {
 		var attrs []string
@@ -1842,7 +1854,7 @@ func TestModules(src []byte) []string {
 				continue
 			case child.IsExtra():
 				continue
-			case child.Kind() == "mod_item" && child.ChildByFieldName("body") == nil && slices.ContainsFunc(attrs, isCfgTest):
+			case child.Kind() == "mod_item" && child.ChildByFieldName("body") == nil && keep(attrs):
 				if name := child.ChildByFieldName("name"); name != nil {
 					names = append(names, name.Utf8Text(src))
 				}

@@ -1096,7 +1096,8 @@ func languageOf(path string) string {
 // traits a file declares, its imports and the paths naming other modules.
 func parseRust(file syntax.Source) (index.Parsed, error) {
 	units, decls, err := rust.ParseAs(file)
-	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(file.Src), References: rust.ReferencesAs(file)}
+	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(file.Src),
+		Modules: rust.DeclaredModules(file.Src), References: rust.ReferencesAs(file)}
 	for _, t := range decls.Traits {
 		parsed.Traits = append(parsed.Traits, t.Name)
 	}
