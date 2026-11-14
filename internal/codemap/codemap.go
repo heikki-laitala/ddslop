@@ -167,6 +167,8 @@ func CratePath(file string, crates *Packages) (name, rel string) {
 		if root {
 			rel = "lib.rs" // the library's root, as src/lib.rs is by default
 		}
+	} else if crates.libraries().MovedPackage(file) != "" {
+		return "", "" // another target of a package whose library moved
 	} else if root, ok := packageOf(file, crates); ok {
 		dir = root
 		if after, ok := strings.CutPrefix(strings.TrimPrefix(file, root+"/"), "src/"); ok {

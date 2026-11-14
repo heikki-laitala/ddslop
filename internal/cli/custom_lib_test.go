@@ -74,7 +74,7 @@ func TestALibraryRootedAtThePackageTopLeavesTheBinaryAlone(t *testing.T) {
 			modules = append(modules, l.Modules...)
 		}
 	}
-	if slices.Contains(modules, "src") || !slices.Contains(modules, "config") || !slices.Contains(modules, "store") {
-		t.Errorf("modules = %v, want the library's config and store and no src", modules)
+	if slices.Contains(modules, "src") || slices.Contains(modules, "cli") || !slices.Contains(modules, "config") || !slices.Contains(modules, "store") {
+		t.Errorf("modules = %v, want the library's config and store, and nothing of the binary's", modules)
 	}
 }

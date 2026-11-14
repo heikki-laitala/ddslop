@@ -1258,3 +1258,25 @@ func TestALibraryRootedInATargetDirectoryOwnsIt(t *testing.T) {
 		}
 	}
 }
+
+// A file a moved library rejects is another target's: it neither shares
+// the library's crate nor answers its crate:: calls.
+func TestFilesAMovedLibraryRejectsAreAnotherCrate(t *testing.T) {
+	l := Libraries{Roots: map[string]string{"svc/core.rs": "svc"}, Packages: map[string]bool{"svc": true}}
+	for _, file := range []string{"svc/src/cli.rs", "svc/src/main.rs", "svc/build.rs"} {
+		if got := l.CrateOf(file); got == "svc" {
+			t.Errorf("CrateOf(%s) = svc, want a crate apart from the library's", file)
+		}
+	}
+	g := Build(Inputs{Libraries: l}, []unit.Unit{
+		fn("svc/core.rs", "start", path("crate::cli", "run")),
+		fn("svc/src/cli.rs", "run"),
+		fn("svc/src/main.rs", "main", path("crate::cli", "run")),
+	})
+	if got := callees(g, "svc/core.rs start"); got != "[]" {
+		t.Errorf("the library's crate::cli::run resolved to %s, want nothing: cli is the binary's", got)
+	}
+	if got := callees(g, "svc/src/main.rs main"); got != "[svc/src/cli.rs run]" {
+		t.Errorf("the binary's crate::cli::run resolved to %s, want its own cli", got)
+	}
+}

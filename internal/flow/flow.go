@@ -795,7 +795,36 @@ func (l Libraries) CrateOf(file string) string {
 	if crate, _, _, ok := l.Locate(file); ok {
 		return crate
 	}
+	if pkg := l.MovedPackage(file); pkg != "" {
+		// another target of the package: a crate of its own, apart from
+		// the library's (src for its binary, build.rs for its build script)
+		if pkg == "." {
+			first, _, _ := strings.Cut(filepath.ToSlash(file), "/")
+			return first
+		}
+		first, _, _ := strings.Cut(strings.TrimPrefix(filepath.ToSlash(file), pkg+"/"), "/")
+		return pkg + "/" + first
+	}
 	return CrateOf(file)
+}
+
+// MovedPackage returns the directory of the package a Rust file belongs
+// to, its nearest, when that package's library is a moved one, or "".
+func (l Libraries) MovedPackage(file string) string {
+	file = filepath.ToSlash(file)
+	for d := parentOf(file, "/", "."); ; d = parentOf(d, "/", ".") {
+		if l.Packages[d] {
+			for _, crate := range l.Roots {
+				if crate == d {
+					return d
+				}
+			}
+			return ""
+		}
+		if d == "." {
+			return ""
+		}
+	}
 }
 
 // ModuleOf is moduleOf, knowing the libraries: a moved library's root
