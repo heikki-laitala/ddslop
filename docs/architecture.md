@@ -1502,7 +1502,9 @@ crate's modules), which names each file once.
   no modules at all. Its files stop at its package: a nested package's,
   and the package's other Cargo targets (`src/main.rs`, `src/bin/`,
   `build.rs`, `examples/`, `tests/`, `benches/`, and all of `src/` when
-  the library is outside it), are not the library's. Modules are those with functions: a module
+  the library is outside it), are not the library's: they are a crate
+  apart for call resolution and have no module of the library's crate.
+  Modules are those with functions: a module
   of only types or constants takes part in no call, so it has no place
   in the layers, and placing it on top as a source would be wrong.
 - Only calls that name their callee count: `f()`, `Type::f()`,
