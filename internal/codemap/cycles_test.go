@@ -32,7 +32,7 @@ func TestCyclesListTwoWayLinksOrALoop(t *testing.T) {
 		call{"a", "b", 2}, call{"b", "c", 1}, call{"c", "a", 5},
 		call{"handlers", "service", 40},
 	)
-	got := describe(g, Cycles(g, ByModule(nil)))
+	got := describe(g, Cycles(g, ByModule(nil), nil))
 	want := strings.Join([]string{
 		"a b c",
 		"  a -> b f14 -> f15",
@@ -50,7 +50,7 @@ func TestCyclesListTwoWayLinksOrALoop(t *testing.T) {
 // still part of the cycle.
 func TestCyclesIncludeWeakCalls(t *testing.T) {
 	g := graphOf(call{"service", "store", 40}, call{"store", "service", 1})
-	got := describe(g, Cycles(g, ByModule(nil)))
+	got := describe(g, Cycles(g, ByModule(nil), nil))
 	if !strings.HasPrefix(got, "service store\n  service <-> store 40/1") {
 		t.Errorf("cycles:\n%s\nwant service and store with 40 calls one way and 1 back", got)
 	}

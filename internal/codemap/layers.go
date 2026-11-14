@@ -56,6 +56,9 @@ type LayerMap struct {
 type edge struct {
 	calls   int
 	callers []int
+	// deps index the dependencies other than calls behind the edge (see
+	// Cycles), when there are any.
+	deps []int
 }
 
 // edges are a module graph's edges: per module, its edges by target.
@@ -179,16 +182,7 @@ func moduleGraph(g *flow.Graph, group Grouping) ([]string, edges) {
 			names = append(names, moduleOf[i])
 		}
 	}
-	slices.Sort(names)
-	names = slices.Compact(names)
-	index := make(map[string]int, len(names))
-	for i, m := range names {
-		index[m] = i
-	}
-	es := make(edges, len(names))
-	for i := range es {
-		es[i] = map[int]*edge{}
-	}
+	names, index, es := newModuleGraph(names)
 	for caller, callees := range g.Callees {
 		if moduleOf[caller] == "" {
 			continue
@@ -214,6 +208,22 @@ func moduleGraph(g *flow.Graph, group Grouping) ([]string, edges) {
 		}
 	}
 	return names, es
+}
+
+// newModuleGraph sorts module names, drops repeats, and returns them with
+// each one's index and a graph of them with no edges yet.
+func newModuleGraph(names []string) ([]string, map[string]int, edges) {
+	slices.Sort(names)
+	names = slices.Compact(names)
+	index := make(map[string]int, len(names))
+	for i, m := range names {
+		index[m] = i
+	}
+	es := make(edges, len(names))
+	for i := range es {
+		es[i] = map[int]*edge{}
+	}
+	return names, index, es
 }
 
 // widestFrom returns, per module, the largest bottleneck of a path from

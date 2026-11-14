@@ -141,7 +141,10 @@ type Reference struct {
 	Line int
 	// Module is the inline module the path is written in within its file
 	// (outer::inner), "" for none: where super and self are read from.
-	Module        string
+	Module string
+	// Item is the item the path is written in, named as a unit is
+	// (Type::method) or by its own name (a constant, a type), or "use".
+	Item          string
 	Test, Ignored bool
 }
 

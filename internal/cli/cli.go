@@ -589,7 +589,7 @@ func check(root string, opts options) (report.Report, error) {
 		Kinds:    pattern.StringKinds(units),
 		Params:   pattern.ParameterGroups(units, decls.FuncTypes),
 		Drifts:   drifts(units, packages(root, files)),
-		Cycles:   dependencyCycles(cycleGraph(g, root, files, units, opts.tests), files, packages(root, files)),
+		Cycles:   dependencyCycles(cycleGraph(g, root, files, units, opts.tests), files, packages(root, files), opts.tests),
 	}, summary)
 	return r, recordHealth(db, root, r.Summary.Health)
 }
@@ -615,13 +615,16 @@ func drifts(units []unit.Unit, crates map[string]string) []report.Drift {
 	return out
 }
 
-// dependencyCycles finds the modules of each Rust crate calling each other
-// in a loop (see codemap.Cycles), in the code check reports on: no
-// generated files. A pair calling each other is one cycle, closed by its
-// two calls; a group with no such pair is one, closed by each step of a
-// shortest loop. A cycle any of whose calls a ddslop:ignore marks is
-// deliberate, and left out. Go packages and Rust crates cannot form one.
-func dependencyCycles(g *flow.Graph, files []index.File, crates map[string]string) []report.Cycle {
+// dependencyCycles finds the modules of each Rust crate depending on each
+// other in a loop (see codemap.Cycles), in the code check reports on: no
+// generated files, and test code only with tests. A module depends on
+// another it calls or names in a path: a constant, a type or a use is a
+// dependency as much as a call. A pair depending on each other is one
+// cycle, closed by its two sites; a group with no such pair is one, closed
+// by each step of a shortest loop. A cycle any of whose sites a
+// ddslop:ignore marks is deliberate, and left out. Go packages and Rust
+// crates cannot form one.
+func dependencyCycles(g *flow.Graph, files []index.File, crates map[string]string, tests bool) []report.Cycle {
 	generated := map[string]bool{}
 	for _, f := range files {
 		generated[f.Path] = f.Generated
@@ -635,7 +638,7 @@ func dependencyCycles(g *flow.Graph, files []index.File, crates map[string]strin
 			}
 			return in(u)
 		})
-		for _, c := range codemap.Cycles(g, group) {
+		for _, c := range codemap.Cycles(g, group, dependencies(files, crates, name, generated, tests)) {
 			for _, l := range c.Links {
 				out = appendCycle(out, g, name+"\x00"+l.A+"\x00"+l.B,
 					[]string{l.A + " -> " + l.B, l.B + " -> " + l.A}, []codemap.Site{l.AB, l.BA})
@@ -654,6 +657,34 @@ func dependencyCycles(g *flow.Graph, files []index.File, crates map[string]strin
 	return out
 }
 
+// dependencies lists what the modules of one crate depend on besides
+// their calls: the modules their paths name (see codemap.ReferencedModule),
+// in files order and each file's source order.
+func dependencies(files []index.File, crates map[string]string, name string, generated map[string]bool, tests bool) []codemap.Dependency {
+	modules := map[string]bool{}
+	for _, f := range files {
+		if codemap.Crate(f.Path, crates) == name {
+			modules[codemap.Module(f.Path, crates)] = true
+		}
+	}
+	var deps []codemap.Dependency
+	for _, f := range files {
+		if generated[f.Path] || codemap.Crate(f.Path, crates) != name {
+			continue
+		}
+		from := codemap.Module(f.Path, crates)
+		for _, r := range f.References {
+			if r.Test && !tests {
+				continue
+			}
+			if to := codemap.ReferencedModule(f.Path, crates, r, modules); to != "" && to != from {
+				deps = append(deps, codemap.Dependency{From: from, To: to, File: f.Path, Item: r.Item, Line: r.Line, Ignored: r.Ignored})
+			}
+		}
+	}
+	return deps
+}
+
 // cycleGraph is the call graph cycles are found in: the non-test code's,
 // or, with --tests, that of the units check analyses, test code included.
 func cycleGraph(g *flow.Graph, root string, files []index.File, units []unit.Unit, tests bool) *flow.Graph {
@@ -663,11 +694,18 @@ func cycleGraph(g *flow.Graph, root string, files []index.File, units []unit.Uni
 	return flow.Build(graphInputs(root, true, files), units)
 }
 
-// appendCycle adds a cycle closed by the calls at sites, unless a
-// ddslop:ignore marks one of those calls or their callers.
+// appendCycle adds a cycle closed by the calls and paths at sites, unless
+// a ddslop:ignore marks one of them or the callers.
 func appendCycle(out []report.Cycle, g *flow.Graph, key string, steps []string, sites []codemap.Site) []report.Cycle {
 	c := report.Cycle{Key: key, Steps: steps}
 	for _, s := range sites {
+		if d := s.Dependency; d != nil {
+			if d.Ignored {
+				return out
+			}
+			c.Sites = append(c.Sites, report.CycleSite{Unit: unit.Unit{File: d.File, Name: d.Item}, Line: d.Line})
+			continue
+		}
 		if s.Caller < 0 || g.Units[s.Caller].Ignored {
 			return out
 		}
@@ -895,6 +933,9 @@ func markTest(f *index.File) {
 	for i := range f.Units {
 		f.Units[i].Test = true
 	}
+	for i := range f.References {
+		f.References[i].Test = true
+	}
 	d := &f.Decls
 	for i := range d.Structs {
 		d.Structs[i].Test = true
@@ -965,10 +1006,10 @@ func languageOf(path string) string {
 }
 
 // parseRust adds what only Rust files have: out-of-line test modules, the
-// traits a file declares, and its imports.
+// traits a file declares, its imports and the paths naming other modules.
 func parseRust(path string, src []byte) (index.Parsed, error) {
 	units, decls, err := rust.Parse(path, src)
-	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(src)}
+	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(src), References: rust.References(path, src)}
 	for _, t := range decls.Traits {
 		parsed.Traits = append(parsed.Traits, t.Name)
 	}

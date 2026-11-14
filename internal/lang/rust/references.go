@@ -19,7 +19,7 @@ func References(path string, src []byte) []unit.Reference {
 	_ = syntax.Parse(language, src, func(root *sitter.Node) {
 		ignored, _ := syntax.Ignored(root, src)
 		r := referrer{src: src, ignored: ignored}
-		r.walk(root, "", IsTestPath(path), false)
+		r.walk(root, at{test: IsTestPath(path)})
 		refs = r.refs
 	})
 	return refs
@@ -31,24 +31,51 @@ type referrer struct {
 	refs    []unit.Reference
 }
 
-// walk visits n, module being the inline module it is in and test and
-// ignored what holds for its enclosing code. A marker applies to the
-// code starting on its line, and so to every path inside it.
-func (r *referrer) walk(n *sitter.Node, module string, test, ignored bool) {
-	ignored = ignored || r.ignored[syntax.Line(n.StartPosition())]
+// at is what holds where a path is written: the inline module, the type
+// or trait whose items enclose it, the item, and whether that is test
+// code or marked ddslop:ignore.
+type at struct {
+	module, owner, item string
+	test, ignored       bool
+}
+
+// walk visits n. A marker applies to the code starting on its line, and
+// so to every path inside it.
+func (r *referrer) walk(n *sitter.Node, c at) {
+	c.ignored = c.ignored || r.ignored[syntax.Line(n.StartPosition())]
+	name := func() string {
+		if name := n.ChildByFieldName("name"); name != nil {
+			return name.Utf8Text(r.src)
+		}
+		return ""
+	}
 	switch n.Kind() {
 	case "visibility_modifier":
 		return
 	case "crate", "super", "self":
-		r.pathFrom(n, module, test, ignored)
+		r.pathFrom(n, c)
 		return
 	case "token_tree":
-		r.tokens(n, module, test, ignored)
+		r.tokens(n, c)
 		return
 	case "mod_item":
-		if name := n.ChildByFieldName("name"); name != nil && n.ChildByFieldName("body") != nil {
-			module = joinPath(module, name.Utf8Text(r.src))
+		if n.ChildByFieldName("body") != nil {
+			c.module, c.owner = joinPath(c.module, name()), ""
 		}
+	case "impl_item":
+		if t := n.ChildByFieldName("type"); t != nil {
+			c.owner = t.Utf8Text(r.src)
+			c.item = c.owner
+		}
+	case "trait_item":
+		c.owner = name()
+		c.item = c.owner
+	case "function_item":
+		c.item = joinPath(c.owner, name())
+	case "const_item", "static_item", "struct_item", "enum_item", "union_item", "type_item":
+		c.item = name()
+	case "use_declaration":
+		c.item = "use"
 	}
 	var attrs []string
 	for i := uint(0); i < n.ChildCount(); i++ {
@@ -60,9 +87,10 @@ func (r *referrer) walk(n *sitter.Node, module string, test, ignored bool) {
 		if child.IsExtra() {
 			continue
 		}
-		childTest := test || slices.ContainsFunc(attrs, isCfgTest) ||
+		childAt := c
+		childAt.test = c.test || slices.ContainsFunc(attrs, isCfgTest) ||
 			child.Kind() == "function_item" && slices.ContainsFunc(attrs, isTestAttr)
-		r.walk(child, module, childTest, ignored)
+		r.walk(child, childAt)
 		attrs = nil
 	}
 }
@@ -70,7 +98,7 @@ func (r *referrer) walk(n *sitter.Node, module string, test, ignored bool) {
 // pathFrom records the path that root (crate, super or self) begins, if
 // it begins one: self is also a method's receiver, and crate a
 // visibility.
-func (r *referrer) pathFrom(root *sitter.Node, module string, test, ignored bool) {
+func (r *referrer) pathFrom(root *sitter.Node, c at) {
 	segments := []string{root.Kind()}
 	cur := root
 	for {
@@ -80,7 +108,7 @@ func (r *referrer) pathFrom(root *sitter.Node, module string, test, ignored bool
 		}
 		if parent.Kind() == "scoped_use_list" {
 			// use crate::{a::X, b::Y} names a and b
-			r.useList(parent, segments, module, test, ignored)
+			r.useList(parent, segments, c)
 			return
 		}
 		name := parent.ChildByFieldName("name")
@@ -89,7 +117,7 @@ func (r *referrer) pathFrom(root *sitter.Node, module string, test, ignored bool
 		}
 		segments = append(segments, name.Utf8Text(r.src))
 		if name.Kind() != "super" {
-			r.add(segments, root, module, test, ignored)
+			r.add(segments, root, c)
 			return
 		}
 		cur = parent
@@ -109,7 +137,7 @@ func isPathOf(parent, child *sitter.Node) bool {
 
 // useList records the module each item of a use list rooted at prefix
 // names: its first segment.
-func (r *referrer) useList(list *sitter.Node, prefix []string, module string, test, ignored bool) {
+func (r *referrer) useList(list *sitter.Node, prefix []string, c at) {
 	items := list.ChildByFieldName("list")
 	if items == nil {
 		return
@@ -117,7 +145,7 @@ func (r *referrer) useList(list *sitter.Node, prefix []string, module string, te
 	for i := uint(0); i < items.NamedChildCount(); i++ {
 		item := items.NamedChild(i)
 		if first := firstSegment(item, r.src); first != "" {
-			r.add(append(slices.Clone(prefix), first), item, module, test, ignored)
+			r.add(append(slices.Clone(prefix), first), item, c)
 		}
 	}
 }
@@ -143,14 +171,16 @@ func firstSegment(n *sitter.Node, src []byte) string {
 // tokens records the paths written in a macro's arguments, which the
 // grammar leaves as tokens: crate::a::b reads crate, ::, a. $crate in a
 // macro definition is a template, not a path of this module.
-func (r *referrer) tokens(tree *sitter.Node, module string, test, ignored bool) {
+func (r *referrer) tokens(tree *sitter.Node, c at) {
 	var toks []*sitter.Node
 	for i := uint(0); i < tree.ChildCount(); i++ {
 		toks = append(toks, tree.Child(i))
 	}
 	for i, tok := range toks {
 		if tok.Kind() == "token_tree" {
-			r.tokens(tok, module, test, ignored || r.ignored[syntax.Line(tok.StartPosition())])
+			inner := c
+			inner.ignored = c.ignored || r.ignored[syntax.Line(tok.StartPosition())]
+			r.tokens(tok, inner)
 			continue
 		}
 		root := tok.Kind()
@@ -165,18 +195,18 @@ func (r *referrer) tokens(tree *sitter.Node, module string, test, ignored bool) 
 			next := toks[j+1]
 			segments = append(segments, next.Utf8Text(r.src))
 			if next.Kind() != "super" {
-				r.add(segments, tok, module, test, ignored || r.ignored[syntax.Line(tok.StartPosition())])
+				r.add(segments, tok, c)
 				break
 			}
 		}
 	}
 }
 
-func (r *referrer) add(segments []string, at *sitter.Node, module string, test, ignored bool) {
-	line := syntax.Line(at.StartPosition())
+func (r *referrer) add(segments []string, n *sitter.Node, c at) {
+	line := syntax.Line(n.StartPosition())
 	r.refs = append(r.refs, unit.Reference{
-		Path: strings.Join(segments, "::"), Line: line, Module: module,
-		Test: test, Ignored: ignored || r.ignored[line],
+		Path: strings.Join(segments, "::"), Line: line, Module: c.module, Item: c.item,
+		Test: c.test, Ignored: c.ignored || r.ignored[line],
 	})
 }
 

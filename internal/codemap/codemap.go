@@ -6,6 +6,7 @@ package codemap
 import (
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/flow"
@@ -94,7 +95,12 @@ func Module(file string, crates map[string]string) string {
 	if strings.HasSuffix(file, ".go") {
 		return path.Dir(file)
 	}
-	name, top := rustModule(file, crates)
+	return moduleName(rustModule(file, crates))
+}
+
+// moduleName names a Rust module as Module does: the crate, or the crate
+// with its top module, which alone names it in a crate at the root.
+func moduleName(name, top string) string {
 	switch {
 	case name == "":
 		return "" // in no package
@@ -107,15 +113,29 @@ func Module(file string, crates map[string]string) string {
 }
 
 // rustModule returns a Rust file's crate name and the module directly
-// under the crate's src/ ("" for the crate's root module). crates maps the
-// directories holding a package's Cargo.toml: a file belongs to the
-// nearest one above it, as Cargo has it, and one outside src/ (build.rs,
-// examples/) to that crate's root module. A file in no package, once
-// there are packages, belongs to no crate (both results ""), such as a
-// script beside a virtual workspace's members. Without any manifest, the
-// crate directory is the one call resolution uses.
+// under the crate's src/ ("" for the crate's root module).
 func rustModule(file string, crates map[string]string) (name, top string) {
-	dir, rel := flow.CrateOf(file), ""
+	name, rel := crateFile(file, crates)
+	top, _, nested := strings.Cut(rel, "/")
+	if !nested {
+		top = strings.TrimSuffix(top, ".rs")
+		if top == "lib" || top == "main" || top == "mod" {
+			top = ""
+		}
+	}
+	return name, top
+}
+
+// crateFile returns a Rust file's crate name and its path under the
+// crate's src/ ("" outside it). crates maps the directories holding a
+// package's Cargo.toml: a file belongs to the nearest one above it, as
+// Cargo has it, and one outside src/ (build.rs, examples/) to that crate's
+// root module. A file in no package, once there are packages, belongs to
+// no crate (both results ""), such as a script beside a virtual
+// workspace's members. Without any manifest, the crate directory is the
+// one call resolution uses.
+func crateFile(file string, crates map[string]string) (name, rel string) {
+	dir := flow.CrateOf(file)
 	if root, ok := packageOf(file, crates); ok {
 		dir = root
 		if after, ok := strings.CutPrefix(strings.TrimPrefix(file, root+"/"), "src/"); ok {
@@ -135,12 +155,60 @@ func rustModule(file string, crates map[string]string) (name, top string) {
 	if !ok || dir == "." {
 		name = strings.ReplaceAll(path.Base(dir), "-", "_")
 	}
-	top, _, nested := strings.Cut(rel, "/")
-	if !nested {
-		top = strings.TrimSuffix(top, ".rs")
-		if top == "lib" || top == "main" || top == "mod" {
-			top = ""
-		}
+	return name, rel
+}
+
+// ReferencedModule returns the module of its crate a reference written in
+// a Rust file names, as Module names it, or "" for none. super and self
+// are read from where the path is written: the file's place in the crate
+// and the inline module within it. A path naming an item of the root
+// module rather than one of modules (the crate's modules, as Module names
+// them) names the root module. A binary under src/bin is a crate of its
+// own, whose paths name none of the library's modules.
+func ReferencedModule(file string, crates map[string]string, ref unit.Reference, modules map[string]bool) string {
+	name, rel := crateFile(filepath.ToSlash(file), crates)
+	if name == "" || strings.HasPrefix(rel, "bin/") {
+		return ""
 	}
-	return name, top
+	here := fileModules(rel)
+	if ref.Module != "" {
+		here = append(here, strings.Split(ref.Module, "::")...)
+	}
+	segments := strings.Split(ref.Path, "::")
+	var at []string
+	switch segments[0] {
+	case "crate":
+		segments = segments[1:]
+	case "self":
+		at, segments = here, segments[1:]
+	case "super":
+		at = here
+		for len(segments) > 0 && segments[0] == "super" {
+			if len(at) == 0 {
+				return "" // above the crate root
+			}
+			at, segments = at[:len(at)-1], segments[1:]
+		}
+	default:
+		return ""
+	}
+	at = append(slices.Clone(at), segments...)
+	if len(at) > 0 && modules[moduleName(name, at[0])] {
+		return moduleName(name, at[0])
+	}
+	return moduleName(name, "")
+}
+
+// fileModules returns the module path of a file under src/: store/client
+// for store/client.rs, store for store/mod.rs, none for lib.rs.
+func fileModules(rel string) []string {
+	if rel == "" {
+		return nil
+	}
+	parts := strings.Split(strings.TrimSuffix(rel, ".rs"), "/")
+	switch parts[len(parts)-1] {
+	case "lib", "main", "mod":
+		parts = parts[:len(parts)-1]
+	}
+	return parts
 }
