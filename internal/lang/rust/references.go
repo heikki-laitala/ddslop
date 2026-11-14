@@ -110,6 +110,11 @@ func (r *referrer) walk(n *sitter.Node, c at) {
 	case "const_item", "static_item", "struct_item", "enum_item", "union_item", "type_item":
 		c.item = name()
 	case "use_declaration":
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			if n.NamedChild(i).Kind() == "visibility_modifier" {
+				return // pub use re-exports, as a crate's facade does: no dependency
+			}
+		}
 		c.item, c.inUse = "use", true
 	}
 	var attrs []string

@@ -399,3 +399,30 @@ func TestAPathThroughAChildModuleDependsOnIt(t *testing.T) {
 		t.Errorf("candidates = %+v, want the root and foo depending on each other", r.Candidates)
 	}
 }
+
+// A crate root re-exporting its children (pub use client::*) while they
+// use its items is Rust's facade, not a cycle: a re-export depends on
+// nothing.
+func TestAReexportIsNoDependency(t *testing.T) {
+	for _, reexport := range []string{"pub use client::*;", "pub use crate::client::Client;", "pub(crate) use self::client::Client;"} {
+		files := map[string]string{
+			"Cargo.toml":    "[package]\nname = \"app\"\n",
+			"src/lib.rs":    "pub mod client;\n" + reexport + "\npub struct Refusal;\n",
+			"src/client.rs": "use crate::Refusal;\npub struct Client(pub Refusal);\n",
+		}
+		_, stdout, _ := run("check", "--format", "json", repo(t, files))
+		if r := cycles(t, stdout); len(r.Candidates) != 0 {
+			t.Errorf("%s: candidates = %+v, want none: a re-export is the facade", reexport, r.Candidates)
+		}
+	}
+	// A plain use is still a dependency.
+	files := map[string]string{
+		"Cargo.toml":    "[package]\nname = \"app\"\n",
+		"src/lib.rs":    "pub mod client;\nuse client::Client;\npub struct Refusal;\npub fn make() -> Client { Client(Refusal) }\n",
+		"src/client.rs": "use crate::Refusal;\npub struct Client(pub Refusal);\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 1 {
+		t.Errorf("plain use: candidates = %+v, want the root and client depending on each other", r.Candidates)
+	}
+}
