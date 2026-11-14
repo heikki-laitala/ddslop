@@ -37,6 +37,9 @@ type referrer struct {
 type at struct {
 	module, owner, item string
 	test, ignored       bool
+	// inUse is true in a use declaration, whose path imports every
+	// namespace of its name: no value.
+	inUse bool
 }
 
 // walk visits n. A marker applies to the code starting on its line, and
@@ -75,7 +78,7 @@ func (r *referrer) walk(n *sitter.Node, c at) {
 	case "const_item", "static_item", "struct_item", "enum_item", "union_item", "type_item":
 		c.item = name()
 	case "use_declaration":
-		c.item = "use"
+		c.item, c.inUse = "use", true
 	}
 	var attrs []string
 	for i := uint(0); i < n.ChildCount(); i++ {
@@ -244,7 +247,7 @@ func (r *referrer) tokens(tree *sitter.Node, c at) {
 func (r *referrer) add(segments []string, n *sitter.Node, c at, leaf bool) {
 	line := syntax.Line(n.StartPosition())
 	r.refs = append(r.refs, unit.Reference{
-		Path: strings.Join(segments, "::"), Line: line, Module: c.module, Item: c.item, Leaf: leaf,
+		Path: strings.Join(segments, "::"), Line: line, Module: c.module, Item: c.item, Leaf: leaf && !c.inUse,
 		Test: c.test, Ignored: c.ignored || r.ignored[line],
 	})
 }

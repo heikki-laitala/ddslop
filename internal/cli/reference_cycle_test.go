@@ -207,3 +207,33 @@ func TestARootValueIsNotTheModuleOfItsName(t *testing.T) {
 		t.Errorf("candidates = %+v, want none: bar calls the root's foo, not the module", r.Candidates)
 	}
 }
+
+// use crate::foo imports the module foo as well as the root's fn foo:
+// a dependency on the module.
+func TestAUseOfANameBothRootValueAndModuleDependsOnTheModule(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "pub mod bar;\npub mod foo;\npub fn foo() -> u8 { 1 }\n",
+		"src/bar.rs": "use crate::foo;\npub const B: u8 = foo::X;\n",
+		"src/foo.rs": "pub const X: u8 = 1;\npub const Y: u8 = crate::bar::B;\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 1 {
+		t.Errorf("candidates = %+v, want bar and foo depending on each other", r.Candidates)
+	}
+}
+
+// mod r#type lives in type.rs: crate::r#type names the module type.
+func TestARawIdentifierNamesItsModule(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml":  "[package]\nname = \"app\"\n",
+		"src/lib.rs":  "pub mod a;\npub mod r#type;\n",
+		"src/type.rs": "pub const X: u8 = crate::a::Y;\n",
+		"src/a.rs":    "pub const Y: u8 = 1;\npub const Z: u8 = crate::r#type::X;\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	r := cycles(t, stdout)
+	if len(r.Candidates) != 1 || strings.Join(r.Candidates[0].Values, ", ") != "a -> type, type -> a" {
+		t.Errorf("candidates = %+v, want a and type depending on each other", r.Candidates)
+	}
+}

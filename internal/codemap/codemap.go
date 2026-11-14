@@ -177,6 +177,9 @@ func ReferencedModule(file string, crates map[string]string, ref unit.Reference,
 		here = append(here, strings.Split(ref.Module, "::")...)
 	}
 	segments := strings.Split(ref.Path, "::")
+	for i, s := range segments {
+		segments[i] = strings.TrimPrefix(s, "r#") // mod r#type is type.rs
+	}
 	var at []string
 	switch segments[0] {
 	case "crate":

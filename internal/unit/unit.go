@@ -145,9 +145,10 @@ type Reference struct {
 	// Item is the item the path is written in, named as a unit is
 	// (Type::method) or by its own name (a constant, a type), or "use".
 	Item string
-	// Leaf is true when the path ends at its last segment (crate::foo,
-	// not crate::foo::Bar): it may name a value of the module it is in
-	// rather than a module of that name.
+	// Leaf is true when the path ends at its last segment outside a use
+	// (crate::foo, not crate::foo::Bar): it may name a value of the module
+	// it is in rather than a module of that name. A use imports every
+	// namespace of a name, so its paths are never leaves.
 	Leaf          bool
 	Test, Ignored bool
 }
