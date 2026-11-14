@@ -10,8 +10,8 @@ import (
 )
 
 func TestModuleNamesGoPackagesAndRustTopModules(t *testing.T) {
-	crates := map[string]string{"crates/ledger": "acme_ledger", "crates/token-credentials": "token_credentials", ".": "acme"} //nolint:gosec // crate names, not credentials
-	for file, want := range map[string]string{                                                                                //nolint:gosec // file paths, not credentials
+	crates := &Packages{Names: map[string]string{"crates/ledger": "acme_ledger", "crates/token-credentials": "token_credentials", ".": "acme"}} //nolint:gosec // crate names, not credentials
+	for file, want := range map[string]string{                                                                                                  //nolint:gosec // file paths, not credentials
 		"internal/flow/flow.go":                 "internal/flow",
 		"main.go":                               ".",
 		"crates/ledger/src/lib.rs":              "acme_ledger",
@@ -36,7 +36,7 @@ func TestModuleNamesGoPackagesAndRustTopModules(t *testing.T) {
 func TestTheRootCrateStaysUnnamedWhateverItsManifestSays(t *testing.T) {
 	// A root build.rs makes the crates map name ".", but the root crate's
 	// modules must not be renamed by it.
-	crates := map[string]string{".": "acme"}
+	crates := &Packages{Names: map[string]string{".": "acme"}}
 	for file, want := range map[string]string{"src/lib.rs": ".", "src/store.rs": "store", "build.rs": "."} {
 		if got := Module(file, crates); got != want {
 			t.Errorf("Module(%q) = %q, want %q", file, got, want)
@@ -45,8 +45,8 @@ func TestTheRootCrateStaysUnnamedWhateverItsManifestSays(t *testing.T) {
 }
 
 func TestCrateNamesTheRustCrateOfAFile(t *testing.T) {
-	crates := map[string]string{"crates/ledger": "acme_ledger", "crates/token-credentials": "token_credentials", ".": "acme"} //nolint:gosec // crate names, not credentials
-	for file, want := range map[string]string{                                                                                //nolint:gosec // file paths, not credentials
+	crates := &Packages{Names: map[string]string{"crates/ledger": "acme_ledger", "crates/token-credentials": "token_credentials", ".": "acme"}} //nolint:gosec // crate names, not credentials
+	for file, want := range map[string]string{                                                                                                  //nolint:gosec // file paths, not credentials
 		"crates/ledger/src/store/postgres.rs": "acme_ledger",
 		"crates/ledger/src/lib.rs":            "acme_ledger",
 		"crates/ledger/build.rs":              "acme_ledger",
@@ -85,7 +85,7 @@ func TestLayersOfCratesAndOfTheModulesInsideOne(t *testing.T) {
 
 func TestFilesOutsideSrcBelongToTheNearestCrate(t *testing.T) {
 	// crates maps the directories holding a Cargo.toml.
-	crates := map[string]string{"crates/ledger": "acme_ledger", ".": "acme"}
+	crates := &Packages{Names: map[string]string{"crates/ledger": "acme_ledger", ".": "acme"}}
 	for file, want := range map[string][2]string{
 		"crates/ledger/examples/demo.rs": {"acme_ledger", "acme_ledger"},
 		"crates/ledger/src/store.rs":     {"acme_ledger", "acme_ledger::store"},
@@ -99,11 +99,33 @@ func TestFilesOutsideSrcBelongToTheNearestCrate(t *testing.T) {
 }
 
 func TestFilesOutsideEveryPackageBelongToNoCrate(t *testing.T) {
-	crates := map[string]string{"crates/app": "app"}
+	crates := &Packages{Names: map[string]string{"crates/app": "app"}}
 	if c, m := Crate("scripts/release.rs", crates), Module("scripts/release.rs", crates); c != "" || m != "" {
 		t.Errorf("scripts/release.rs: crate %q, module %q; want neither, it is in no package", c, m)
 	}
 	if c := Crate("scripts/release.rs", nil); c != "scripts" {
 		t.Errorf("without manifests, crate %q, want the directory scripts", c)
+	}
+}
+
+// svc's manifest roots its library at lib/core.rs: the files beside and
+// below it are the library's modules, as src/'s are by default.
+func TestALibraryMovedOutOfSrcNamesItsModules(t *testing.T) {
+	crates := &Packages{
+		Names:     map[string]string{"svc": "core"},
+		Libraries: flow.Libraries{"svc/lib/core.rs": "svc"},
+	}
+	for file, want := range map[string]string{
+		"svc/lib/core.rs":         "core",
+		"svc/lib/config.rs":       "core::config",
+		"svc/lib/store/client.rs": "core::store",
+		"svc/src/main.rs":         "core",
+	} {
+		if got := Module(file, crates); got != want {
+			t.Errorf("Module(%q) = %q, want %q", file, got, want)
+		}
+	}
+	if name, rel := CratePath("svc/lib/core.rs", crates); name != "core" || rel != "lib.rs" {
+		t.Errorf("CratePath(root) = %q, %q, want the library's root, as src/lib.rs is", name, rel)
 	}
 }

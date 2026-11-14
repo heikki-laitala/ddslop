@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -397,10 +398,11 @@ func located(u unit.Unit) string {
 	return fmt.Sprintf("%s:%d %s", u.File, u.StartLine, u.Name)
 }
 
-// packages maps the directories under root holding a package's Cargo.toml
-// to the crate's name, for every directory above a Rust file.
-func packages(root string, files []index.File) map[string]string {
-	out := map[string]string{}
+// packages finds the packages under root holding a Rust file: each
+// directory above one holding a Cargo.toml, with the crate's name, and the
+// libraries whose manifests move their root file out of src/lib.rs.
+func packages(root string, files []index.File) *codemap.Packages {
+	out := &codemap.Packages{Names: map[string]string{}, Libraries: flow.Libraries{}}
 	seen := map[string]bool{}
 	for _, f := range files {
 		if languageOf(f.Path) != "rust" {
@@ -408,8 +410,12 @@ func packages(root string, files []index.File) map[string]string {
 		}
 		for dir := filepath.Dir(f.Path); !seen[dir]; dir = filepath.Dir(dir) {
 			seen[dir] = true
-			if name := rust.CrateName(manifest(root, dir)); name != "" {
-				out[filepath.ToSlash(dir)] = name
+			manifest := manifest(root, dir)
+			if name := rust.CrateName(manifest); name != "" {
+				out.Names[filepath.ToSlash(dir)] = name
+				if lib := rust.LibPath(manifest); lib != "" && path.Clean(lib) != "src/lib.rs" {
+					out.Libraries[path.Join(filepath.ToSlash(dir), lib)] = filepath.ToSlash(dir)
+				}
 			}
 			if dir == "." || dir == string(filepath.Separator) {
 				break
@@ -422,7 +428,7 @@ func packages(root string, files []index.File) map[string]string {
 // crateNames returns the crates of the Rust files outside test paths,
 // sorted: a crate of only types or constants is a crate too, though no
 // function of it is in the call graph.
-func crateNames(files []index.File, crates map[string]string) []string {
+func crateNames(files []index.File, crates *codemap.Packages) []string {
 	var names []string
 	for _, f := range files {
 		if c := codemap.Crate(f.Path, crates); c != "" && !rust.IsTestPath(f.Path) {
@@ -434,7 +440,7 @@ func crateNames(files []index.File, crates map[string]string) []string {
 }
 
 // crateSummary counts a crate's modules and the layers they form.
-func crateSummary(g *flow.Graph, crates map[string]string, name string) crateJSON {
+func crateSummary(g *flow.Graph, crates *codemap.Packages, name string) crateJSON {
 	in := codemap.InCrate(name, crates)
 	var modules []string
 	for _, u := range g.Units {

@@ -181,7 +181,8 @@ func treeOrder(steps []flow.Step) []flow.Step {
 // implementations, of the test code too when the graph includes it.
 func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
 	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{},
-		Fields: map[string]map[string]flow.FieldType{}, Modules: map[string]string{}}
+		Fields: map[string]map[string]flow.FieldType{}, Modules: map[string]string{},
+		Libraries: packages(root, files).Libraries}
 	seen := map[string]bool{}
 	for _, f := range files {
 		if strings.HasSuffix(f.Path, ".go") {
@@ -214,7 +215,7 @@ func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
 				in.Impls = append(in.Impls, im)
 			}
 		}
-		dir := flow.CrateOf(f.Path)
+		dir := in.Libraries.CrateOf(f.Path)
 		for _, ft := range f.Decls.FieldTypes {
 			if ft.Test {
 				continue // the graph is of the non-test code

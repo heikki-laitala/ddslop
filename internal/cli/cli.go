@@ -597,7 +597,7 @@ func check(root string, opts options) (report.Report, error) {
 // drifts finds the convention drifts in the units check analyses (no
 // generated code, test code only with --tests), each language on its own
 // (see codemap.Drifts): Go's and Rust's forms are never compared.
-func drifts(units []unit.Unit, crates map[string]string) []report.Drift {
+func drifts(units []unit.Unit, crates *codemap.Packages) []report.Drift {
 	g := &flow.Graph{Units: units}
 	var out []report.Drift
 	for _, lang := range []string{"go", "rust"} {
@@ -624,7 +624,7 @@ func drifts(units []unit.Unit, crates map[string]string) []report.Drift {
 // by each step of a shortest loop. A cycle any of whose sites a
 // ddslop:ignore marks is deliberate, and left out. Go packages and Rust
 // crates cannot form one.
-func dependencyCycles(g *flow.Graph, files []index.File, crates map[string]string, tests bool) []report.Cycle {
+func dependencyCycles(g *flow.Graph, files []index.File, crates *codemap.Packages, tests bool) []report.Cycle {
 	generated := map[string]bool{}
 	for _, f := range files {
 		generated[f.Path] = f.Generated
@@ -662,7 +662,7 @@ func dependencyCycles(g *flow.Graph, files []index.File, crates map[string]strin
 // dependencies lists what the modules of one crate's library depend on
 // besides their calls: the modules their paths name (see
 // codemap.ReferencedModule), in files order and each file's source order.
-func dependencies(files []index.File, crates map[string]string, name string, generated, libraries map[string]bool, tests bool) []codemap.Dependency {
+func dependencies(files []index.File, crates *codemap.Packages, name string, generated, libraries map[string]bool, tests bool) []codemap.Dependency {
 	modules := map[string]bool{}
 	for _, f := range files {
 		if codemap.Crate(f.Path, crates) == name {
@@ -716,7 +716,7 @@ func dependencies(files []index.File, crates map[string]string, name string, gen
 
 // libraryCrates returns the crates whose package has a library target
 // (src/lib.rs).
-func libraryCrates(files []index.File, crates map[string]string) map[string]bool {
+func libraryCrates(files []index.File, crates *codemap.Packages) map[string]bool {
 	libraries := map[string]bool{}
 	for _, f := range files {
 		if crate, rel := codemap.CratePath(f.Path, crates); rel == "lib.rs" {
@@ -730,7 +730,7 @@ func libraryCrates(files []index.File, crates map[string]string) map[string]bool
 // target, whose crate:: paths name the modules Module names: a file under
 // src/, but no binary's (src/bin, or src/main.rs beside a library). A
 // build script, an example or a binary is a crate of its own.
-func inLibrary(file string, crates map[string]string, libraries map[string]bool) bool {
+func inLibrary(file string, crates *codemap.Packages, libraries map[string]bool) bool {
 	crate, rel := codemap.CratePath(file, crates)
 	return rel != "" && !strings.HasPrefix(rel, "bin/") && (rel != "main.rs" || !libraries[crate])
 }
@@ -799,9 +799,10 @@ func wordCounts(files []index.File) map[string]int {
 // Rust workspace manifest is the one at root.
 func internalCrates(root string, files []index.File) func(file string) bool {
 	workspace := manifest(root, ".")
+	libraries := packages(root, files).Libraries
 	internal := map[string]bool{}
 	for _, f := range files {
-		dir := flow.CrateOf(f.Path)
+		dir := libraries.CrateOf(f.Path)
 		if _, done := internal[dir]; done {
 			continue
 		}
@@ -811,7 +812,7 @@ func internalCrates(root string, files []index.File) func(file string) bool {
 			internal[dir] = rust.Unpublished(manifest(root, dir), workspace)
 		}
 	}
-	return func(file string) bool { return internal[flow.CrateOf(file)] }
+	return func(file string) bool { return internal[libraries.CrateOf(file)] }
 }
 
 // frequentBlockNodes, frequentBlockLines and frequentBlockDuplicated keep
