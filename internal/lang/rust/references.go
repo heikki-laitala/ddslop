@@ -103,8 +103,9 @@ func (r *referrer) pathFrom(root *sitter.Node, c at) {
 	cur := root
 	for {
 		parent := cur.Parent()
-		if parent != nil && parent.Kind() == "use_wildcard" {
-			// use crate::* or use super::* imports that module's items
+		if parent != nil && (parent.Kind() == "use_wildcard" || parent.Kind() == "use_as_clause" && isPathOf(parent, cur)) {
+			// use crate::* imports that module's items, and use crate as
+			// root names it
 			r.add(segments, root, c)
 			return
 		}
@@ -133,7 +134,7 @@ func (r *referrer) pathFrom(root *sitter.Node, c at) {
 // or the prefix of a use list.
 func isPathOf(parent, child *sitter.Node) bool {
 	switch parent.Kind() {
-	case "scoped_identifier", "scoped_type_identifier", "scoped_use_list":
+	case "scoped_identifier", "scoped_type_identifier", "scoped_use_list", "use_as_clause":
 		path := parent.ChildByFieldName("path")
 		return path != nil && sameNode(path, child)
 	}

@@ -57,9 +57,9 @@ crate::m@10 crate::m::M`
 	}
 }
 
-func TestReferencesIncludeWildcardImportsOfARoot(t *testing.T) {
-	src := "use crate::*;\nuse super::*;\nuse self::inner::*;\n"
-	want := "crate@1 use\nsuper@2 use\nself::inner@3 use"
+func TestReferencesIncludeWildcardAndAliasedImportsOfARoot(t *testing.T) {
+	src := "use crate::*;\nuse super::*;\nuse self::inner::*;\nuse crate as root;\nuse super as parent;\n"
+	want := "crate@1 use\nsuper@2 use\nself::inner@3 use\ncrate@4 use\nsuper@5 use"
 	if got := show(References("src/x.rs", []byte(src))); got != want {
 		t.Errorf("references:\n%s\nwant:\n%s", got, want)
 	}
