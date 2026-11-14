@@ -780,7 +780,13 @@ func isModule(segment string) bool {
 // it out of src/lib.rs ([lib] path) to the crate directory holding the
 // manifest. Files under the root file's directory are that library's
 // modules, as files under src/ are a default library's.
-type Libraries map[string]string
+type Libraries struct {
+	// Roots maps each moved library's root file to its crate directory.
+	Roots map[string]string
+	// Packages are every package's directory: a moved library's files
+	// never reach into another package.
+	Packages map[string]bool
+}
 
 // CrateOf is the package CrateOf, knowing the libraries.
 func (l Libraries) CrateOf(file string) string {
@@ -804,13 +810,42 @@ func (l Libraries) ModuleOf(file string) (string, bool) {
 	return modulePathOf(rel), true
 }
 
-// splitDir splits a slash path into its directory ("." for none) and its
-// last element.
-func splitDir(file string) (dir, base string) {
+// dirOf returns a slash path's directory, "." for none.
+func dirOf(file string) string {
 	if i := strings.LastIndex(file, "/"); i >= 0 {
-		return file[:i], file[i+1:]
+		return file[:i]
 	}
-	return ".", file
+	return "."
+}
+
+// owns reports whether a file under the directory of a moved library's
+// root file, dir, is that library's: not in another package nested in its
+// crate's, nor one of that package's other Cargo targets (a binary, a
+// build script, an example, a test or a bench). A library moved out of
+// src/ leaves src/ to the package's binary.
+func (l Libraries) owns(file, dir, crate string) bool {
+	for d := dirOf(file); d != crate && d != "."; d = dirOf(d) {
+		if l.Packages[d] {
+			return false
+		}
+	}
+	within := func(p string) string {
+		if crate == "." {
+			return p
+		}
+		return strings.TrimPrefix(p, crate+"/")
+	}
+	rel := within(file)
+	if rel == "build.rs" || rel == "src/main.rs" {
+		return false
+	}
+	for _, target := range []string{"src/bin/", "examples/", "benches/", "tests/"} {
+		if strings.HasPrefix(rel, target) {
+			return false
+		}
+	}
+	inSrc := within(dir) == "src" || strings.HasPrefix(within(dir), "src/")
+	return inSrc || !strings.HasPrefix(rel, "src/")
 }
 
 // Locate returns the moved library a Rust file belongs to, the one whose
@@ -822,13 +857,13 @@ func (l Libraries) Locate(file string) (crate, rel string, root, ok bool) {
 		return "", "", false, false
 	}
 	depth := -1
-	for r, c := range l {
-		dir, _ := splitDir(r)
+	for r, c := range l.Roots {
+		dir := dirOf(r)
 		inside, found := file, dir == "."
 		if !found {
 			inside, found = strings.CutPrefix(file, dir+"/")
 		}
-		if found && strings.Count(dir, "/") > depth {
+		if found && strings.Count(dir, "/") > depth && l.owns(file, dir, c) {
 			crate, rel, root, ok, depth = c, inside, file == r, true, strings.Count(dir, "/")
 		}
 	}

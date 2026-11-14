@@ -1499,7 +1499,10 @@ crate's modules), which names each file once.
   libraries (`flow.Libraries`) place its files in their crate for call
   resolution, which otherwise reads a crate from where `src/` is, so
   `crate::` calls between them resolve; without them such a library had
-  no modules at all. Modules are those with functions: a module
+  no modules at all. Its files stop at its package: a nested package's,
+  and the package's other Cargo targets (`src/main.rs`, `src/bin/`,
+  `build.rs`, `examples/`, `tests/`, `benches/`, and all of `src/` when
+  the library is outside it), are not the library's. Modules are those with functions: a module
   of only types or constants takes part in no call, so it has no place
   in the layers, and placing it on top as a source would be wrong.
 - Only calls that name their callee count: `f()`, `Type::f()`,

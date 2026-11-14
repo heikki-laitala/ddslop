@@ -51,3 +51,30 @@ func TestMapNamesTheModulesOfALibraryMovedOutOfSrc(t *testing.T) {
 		t.Errorf("modules = %q, want config and store, the files under lib/", got)
 	}
 }
+
+// A library rooted at the package's top claims its own modules, not the
+// package's binary under src/.
+func TestALibraryRootedAtThePackageTopLeavesTheBinaryAlone(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml":  "[package]\nname = \"app\"\n\n[lib]\npath = \"core.rs\" # beside the manifest\n",
+		"core.rs":     "pub mod config;\npub mod store;\n",
+		"config.rs":   "pub fn load() -> u16 { crate::store::open() }\n",
+		"store.rs":    "pub fn open() -> u16 { 1 }\n",
+		"src/main.rs": "mod cli;\nfn main() { cli::run(); }\n",
+		"src/cli.rs":  "pub fn run() { app::config::load(); }\n",
+	}
+	_, stdout, stderr := run("map", "--format", "json", repo(t, files))
+	var r mapOutput
+	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s\n%s", err, stdout, stderr)
+	}
+	var modules []string
+	for _, m := range r.Maps {
+		for _, l := range m.Layers {
+			modules = append(modules, l.Modules...)
+		}
+	}
+	if slices.Contains(modules, "src") || !slices.Contains(modules, "config") || !slices.Contains(modules, "store") {
+		t.Errorf("modules = %v, want the library's config and store and no src", modules)
+	}
+}

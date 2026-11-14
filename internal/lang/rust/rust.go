@@ -1767,6 +1767,18 @@ func CrateName(cargoToml []byte) string {
 	return strings.ReplaceAll(name, "-", "_")
 }
 
+// tomlString returns a TOML value as written: a quoted string's contents,
+// up to its closing quote, or a bare value up to a comment.
+func tomlString(value string) string {
+	if value != "" && (value[0] == '"' || value[0] == '\'') {
+		if end := strings.IndexByte(value[1:], value[0]); end >= 0 {
+			return value[1 : 1+end]
+		}
+	}
+	bare, _, _ := strings.Cut(value, "#")
+	return strings.TrimSpace(bare)
+}
+
 // manifestValue returns a string key's value in one section of a
 // Cargo.toml, unquoted, or "" when the section does not set it.
 func manifestValue(cargoToml []byte, section, key string) string {
@@ -1779,7 +1791,7 @@ func manifestValue(cargoToml []byte, section, key string) string {
 		}
 		k, value, ok := strings.Cut(line, "=")
 		if ok && current == section && strings.TrimSpace(k) == key {
-			return strings.Trim(strings.TrimSpace(value), `"'`)
+			return tomlString(strings.TrimSpace(value))
 		}
 	}
 	return ""

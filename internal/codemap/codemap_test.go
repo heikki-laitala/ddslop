@@ -113,7 +113,7 @@ func TestFilesOutsideEveryPackageBelongToNoCrate(t *testing.T) {
 func TestALibraryMovedOutOfSrcNamesItsModules(t *testing.T) {
 	crates := &Packages{
 		Names:     map[string]string{"svc": "core"},
-		Libraries: flow.Libraries{"svc/lib/core.rs": "svc"},
+		Libraries: flow.Libraries{Roots: map[string]string{"svc/lib/core.rs": "svc"}},
 	}
 	for file, want := range map[string]string{
 		"svc/lib/core.rs":         "core",
