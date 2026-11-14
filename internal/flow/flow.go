@@ -778,7 +778,7 @@ type Libraries map[string]string
 
 // CrateOf is the package CrateOf, knowing the libraries.
 func (l Libraries) CrateOf(file string) string {
-	if _, crate, _, ok := l.of(file); ok {
+	if crate, _, _, ok := l.Locate(file); ok {
 		return crate
 	}
 	return CrateOf(file)
@@ -788,11 +788,11 @@ func (l Libraries) CrateOf(file string) string {
 // file is its crate's root, and the files beside and below it are its
 // modules, as files under src/ are a default library's.
 func (l Libraries) ModuleOf(file string) (string, bool) {
-	root, _, rel, ok := l.of(file)
-	if !ok {
+	_, rel, root, ok := l.Locate(file)
+	switch {
+	case !ok:
 		return moduleOf(file)
-	}
-	if _, base := splitDir(root); rel == base {
+	case root:
 		return "", true
 	}
 	return modulePathOf(rel), true
@@ -807,13 +807,13 @@ func splitDir(file string) (dir, base string) {
 	return ".", file
 }
 
-// of returns the moved library a Rust file belongs to, the one whose root
-// file's directory is the deepest holding it: its root file, its crate
-// directory and the file's path within that directory.
-func (l Libraries) of(file string) (root, crate, rel string, ok bool) {
+// Locate returns the moved library a Rust file belongs to, the one whose
+// root file's directory is the deepest holding it: its crate directory,
+// the file's path within that directory, and whether it is the root file.
+func (l Libraries) Locate(file string) (crate, rel string, root, ok bool) {
 	file = filepath.ToSlash(file)
 	if !strings.HasSuffix(file, ".rs") {
-		return "", "", "", false
+		return "", "", false, false
 	}
 	depth := -1
 	for r, c := range l {
@@ -823,10 +823,10 @@ func (l Libraries) of(file string) (root, crate, rel string, ok bool) {
 			inside, found = strings.CutPrefix(file, dir+"/")
 		}
 		if found && strings.Count(dir, "/") > depth {
-			root, crate, rel, ok, depth = r, c, inside, true, strings.Count(dir, "/")
+			crate, rel, root, ok, depth = c, inside, file == r, true, strings.Count(dir, "/")
 		}
 	}
-	return root, crate, rel, ok
+	return crate, rel, root, ok
 }
 
 // CrateOf returns the crate directory of a file: for Rust the path before
