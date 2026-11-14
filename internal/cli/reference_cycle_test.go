@@ -328,3 +328,32 @@ func TestANestedRootMacroIsNotTheModuleOfItsName(t *testing.T) {
 		t.Errorf("candidates = %+v, want none: bar invokes the root's macro foo", r.Candidates)
 	}
 }
+
+// A module root in a file hides the crate's alias root there: root::foo
+// enters that module, not the crate's foo.
+func TestALocalModuleHidesTheCratesAlias(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "extern crate self as root;\npub mod a;\npub mod foo;\n",
+		"src/a.rs":   "mod root { pub mod foo { pub const X: u8 = 1; } }\npub const A: u8 = 1;\npub const X: u8 = root::foo::X;\n",
+		"src/foo.rs": "pub const Z: u8 = crate::a::A;\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 0 {
+		t.Errorf("candidates = %+v, want none: a's root is its own module", r.Candidates)
+	}
+}
+
+// The crate's alias reaches macro arguments too: wrap!(root::foo::Y).
+func TestTheCratesAliasReachesMacroArguments(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "extern crate self as root;\npub mod a;\npub mod foo;\n",
+		"src/a.rs":   "pub const A: u8 = 1;\npub fn x() -> u8 { wrap!(root::foo::Y) }\n",
+		"src/foo.rs": "pub const Y: u8 = 1;\npub const Z: u8 = crate::a::A;\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 1 {
+		t.Errorf("candidates = %+v, want a and foo depending on each other", r.Candidates)
+	}
+}
