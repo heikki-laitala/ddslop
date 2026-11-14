@@ -63,17 +63,7 @@ func TestALibraryRootedAtThePackageTopLeavesTheBinaryAlone(t *testing.T) {
 		"src/main.rs": "mod cli;\nfn main() { cli::run(); }\n",
 		"src/cli.rs":  "pub fn run() { app::config::load(); }\n",
 	}
-	_, stdout, stderr := run("map", "--format", "json", repo(t, files))
-	var r mapOutput
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not JSON: %v\n%s\n%s", err, stdout, stderr)
-	}
-	var modules []string
-	for _, m := range r.Maps {
-		for _, l := range m.Layers {
-			modules = append(modules, l.Modules...)
-		}
-	}
+	modules := mapModules(t, files)
 	if slices.Contains(modules, "src") || slices.Contains(modules, "cli") || !slices.Contains(modules, "config") || !slices.Contains(modules, "store") {
 		t.Errorf("modules = %v, want the library's config and store, and nothing of the binary's", modules)
 	}
@@ -106,6 +96,53 @@ func TestAPlacedBinaryKeepsItsModulesFromAMovedLibrary(t *testing.T) {
 		"tool.rs":    "mod cli;\nfn main() { cli::run(); }\n",
 		"cli.rs":     "pub fn run() { app::config::load(); }\n",
 	}
+	modules := mapModules(t, files)
+	if slices.Contains(modules, "cli") || slices.Contains(modules, "tool") {
+		t.Errorf("modules = %v, want none of the binary's", modules)
+	}
+}
+
+// A placed binary of an unpublished package is internal too: its unused
+// public function is dead code.
+func TestAPlacedTargetReadsItsPackagesPublishSetting(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\npublish = false\n\n[lib]\npath = \"core.rs\"\n\n[[bin]]\nname = \"tool\"\npath = \"tool.rs\"\n",
+		"core.rs":    "pub fn used() -> u8 { 1 }\n",
+		"tool.rs":    "fn main() { app::used(); }\npub fn never_called_anywhere() -> u8 { 2 }\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	r := decodeTargets(t, stdout)
+	var dead []string
+	for _, c := range r.Candidates {
+		if c.Kind == "dead-code" {
+			dead = append(dead, c.Occurrences[0].Name)
+		}
+	}
+	if strings.Join(dead, " ") != "never_called_anywhere" {
+		t.Errorf("dead code = %v, want the binary's unused public function", dead)
+	}
+}
+
+// A module a placed binary declares with #[path] is the binary's where
+// the attribute puts it.
+func TestAPlacedBinarysPathModuleIsNotTheLibrarys(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml":      "[package]\nname = \"app\"\n\n[lib]\npath = \"core.rs\"\n\n[[bin]]\nname = \"tool\"\npath = \"tool.rs\"\n",
+		"core.rs":         "pub mod config;\npub mod store;\n",
+		"config.rs":       "pub fn load() -> u16 { crate::store::open() }\n",
+		"store.rs":        "pub fn open() -> u16 { 1 }\n",
+		"tool.rs":         "#[path = \"commands/cli.rs\"]\nmod cli;\nfn main() { cli::run(); }\n",
+		"commands/cli.rs": "pub fn run() { app::config::load(); }\n",
+	}
+	modules := mapModules(t, files)
+	if slices.Contains(modules, "commands") || slices.Contains(modules, "cli") {
+		t.Errorf("modules = %v, want none of the binary's", modules)
+	}
+}
+
+// mapModules runs map over files and returns the modules of its layers.
+func mapModules(t *testing.T, files map[string]string) []string {
+	t.Helper()
 	_, stdout, stderr := run("map", "--format", "json", repo(t, files))
 	var r mapOutput
 	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
@@ -117,7 +154,5 @@ func TestAPlacedBinaryKeepsItsModulesFromAMovedLibrary(t *testing.T) {
 			modules = append(modules, l.Modules...)
 		}
 	}
-	if slices.Contains(modules, "cli") || slices.Contains(modules, "tool") {
-		t.Errorf("modules = %v, want none of the binary's", modules)
-	}
+	return modules
 }

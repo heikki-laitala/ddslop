@@ -452,6 +452,13 @@ func addTargets(libraries flow.Libraries, roots []string, files []index.File) {
 			libraries.Targets[dir+"/"] = root
 		}
 		for _, m := range declared[root] {
+			if strings.HasSuffix(m, ".rs") { // #[path = "commands/run.rs"]
+				libraries.Targets[path.Join(dir, m)] = root
+				if path.Base(m) == "mod.rs" {
+					libraries.Targets[path.Join(dir, path.Dir(m))+"/"] = root
+				}
+				continue
+			}
 			libraries.Targets[path.Join(dir, m+".rs")] = root
 			libraries.Targets[path.Join(dir, m)+"/"] = root
 		}

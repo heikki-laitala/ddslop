@@ -1825,10 +1825,28 @@ func manifestValues(cargoToml []byte, key string, sections ...string) []string {
 	return out
 }
 
-// DeclaredModules returns the names of the modules a file declares out of
-// line (mod name;), at its top level, in source order.
+// DeclaredModules returns the modules a file declares out of line (mod
+// name;), at its top level, in source order: each one's name, or the file
+// a #[path] attribute places it in, ending in .rs.
 func DeclaredModules(src []byte) []string {
-	return outOfLineModules(src, func([]string) bool { return true })
+	return outOfLineModules(src, func(name string, attrs []string) string {
+		for _, attr := range attrs {
+			if file, ok := pathAttribute(attr); ok {
+				return file
+			}
+		}
+		return name
+	})
+}
+
+// pathAttribute returns the file a #[path = "..."] attribute names.
+func pathAttribute(attr string) (string, bool) {
+	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(attr, "#["), "]"))
+	key, value, ok := strings.Cut(inner, "=")
+	if !ok || strings.TrimSpace(key) != "path" {
+		return "", false
+	}
+	return tomlString(strings.TrimSpace(value)), true
 }
 
 // TestModules returns the names of the modules a file declares out of
@@ -1837,12 +1855,18 @@ func DeclaredModules(src []byte) []string {
 //
 // Only declarations at the top level of the file are considered.
 func TestModules(src []byte) []string {
-	return outOfLineModules(src, func(attrs []string) bool { return slices.ContainsFunc(attrs, isCfgTest) })
+	return outOfLineModules(src, func(name string, attrs []string) string {
+		if slices.ContainsFunc(attrs, isCfgTest) {
+			return name
+		}
+		return ""
+	})
 }
 
-// outOfLineModules returns the names of the modules a file declares out
-// of line at its top level whose attributes keep accepts.
-func outOfLineModules(src []byte, keep func(attrs []string) bool) []string {
+// outOfLineModules returns, for the modules a file declares out of line at
+// its top level, what entry makes of each one's name and attributes, ""
+// leaving it out.
+func outOfLineModules(src []byte, entry func(name string, attrs []string) string) []string {
 	var names []string
 	_ = syntax.Parse(language, src, func(root *sitter.Node) {
 		var attrs []string
@@ -1854,9 +1878,11 @@ func outOfLineModules(src []byte, keep func(attrs []string) bool) []string {
 				continue
 			case child.IsExtra():
 				continue
-			case child.Kind() == "mod_item" && child.ChildByFieldName("body") == nil && keep(attrs):
+			case child.Kind() == "mod_item" && child.ChildByFieldName("body") == nil:
 				if name := child.ChildByFieldName("name"); name != nil {
-					names = append(names, name.Utf8Text(src))
+					if e := entry(name.Utf8Text(src), attrs); e != "" {
+						names = append(names, e)
+					}
 				}
 			}
 			attrs = nil
