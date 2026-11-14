@@ -894,7 +894,7 @@ func TestModulePathFollowsSelfSuperAndChildren(t *testing.T) {
 		{"child", "x/src/a.rs", "a::child"},
 		{"child", "x/src/lib.rs", "child"},
 	} {
-		if got := Libraries(nil).modulePath(c.path, unit.Unit{File: c.file}); got != c.want {
+		if got := (Libraries{}).modulePath(c.path, unit.Unit{File: c.file}); got != c.want {
 			t.Errorf("modulePath(%q, %q) = %q, want %q", c.path, c.file, got, c.want)
 		}
 	}
@@ -1169,7 +1169,7 @@ func TestRustTraitImplsWrittenWithTheCratePathCount(t *testing.T) {
 }
 
 // svc's manifest roots its library at lib/core.rs instead of src/lib.rs.
-var movedLibrary = Libraries{"svc/lib/core.rs": "svc"}
+var movedLibrary = Libraries{Roots: map[string]string{"svc/lib/core.rs": "svc"}}
 
 func TestALibraryMovedOutOfSrcKeepsItsCrateAndModules(t *testing.T) {
 	for file, want := range map[string]string{
@@ -1204,5 +1204,37 @@ func TestCratePathsResolveInALibraryMovedOutOfSrc(t *testing.T) {
 	})
 	if got, want := callees(g, "svc/lib/store/client.rs open"), "[svc/lib/config.rs load svc/lib/core.rs version]"; got != want {
 		t.Errorf("open calls %s, want %s", got, want)
+	}
+}
+
+// A library rooted at its package's top (core.rs) claims only its own
+// files: not the package's other Cargo targets, nor a nested package.
+func TestALibraryRootedAtItsPackageTopClaimsOnlyItsFiles(t *testing.T) {
+	l := Libraries{
+		Roots:    map[string]string{"svc/core.rs": "svc", "core.rs": "."},
+		Packages: map[string]bool{".": true, "svc": true, "svc/member": true, "crates/x": true},
+	}
+	for file, want := range map[string]bool{
+		"svc/core.rs":           true,
+		"svc/store.rs":          true,
+		"svc/store/client.rs":   true,
+		"svc/src/main.rs":       false,
+		"svc/src/cli.rs":        false,
+		"svc/src/bin/tool.rs":   false,
+		"svc/build.rs":          false,
+		"svc/examples/demo.rs":  false,
+		"svc/tests/api.rs":      false,
+		"svc/benches/b.rs":      false,
+		"svc/member/src/lib.rs": false,
+		"crates/x/src/lib.rs":   false,
+		"store.rs":              true,
+		"src/main.rs":           false,
+	} {
+		if _, _, _, got := l.Locate(file); got != want {
+			t.Errorf("Locate(%s) found = %v, want %v", file, got, want)
+		}
+	}
+	if got := l.CrateOf("svc/member/src/lib.rs"); got != "svc/member" {
+		t.Errorf("CrateOf(nested member) = %s, want its own crate", got)
 	}
 }

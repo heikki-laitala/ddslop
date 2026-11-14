@@ -91,7 +91,7 @@ func (p *Packages) names() map[string]string {
 
 func (p *Packages) libraries() flow.Libraries {
 	if p == nil {
-		return nil
+		return flow.Libraries{}
 	}
 	return p.Libraries
 }

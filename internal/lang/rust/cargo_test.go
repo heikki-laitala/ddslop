@@ -52,6 +52,8 @@ func TestLibPath(t *testing.T) {
 		"default layout":         "[package]\nname = \"app\"\n",
 		"a bin's path is no lib": "[package]\nname = \"app\"\n\n[[bin]]\nname = \"tool\"\npath = \"tools/main.rs\"\n",
 		"another section's path": "[package]\nname = \"app\"\n\n[dependencies]\ncore = { path = \"../core\" }\n",
+		"an inline comment":      "[package]\nname = \"app\"\n[lib]\npath = \"lib/core.rs\" # custom root\n",
+		"a # in the string":      "[package]\nname = \"app\"\n[lib]\npath = \"lib/#core.rs\"\n",
 	}
 	want := map[string]string{
 		"custom path":            "lib/core.rs",
@@ -59,6 +61,8 @@ func TestLibPath(t *testing.T) {
 		"default layout":         "",
 		"a bin's path is no lib": "",
 		"another section's path": "",
+		"an inline comment":      "lib/core.rs",
+		"a # in the string":      "lib/#core.rs",
 	}
 	for name, toml := range cases {
 		if got := LibPath([]byte(toml)); got != want[name] {
