@@ -44,3 +44,25 @@ func TestUnpublished(t *testing.T) {
 		}
 	}
 }
+
+func TestLibPath(t *testing.T) {
+	cases := map[string]string{
+		"custom path":            "[package]\nname = \"app\"\n\n[lib]\nname = \"core\"\npath = \"lib/core.rs\"\n",
+		"single quotes, spaces":  "[package]\nname = \"app\"\n[lib]\n  path='lib/core.rs'  \n",
+		"default layout":         "[package]\nname = \"app\"\n",
+		"a bin's path is no lib": "[package]\nname = \"app\"\n\n[[bin]]\nname = \"tool\"\npath = \"tools/main.rs\"\n",
+		"another section's path": "[package]\nname = \"app\"\n\n[dependencies]\ncore = { path = \"../core\" }\n",
+	}
+	want := map[string]string{
+		"custom path":            "lib/core.rs",
+		"single quotes, spaces":  "lib/core.rs",
+		"default layout":         "",
+		"a bin's path is no lib": "",
+		"another section's path": "",
+	}
+	for name, toml := range cases {
+		if got := LibPath([]byte(toml)); got != want[name] {
+			t.Errorf("%s: LibPath = %q, want %q", name, got, want[name])
+		}
+	}
+}
