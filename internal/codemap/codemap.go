@@ -164,9 +164,10 @@ func CratePath(file string, crates map[string]string) (name, rel string) {
 // are read from where the path is written: the file's place in the crate
 // and the inline module within it. A path naming an item of the root
 // module rather than one of modules (the crate's modules, as Module names
-// them) names the root module. It is for a file of the library target,
+// them), or a path ending at one of rootValues (the root module's
+// functions and constants), names the root module. It is for a file of the library target,
 // whose crate:: is the crate Module names (see the caller).
-func ReferencedModule(file string, crates map[string]string, ref unit.Reference, modules map[string]bool) string {
+func ReferencedModule(file string, crates map[string]string, ref unit.Reference, modules, rootValues map[string]bool) string {
 	name, rel := CratePath(file, crates)
 	if name == "" {
 		return ""
@@ -194,7 +195,10 @@ func ReferencedModule(file string, crates map[string]string, ref unit.Reference,
 		return ""
 	}
 	at = append(slices.Clone(at), segments...)
-	if len(at) > 0 && modules[moduleName(name, at[0])] {
+	// A path ending at a root value's name (crate::foo for the root's fn
+	// foo) names that value, though a module foo may exist beside it.
+	rootValue := ref.Leaf && len(at) == 1 && rootValues[at[0]]
+	if len(at) > 0 && modules[moduleName(name, at[0])] && !rootValue {
 		return moduleName(name, at[0])
 	}
 	return moduleName(name, "")

@@ -192,3 +192,18 @@ func TestAnAliasOfTheRootIsADependencyOnIt(t *testing.T) {
 		t.Errorf("candidates = %+v, want the root and a depending on each other", r.Candidates)
 	}
 }
+
+// crate::foo naming the root's function foo is a dependency on the root,
+// not on the module foo beside it: Rust keeps the two apart.
+func TestARootValueIsNotTheModuleOfItsName(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "pub mod bar;\npub mod foo;\npub fn foo() -> u8 { 1 }\n",
+		"src/bar.rs": "pub fn b() -> u8 { crate::foo() }\n",
+		"src/foo.rs": "pub fn f() -> u8 { crate::bar::b() }\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 0 {
+		t.Errorf("candidates = %+v, want none: bar calls the root's foo, not the module", r.Candidates)
+	}
+}

@@ -23,6 +23,9 @@ func show(refs []unit.Reference) string {
 		if r.Ignored {
 			s += " ignored"
 		}
+		if r.Leaf {
+			s += " leaf"
+		}
 		lines = append(lines, s)
 	}
 	return strings.Join(lines, "\n")
@@ -58,8 +61,18 @@ crate::m@10 crate::m::M`
 }
 
 func TestReferencesIncludeWildcardAndAliasedImportsOfARoot(t *testing.T) {
-	src := "use crate::*;\nuse super::*;\nuse self::inner::*;\nuse crate as root;\nuse super as parent;\n"
-	want := "crate@1 use\nsuper@2 use\nself::inner@3 use\ncrate@4 use\nsuper@5 use"
+	src := "use crate::*;\nuse super::*;\nuse self::inner::*;\nuse crate as root;\nuse super as parent;\nuse crate::{*};\nuse crate::{self as base, a::B};\n"
+	want := "crate@1 use\nsuper@2 use\nself::inner@3 use\ncrate@4 use\nsuper@5 use\ncrate@6 use\ncrate@7 use\ncrate::a@7 use"
+	if got := show(References("src/x.rs", []byte(src))); got != want {
+		t.Errorf("references:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A path ending at the name it records (crate::foo, not crate::foo::Bar)
+// may name a root value rather than the module foo.
+func TestReferencesKnowWhetherThePathEndsAtTheirName(t *testing.T) {
+	src := "pub fn f() -> u8 { crate::foo() + crate::foo::BAR }\nuse crate::{foo, bar::Baz, qux as q};\nfn g() { m!(crate::foo, crate::foo::X) }\n"
+	want := "crate::foo@1 f leaf\ncrate::foo@1 f\ncrate::foo@2 use leaf\ncrate::bar@2 use\ncrate::qux@2 use leaf\ncrate::foo@3 g leaf\ncrate::foo@3 g"
 	if got := show(References("src/x.rs", []byte(src))); got != want {
 		t.Errorf("references:\n%s\nwant:\n%s", got, want)
 	}

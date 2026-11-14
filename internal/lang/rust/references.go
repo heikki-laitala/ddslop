@@ -103,10 +103,13 @@ func (r *referrer) pathFrom(root *sitter.Node, c at) {
 	cur := root
 	for {
 		parent := cur.Parent()
+		if parent != nil && parent.Kind() == "use_as_clause" && parent.Parent() != nil && parent.Parent().Kind() == "use_list" {
+			return // a::{self as b} names the list's prefix, which useList records
+		}
 		if parent != nil && (parent.Kind() == "use_wildcard" || parent.Kind() == "use_as_clause" && isPathOf(parent, cur)) {
 			// use crate::* imports that module's items, and use crate as
 			// root names it
-			r.add(segments, root, c)
+			r.add(segments, root, c, false)
 			return
 		}
 		if parent == nil || !isPathOf(parent, cur) {
@@ -123,7 +126,11 @@ func (r *referrer) pathFrom(root *sitter.Node, c at) {
 		}
 		segments = append(segments, name.Utf8Text(r.src))
 		if name.Kind() != "super" {
-			r.add(segments, root, c)
+			outer := parent.Parent()
+			// a::b::C and a::b::* enter b; a::b and a::b as c end there
+			leaf := outer == nil || outer.Kind() == "use_as_clause" ||
+				outer.Kind() != "use_wildcard" && !isPathOf(outer, parent)
+			r.add(segments, root, c, leaf)
 			return
 		}
 		cur = parent
@@ -151,9 +158,35 @@ func (r *referrer) useList(list *sitter.Node, prefix []string, c at) {
 	for i := uint(0); i < items.NamedChildCount(); i++ {
 		item := items.NamedChild(i)
 		if first := firstSegment(item, r.src); first != "" {
-			r.add(append(slices.Clone(prefix), first), item, c)
+			r.add(append(slices.Clone(prefix), first), item, c, endsAtFirst(item))
+		} else if namesPrefix(item) {
+			r.add(prefix, item, c, false)
 		}
 	}
+}
+
+// endsAtFirst reports whether a use list entry is its first segment
+// alone: foo, or foo as bar.
+func endsAtFirst(item *sitter.Node) bool {
+	if item.Kind() == "use_as_clause" {
+		item = item.ChildByFieldName("path")
+	}
+	return item != nil && item.Kind() == "identifier"
+}
+
+// namesPrefix reports whether a use list entry imports its list's prefix
+// itself: self, self as x, or *.
+func namesPrefix(item *sitter.Node) bool {
+	switch item.Kind() {
+	case "self":
+		return true
+	case "use_as_clause":
+		path := item.ChildByFieldName("path")
+		return path != nil && path.Kind() == "self"
+	case "use_wildcard":
+		return item.NamedChildCount() == 0
+	}
+	return false
 }
 
 // firstSegment returns the first name of a use tree: a of a::b, a::b as c
@@ -201,17 +234,17 @@ func (r *referrer) tokens(tree *sitter.Node, c at) {
 			next := toks[j+1]
 			segments = append(segments, next.Utf8Text(r.src))
 			if next.Kind() != "super" {
-				r.add(segments, tok, c)
+				r.add(segments, tok, c, j+2 >= len(toks) || toks[j+2].Kind() != "::")
 				break
 			}
 		}
 	}
 }
 
-func (r *referrer) add(segments []string, n *sitter.Node, c at) {
+func (r *referrer) add(segments []string, n *sitter.Node, c at, leaf bool) {
 	line := syntax.Line(n.StartPosition())
 	r.refs = append(r.refs, unit.Reference{
-		Path: strings.Join(segments, "::"), Line: line, Module: c.module, Item: c.item,
+		Path: strings.Join(segments, "::"), Line: line, Module: c.module, Item: c.item, Leaf: leaf,
 		Test: c.test, Ignored: c.ignored || r.ignored[line],
 	})
 }

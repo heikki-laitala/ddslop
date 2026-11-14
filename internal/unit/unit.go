@@ -144,7 +144,11 @@ type Reference struct {
 	Module string
 	// Item is the item the path is written in, named as a unit is
 	// (Type::method) or by its own name (a constant, a type), or "use".
-	Item          string
+	Item string
+	// Leaf is true when the path ends at its last segment (crate::foo,
+	// not crate::foo::Bar): it may name a value of the module it is in
+	// rather than a module of that name.
+	Leaf          bool
 	Test, Ignored bool
 }
 
