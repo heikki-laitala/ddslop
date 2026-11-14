@@ -894,7 +894,7 @@ func TestModulePathFollowsSelfSuperAndChildren(t *testing.T) {
 		{"child", "x/src/a.rs", "a::child"},
 		{"child", "x/src/lib.rs", "child"},
 	} {
-		if got := modulePath(c.path, unit.Unit{File: c.file}); got != c.want {
+		if got := Libraries(nil).modulePath(c.path, unit.Unit{File: c.file}); got != c.want {
 			t.Errorf("modulePath(%q, %q) = %q, want %q", c.path, c.file, got, c.want)
 		}
 	}
@@ -1165,5 +1165,44 @@ func TestRustTraitImplsWrittenWithTheCratePathCount(t *testing.T) {
 	}
 	if got := callees(Build(in, units), "api/src/server.rs Server::run"); got != "[]" {
 		t.Errorf("Server::run calls %s, want nothing: two implementations", got)
+	}
+}
+
+// svc's manifest roots its library at lib/core.rs instead of src/lib.rs.
+var movedLibrary = Libraries{"svc/lib/core.rs": "svc"}
+
+func TestALibraryMovedOutOfSrcKeepsItsCrateAndModules(t *testing.T) {
+	for file, want := range map[string]string{
+		"svc/lib/core.rs":         "svc",
+		"svc/lib/store/client.rs": "svc",
+		"svc/src/main.rs":         "svc",
+		"other/src/lib.rs":        "other",
+	} {
+		if got := movedLibrary.CrateOf(file); got != want {
+			t.Errorf("CrateOf(%s) = %s, want %s", file, got, want)
+		}
+	}
+	for file, want := range map[string]string{
+		"svc/lib/core.rs":         "",
+		"svc/lib/config.rs":       "config",
+		"svc/lib/store/mod.rs":    "store",
+		"svc/lib/store/client.rs": "store::client",
+		"other/src/a/b.rs":        "a::b",
+	} {
+		if got, ok := movedLibrary.ModuleOf(file); !ok || got != want {
+			t.Errorf("ModuleOf(%s) = %q, %v, want %q", file, got, ok, want)
+		}
+	}
+}
+
+func TestCratePathsResolveInALibraryMovedOutOfSrc(t *testing.T) {
+	g := Build(Inputs{Libraries: movedLibrary}, []unit.Unit{
+		fn("svc/lib/core.rs", "version"),
+		fn("svc/lib/config.rs", "load"),
+		fn("other/src/config.rs", "load"),
+		fn("svc/lib/store/client.rs", "open", path("crate::config", "load"), path("crate", "version")),
+	})
+	if got, want := callees(g, "svc/lib/store/client.rs open"), "[svc/lib/config.rs load svc/lib/core.rs version]"; got != want {
+		t.Errorf("open calls %s, want %s", got, want)
 	}
 }
