@@ -357,3 +357,31 @@ func TestTheCratesAliasReachesMacroArguments(t *testing.T) {
 		t.Errorf("candidates = %+v, want a and foo depending on each other", r.Candidates)
 	}
 }
+
+// use root::* imports the crate's items through its alias: a dependency
+// on the root.
+func TestAWildcardImportThroughTheCratesAliasDependsOnTheRoot(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "extern crate self as root;\npub mod a;\npub const R: u8 = crate::a::A;\n",
+		"src/a.rs":   "use root::*;\npub const A: u8 = 1;\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 1 {
+		t.Errorf("candidates = %+v, want the root and a depending on each other", r.Candidates)
+	}
+}
+
+// A generic parameter root hides the crate's alias root in its item.
+func TestAGenericParameterHidesTheCratesAlias(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "extern crate self as root;\npub mod a;\npub mod foo;\n",
+		"src/a.rs":   "pub trait Tr { type foo; }\npub const A: u8 = 1;\npub fn h<root: Tr>() -> u8 { let _: Option<root::foo> = None; 1 }\n",
+		"src/foo.rs": "pub const Z: u8 = crate::a::A;\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	if r := cycles(t, stdout); len(r.Candidates) != 0 {
+		t.Errorf("candidates = %+v, want none: root::foo is h's type parameter's", r.Candidates)
+	}
+}
