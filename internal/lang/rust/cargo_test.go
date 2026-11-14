@@ -85,3 +85,10 @@ func TestTargetPaths(t *testing.T) {
 		t.Errorf("TargetPaths = %q, want %q", got, want)
 	}
 }
+
+func TestDeclaredModulesListAFilesOutOfLineModules(t *testing.T) {
+	src := []byte("mod cli;\npub mod store;\nmod inline { }\n#[cfg(test)]\nmod tests;\n")
+	if got, want := DeclaredModules(src), []string{"cli", "store", "tests"}; !slices.Equal(got, want) {
+		t.Errorf("DeclaredModules = %q, want %q", got, want)
+	}
+}

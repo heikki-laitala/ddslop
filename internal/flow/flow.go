@@ -788,15 +788,20 @@ type Libraries struct {
 	// Packages are every package's directory: a moved library's files
 	// never reach into another package.
 	Packages map[string]bool
-	// Targets are the root files of the targets manifests place
-	// themselves ([[bin]], [[example]], [[test]], [[bench]] paths).
-	Targets map[string]bool
+	// Targets are the files of the targets manifests place themselves
+	// ([[bin]], [[example]], [[test]], [[bench]] paths), each mapped to its
+	// target's root file: the root, the modules it declares (x.rs, and x/
+	// for a directory, ending in /), and the directory of a main.rs root.
+	Targets map[string]string
 }
 
 // CrateOf is the package CrateOf, knowing the libraries.
 func (l Libraries) CrateOf(file string) string {
 	if crate, _, _, ok := l.Locate(file); ok {
 		return crate
+	}
+	if target := l.targetOf(filepath.ToSlash(file)); target != "" {
+		return target // a target the manifest places: a crate of its own
 	}
 	if pkg := l.MovedPackage(file); pkg != "" {
 		// another target of the package: a crate of its own, apart from
@@ -809,6 +814,22 @@ func (l Libraries) CrateOf(file string) string {
 		return pkg + "/" + first
 	}
 	return CrateOf(file)
+}
+
+// targetOf returns the root file of the target a manifest places that a
+// file belongs to (see Targets), or "": the file itself, else the deepest
+// directory holding it.
+func (l Libraries) targetOf(file string) string {
+	if root := l.Targets[file]; root != "" {
+		return root
+	}
+	found, depth := "", -1
+	for entry, root := range l.Targets {
+		if strings.HasSuffix(entry, "/") && strings.HasPrefix(file, entry) && strings.Count(entry, "/") > depth {
+			found, depth = root, strings.Count(entry, "/")
+		}
+	}
+	return found
 }
 
 // MovedPackage returns the directory of the package a Rust file belongs
@@ -866,15 +887,8 @@ func (l Libraries) owns(file, dir, crate string) bool {
 		return strings.TrimPrefix(p, crate+"/")
 	}
 	rel, home := within(file), within(dir)+"/"
-	if rel == "build.rs" || rel == "src/main.rs" || l.Targets[file] {
+	if rel == "build.rs" || rel == "src/main.rs" || l.targetOf(file) != "" {
 		return false
-	}
-	// a target the manifest roots below the library's directory keeps its
-	// own directory, its modules beside its root file
-	for target := range l.Targets {
-		if below := parentOf(target, "/", "."); below != dir && strings.HasPrefix(file, below+"/") {
-			return false
-		}
 	}
 	// A target directory is another target's, unless the manifest roots
 	// the library in it (autoexamples = false, path = "examples/lib.rs").

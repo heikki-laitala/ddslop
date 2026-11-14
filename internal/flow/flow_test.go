@@ -1298,16 +1298,38 @@ func TestTargetsAManifestPlacesBesideAMovedLibraryAreNotIts(t *testing.T) {
 	l := Libraries{
 		Roots:    map[string]string{"svc/core.rs": "svc"},
 		Packages: map[string]bool{"svc": true},
-		Targets:  map[string]bool{"svc/tool.rs": true, "svc/tools/run/main.rs": true},
+		Targets: map[string]string{
+			"svc/tool.rs": "svc/tool.rs", "svc/cli.rs": "svc/tool.rs", "svc/cli/": "svc/tool.rs",
+			"svc/tools/run/main.rs": "svc/tools/run/main.rs", "svc/tools/run/": "svc/tools/run/main.rs",
+		},
 	}
 	for file, want := range map[string]bool{
 		"svc/store.rs":          true,
 		"svc/tool.rs":           false,
+		"svc/cli.rs":            false,
+		"svc/cli/args.rs":       false,
 		"svc/tools/run/main.rs": false,
 		"svc/tools/run/cli.rs":  false,
 	} {
 		if _, _, _, got := l.Locate(file); got != want {
 			t.Errorf("Locate(%s) found = %v, want %v", file, got, want)
 		}
+	}
+}
+
+// Each target a manifest places is a crate of its own, though two share a
+// top directory.
+func TestEachPlacedTargetIsACrateOfItsOwn(t *testing.T) {
+	l := Libraries{
+		Roots:    map[string]string{"pkg/core.rs": "pkg"},
+		Packages: map[string]bool{"pkg": true},
+		Targets: map[string]string{
+			"pkg/tools/admin/main.rs": "pkg/tools/admin/main.rs", "pkg/tools/admin/": "pkg/tools/admin/main.rs",
+			"pkg/tools/worker/main.rs": "pkg/tools/worker/main.rs", "pkg/tools/worker/": "pkg/tools/worker/main.rs",
+		},
+	}
+	admin, worker := l.CrateOf("pkg/tools/admin/db.rs"), l.CrateOf("pkg/tools/worker/db.rs")
+	if admin == worker || admin == "pkg" {
+		t.Errorf("CrateOf = %s and %s, want two crates apart from each other and the library", admin, worker)
 	}
 }
