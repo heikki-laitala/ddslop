@@ -750,12 +750,19 @@ func Units(path string, src []byte) ([]unit.Unit, error) {
 // other declarations, in source order. Declarations inside functions are
 // not seen.
 func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
+	return ParseAs(syntax.Source{Path: path, Src: src, Test: IsTestPath(path)})
+}
+
+// ParseAs is Parse with whether the file is test code by its place (see
+// IsTestPath) given: a library a manifest roots under tests/ is not.
+func ParseAs(file syntax.Source) ([]unit.Unit, unit.Decls, error) {
+	path, src := file.Path, file.Src
 	var units []unit.Unit
 	var decls unit.Decls
 	var marked error
 	err := syntax.Parse(language, src, func(root *sitter.Node) {
 		e := extractor{path: path, src: src, uses: map[[2]uint]map[string]string{}}
-		e.walk(root, scope{}, IsTestPath(path), nil)
+		e.walk(root, scope{}, file.Test, nil)
 		units, decls = e.units, e.decls
 		marked = syntax.MarkIgnored(root, src, units, &decls)
 	})

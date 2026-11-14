@@ -476,7 +476,7 @@ func openFiles(root string) (*index.DB, []index.File, index.Stats, error) {
 	if err != nil {
 		return nil, nil, stats, err
 	}
-	files, err := loadFiles(db)
+	files, err := loadFiles(root, db)
 	if err != nil {
 		_ = db.Close()
 		return nil, nil, stats, err
@@ -954,9 +954,12 @@ func parallelFlows(g *flow.Graph, traits map[string]bool, minNodes int) []report
 // test modules ("#[cfg(test)] mod name;" in a parent file) as test code:
 // their functions become test units and their imports are not
 // dependencies. Submodules of a test module are test code too.
-func loadFiles(db *index.DB) ([]index.File, error) {
+func loadFiles(root string, db *index.DB) ([]index.File, error) {
 	files, err := db.Files()
 	if err != nil {
+		return nil, err
+	}
+	if err := parseLibrariesUnderTestPaths(root, files); err != nil {
 		return nil, err
 	}
 	testFiles := map[string]bool{}
@@ -977,6 +980,32 @@ func loadFiles(db *index.DB) ([]index.File, error) {
 		markTest(&files[i])
 	}
 	return files, nil
+}
+
+// parseLibrariesUnderTestPaths parses again, as the library code they
+// are, the files of a library its manifest roots in a directory Cargo
+// otherwise keeps for tests or benches (autotests = false, path =
+// "tests/lib.rs"): indexed alone, a file there is read as test code.
+func parseLibrariesUnderTestPaths(root string, files []index.File) error {
+	libraries := packages(root, files).Libraries
+	for i, f := range files {
+		if !rust.IsTestPath(f.Path) || languageOf(f.Path) != "rust" {
+			continue
+		}
+		if _, _, _, ok := libraries.Locate(f.Path); !ok {
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(root, f.Path)) //nolint:gosec // a file under the analysed root
+		if err != nil {
+			return err
+		}
+		parsed, err := parseSource(syntax.Source{Path: f.Path, Src: src})
+		if err != nil {
+			return err
+		}
+		files[i].Parsed = parsed
+	}
+	return nil
 }
 
 // markTest marks everything a file declares as test code.
@@ -1026,6 +1055,13 @@ const indexPath = ".ddslop/index.db"
 // Generated code is not analysed, but the traits or interfaces it declares
 // (such as an OpenAPI server's) mark the entry points of features.
 func parseFile(path string, src []byte) (index.Parsed, error) {
+	return parseSource(syntax.Source{Path: path, Src: src, Test: rust.IsTestPath(path)})
+}
+
+// parseSource is parseFile with whether a Rust file is test code by its
+// place given (see rust.ParseAs).
+func parseSource(file syntax.Source) (index.Parsed, error) {
+	path, src := file.Path, file.Src
 	golangFile := languageOf(path) == "go"
 	if syntax.IsGenerated(src) {
 		entries := rust.Traits(src)
@@ -1039,7 +1075,7 @@ func parseFile(path string, src []byte) (index.Parsed, error) {
 	if golangFile {
 		parsed.Units, parsed.Decls, err = golang.Parse(path, src)
 	} else {
-		parsed, err = parseRust(path, src)
+		parsed, err = parseRust(file)
 	}
 	for i := range parsed.Units {
 		parsed.Units[i].Signature = similarity.Signature(parsed.Units[i].Seq)
@@ -1058,15 +1094,15 @@ func languageOf(path string) string {
 
 // parseRust adds what only Rust files have: out-of-line test modules, the
 // traits a file declares, its imports and the paths naming other modules.
-func parseRust(path string, src []byte) (index.Parsed, error) {
-	units, decls, err := rust.Parse(path, src)
-	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(src), References: rust.References(path, src)}
+func parseRust(file syntax.Source) (index.Parsed, error) {
+	units, decls, err := rust.ParseAs(file)
+	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(file.Src), References: rust.ReferencesAs(file)}
 	for _, t := range decls.Traits {
 		parsed.Traits = append(parsed.Traits, t.Name)
 	}
-	if !rust.IsTestPath(path) {
+	if !file.Test {
 		// Test files' imports are not dependencies of the code.
-		parsed.Imports = rust.Imports(src)
+		parsed.Imports = rust.Imports(file.Src)
 	}
 	return parsed, err
 }

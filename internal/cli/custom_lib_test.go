@@ -78,3 +78,19 @@ func TestALibraryRootedAtThePackageTopLeavesTheBinaryAlone(t *testing.T) {
 		t.Errorf("modules = %v, want the library's config and store, and nothing of the binary's", modules)
 	}
 }
+
+// A library its manifest roots under tests/ (autotests = false) is
+// production code there: its cycles count without --tests.
+func TestALibraryRootedUnderTestsIsNoTestCode(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml":      "[package]\nname = \"app\"\nautotests = false\n\n[lib]\npath = \"tests/lib.rs\"\n",
+		"tests/lib.rs":    "pub mod config;\npub mod store;\n",
+		"tests/config.rs": "pub fn load() -> u16 { crate::store::open() }\n",
+		"tests/store.rs":  "pub fn open() -> u16 { crate::config::load() }\n",
+	}
+	_, stdout, stderr := run("check", "--format", "json", repo(t, files))
+	r := cycles(t, stdout)
+	if len(r.Candidates) != 1 || strings.Join(r.Candidates[0].Values, ", ") != "config -> store, store -> config" {
+		t.Errorf("candidates = %+v, want config and store calling each other; stderr = %s", r.Candidates, stderr)
+	}
+}

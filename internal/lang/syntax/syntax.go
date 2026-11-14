@@ -250,3 +250,12 @@ type Operand struct {
 	Type         string
 	From, Result int
 }
+
+// Source is a file to parse: its path, its bytes, and whether it is test
+// code by its place alone (a tests/ file, say), before what the file
+// itself says.
+type Source struct {
+	Path string
+	Src  []byte
+	Test bool
+}

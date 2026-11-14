@@ -1504,6 +1504,9 @@ crate's modules), which names each file once.
   `build.rs`, `examples/`, `tests/`, `benches/`, and all of `src/` when
   the library is outside it), are not the library's: they are a crate
   apart for call resolution and have no module of the library's crate.
+  A library rooted under `tests/` or `benches/` (auto-discovery off) is
+  parsed again as the production code it is, since the index reads a
+  file there as test code by its place alone.
   Modules are those with functions: a module
   of only types or constants takes part in no call, so it has no place
   in the layers, and placing it on top as a source would be wrong.
