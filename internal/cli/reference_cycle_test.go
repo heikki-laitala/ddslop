@@ -160,3 +160,21 @@ func TestOtherCargoTargetsPathsAreNotTheLibrarys(t *testing.T) {
 		}
 	}
 }
+
+// use crate::* in a top-level module imports the root module's items: a
+// dependency on the root.
+func TestAWildcardImportOfTheRootIsADependencyOnIt(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "pub mod a;\npub const VERSION: u8 = crate::a::V;\n",
+		"src/a.rs":   "use crate::*;\npub const V: u8 = 1;\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	r := cycles(t, stdout)
+	if len(r.Candidates) != 1 {
+		t.Fatalf("candidates = %+v, want the root and a depending on each other", r.Candidates)
+	}
+	if got := sites(r, 0); got != "src/lib.rs:VERSION:2 src/a.rs:use:1" {
+		t.Errorf("occurrences = %s, want the root's path and a's wildcard import", got)
+	}
+}

@@ -103,6 +103,11 @@ func (r *referrer) pathFrom(root *sitter.Node, c at) {
 	cur := root
 	for {
 		parent := cur.Parent()
+		if parent != nil && parent.Kind() == "use_wildcard" {
+			// use crate::* or use super::* imports that module's items
+			r.add(segments, root, c)
+			return
+		}
 		if parent == nil || !isPathOf(parent, cur) {
 			return
 		}
