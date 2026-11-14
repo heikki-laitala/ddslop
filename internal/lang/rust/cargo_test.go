@@ -1,6 +1,9 @@
 package rust
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestCrateName(t *testing.T) {
 	cases := map[string]string{
@@ -71,5 +74,14 @@ func TestLibPath(t *testing.T) {
 		if got := LibPath([]byte(toml)); got != want[name] {
 			t.Errorf("%s: LibPath = %q, want %q", name, got, want[name])
 		}
+	}
+}
+
+func TestTargetPaths(t *testing.T) {
+	toml := "[package]\nname = \"app\"\n\n[lib]\npath = \"core.rs\"\n\n[[bin]]\nname = \"tool\"\npath = \"tool.rs\"\n\n[[bin]]\nname = \"run\"\npath = \"tools/run/main.rs\" # the runner\n\n[[example]]\nname = \"demo\"\npath = \"demo.rs\"\n\n[[test]]\nname = \"it\"\n\n[dependencies]\nx = { path = \"../x\" }\n"
+	got := TargetPaths([]byte(toml))
+	want := []string{"tool.rs", "tools/run/main.rs", "demo.rs"}
+	if !slices.Equal(got, want) {
+		t.Errorf("TargetPaths = %q, want %q", got, want)
 	}
 }

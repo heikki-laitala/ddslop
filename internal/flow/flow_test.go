@@ -1280,3 +1280,34 @@ func TestFilesAMovedLibraryRejectsAreAnotherCrate(t *testing.T) {
 		t.Errorf("the binary's crate::cli::run resolved to %s, want its own cli", got)
 	}
 }
+
+// A moved library's package rules are for its Rust files: Go packages in
+// the same directory keep their own.
+func TestGoFilesBesideAMovedLibraryKeepTheirPackages(t *testing.T) {
+	l := Libraries{Roots: map[string]string{"svc/core.rs": "svc"}, Packages: map[string]bool{"svc": true}}
+	for file, want := range map[string]string{"svc/go/api/h.go": "svc/go/api", "svc/go/store/s.go": "svc/go/store"} {
+		if got := l.CrateOf(file); got != want {
+			t.Errorf("CrateOf(%s) = %s, want its Go package %s", file, got, want)
+		}
+	}
+}
+
+// A target its manifest places beside a moved library ([[bin]] path =
+// "tool.rs") is not the library's, nor is the directory of one below it.
+func TestTargetsAManifestPlacesBesideAMovedLibraryAreNotIts(t *testing.T) {
+	l := Libraries{
+		Roots:    map[string]string{"svc/core.rs": "svc"},
+		Packages: map[string]bool{"svc": true},
+		Targets:  map[string]bool{"svc/tool.rs": true, "svc/tools/run/main.rs": true},
+	}
+	for file, want := range map[string]bool{
+		"svc/store.rs":          true,
+		"svc/tool.rs":           false,
+		"svc/tools/run/main.rs": false,
+		"svc/tools/run/cli.rs":  false,
+	} {
+		if _, _, _, got := l.Locate(file); got != want {
+			t.Errorf("Locate(%s) found = %v, want %v", file, got, want)
+		}
+	}
+}

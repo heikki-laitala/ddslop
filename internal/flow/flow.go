@@ -788,6 +788,9 @@ type Libraries struct {
 	// Packages are every package's directory: a moved library's files
 	// never reach into another package.
 	Packages map[string]bool
+	// Targets are the root files of the targets manifests place
+	// themselves ([[bin]], [[example]], [[test]], [[bench]] paths).
+	Targets map[string]bool
 }
 
 // CrateOf is the package CrateOf, knowing the libraries.
@@ -812,6 +815,9 @@ func (l Libraries) CrateOf(file string) string {
 // to, its nearest, when that package's library is a moved one, or "".
 func (l Libraries) MovedPackage(file string) string {
 	file = filepath.ToSlash(file)
+	if !strings.HasSuffix(file, ".rs") {
+		return "" // a Go package keeps its directory
+	}
 	for d := parentOf(file, "/", "."); ; d = parentOf(d, "/", ".") {
 		if l.Packages[d] {
 			for _, crate := range l.Roots {
@@ -860,8 +866,15 @@ func (l Libraries) owns(file, dir, crate string) bool {
 		return strings.TrimPrefix(p, crate+"/")
 	}
 	rel, home := within(file), within(dir)+"/"
-	if rel == "build.rs" || rel == "src/main.rs" {
+	if rel == "build.rs" || rel == "src/main.rs" || l.Targets[file] {
 		return false
+	}
+	// a target the manifest roots below the library's directory keeps its
+	// own directory, its modules beside its root file
+	for target := range l.Targets {
+		if below := parentOf(target, "/", "."); below != dir && strings.HasPrefix(file, below+"/") {
+			return false
+		}
 	}
 	// A target directory is another target's, unless the manifest roots
 	// the library in it (autoexamples = false, path = "examples/lib.rs").
