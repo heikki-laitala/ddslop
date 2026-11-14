@@ -65,7 +65,8 @@ func (r *referrer) walk(n *sitter.Node, c at) {
 		r.pathFrom(n, []string{n.Kind()}, c)
 		return
 	case "identifier":
-		if n.Parent() == nil || n.Parent().Kind() == "use_as_clause" || !isPathOf(n.Parent(), n) {
+		// the start of a path, or what use root::* and use root as r import
+		if parent := n.Parent(); parent == nil || !isPathOf(parent, n) && parent.Kind() != "use_wildcard" {
 			return
 		}
 		name := n.Utf8Text(r.src)
@@ -351,6 +352,17 @@ func aliasesIn(root *sitter.Node, src []byte) []alias {
 			if name := n.ChildByFieldName("name"); name != nil {
 				bind(name.Utf8Text(src), nil)
 			}
+		case "type_parameters":
+			// a generic parameter hides an alias of its name in its item
+			if item := n.Parent(); item != nil {
+				for i := uint(0); i < n.NamedChildCount(); i++ {
+					p := n.NamedChild(i)
+					if name := p.ChildByFieldName("name"); name != nil && (p.Kind() == "type_parameter" || p.Kind() == "const_parameter") {
+						out = append(out, alias{name: name.Utf8Text(src), module: module, start: item.StartByte(), end: item.EndByte()})
+					}
+				}
+			}
+			return
 		case "use_declaration":
 			if arg := n.ChildByFieldName("argument"); arg != nil {
 				imported := map[string]string{}
