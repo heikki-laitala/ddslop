@@ -727,7 +727,7 @@ func (ix index) pick(units []unit.Unit, caller unit.Unit, cands []int) int {
 		return u
 	}
 	deps := ix.deps[ix.libraries.CrateOf(caller.File)]
-	return only(units, cands, func(u unit.Unit) bool { return deps[ix.libraries.CrateOf(u.File)] })
+	return ix.libraries.onlyIn(units, cands, func(crate string) bool { return deps[crate] })
 }
 
 // pickLocal chooses the candidate in the caller's file, else the only one
@@ -736,8 +736,14 @@ func (l Libraries) pickLocal(units []unit.Unit, caller unit.Unit, cands []int) i
 	if u := only(units, cands, func(u unit.Unit) bool { return u.File == caller.File }); u >= 0 {
 		return u
 	}
-	crate := l.CrateOf(caller.File)
-	return only(units, cands, func(u unit.Unit) bool { return l.CrateOf(u.File) == crate })
+	here := l.CrateOf(caller.File)
+	return l.onlyIn(units, cands, func(crate string) bool { return crate == here })
+}
+
+// onlyIn returns the single candidate whose crate directory in accepts,
+// or -1.
+func (l Libraries) onlyIn(units []unit.Unit, cands []int, in func(crate string) bool) int {
+	return only(units, cands, func(u unit.Unit) bool { return in(l.CrateOf(u.File)) })
 }
 
 // only returns the single candidate accepted by keep, or -1 when there is

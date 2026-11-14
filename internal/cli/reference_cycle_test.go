@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// sites writes a candidate's occurrences as file:name:line.
-func sites(c cycleReport, i int) string {
+// sites writes the first candidate's occurrences as file:name:line.
+func sites(c cycleReport) string {
 	var out []string
-	for _, o := range c.Candidates[i].Occurrences {
+	for _, o := range c.Candidates[0].Occurrences {
 		out = append(out, fmt.Sprintf("%s:%s:%d", filepath.ToSlash(o.File), o.Name, o.StartLine))
 	}
 	return strings.Join(out, " ")
@@ -39,7 +39,7 @@ func TestCheckReportsModulesReferringToEachOther(t *testing.T) {
 	if got := strings.Join(r.Candidates[0].Values, ", "); got != "capacity -> settle, settle -> capacity" {
 		t.Errorf("values = %s, want capacity and settle depending on each other", got)
 	}
-	if got := sites(r, 0); got != "src/capacity.rs:REACHABLE:2 src/settle.rs:REVISION_CHARGE:2" {
+	if got := sites(r); got != "src/capacity.rs:REACHABLE:2 src/settle.rs:REVISION_CHARGE:2" {
 		t.Errorf("occurrences = %s, want the two referring lines", got)
 	}
 }
@@ -66,7 +66,7 @@ impl crate::settle::Usage {
 	if len(r.Candidates) != 1 {
 		t.Fatalf("candidates = %+v, want the cycle a type closes", r.Candidates)
 	}
-	if got := sites(r, 0); got != "src/capacity.rs:reading:1 src/settle.rs:retained:2" {
+	if got := sites(r); got != "src/capacity.rs:reading:1 src/settle.rs:retained:2" {
 		t.Errorf("occurrences = %s, want the type's use and the call", got)
 	}
 }
@@ -174,7 +174,7 @@ func TestAWildcardImportOfTheRootIsADependencyOnIt(t *testing.T) {
 	if len(r.Candidates) != 1 {
 		t.Fatalf("candidates = %+v, want the root and a depending on each other", r.Candidates)
 	}
-	if got := sites(r, 0); got != "src/lib.rs:VERSION:2 src/a.rs:use:1" {
+	if got := sites(r); got != "src/lib.rs:VERSION:2 src/a.rs:use:1" {
 		t.Errorf("occurrences = %s, want the root's path and a's wildcard import", got)
 	}
 }
