@@ -1238,3 +1238,23 @@ func TestALibraryRootedAtItsPackageTopClaimsOnlyItsFiles(t *testing.T) {
 		t.Errorf("CrateOf(nested member) = %s, want its own crate", got)
 	}
 }
+
+// A library its manifest roots inside a target directory (autoexamples =
+// false, path = "examples/lib.rs") owns that directory: the configured
+// root wins over the target-directory rules.
+func TestALibraryRootedInATargetDirectoryOwnsIt(t *testing.T) {
+	l := Libraries{
+		Roots:    map[string]string{"svc/examples/lib.rs": "svc"},
+		Packages: map[string]bool{"svc": true},
+	}
+	for file, want := range map[string]bool{
+		"svc/examples/lib.rs":         true,
+		"svc/examples/store.rs":       true,
+		"svc/examples/store/inner.rs": true,
+		"svc/tests/api.rs":            false,
+	} {
+		if _, _, _, got := l.Locate(file); got != want {
+			t.Errorf("Locate(%s) found = %v, want %v", file, got, want)
+		}
+	}
+}

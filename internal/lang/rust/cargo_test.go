@@ -37,6 +37,7 @@ func TestUnpublished(t *testing.T) {
 		{"inherits private, inline table", "[package]\nname = \"a\"\npublish = { workspace = true }\n", workspacePrivate, true},
 		{"inherits public", "[package]\nname = \"a\"\npublish.workspace = true\n", workspacePublic, false},
 		{"publish in another section", "[package]\nname = \"a\"\n\n[package.metadata.x]\npublish = false\n", workspacePublic, false},
+		{"a header comment", "[package] # the crate\nname = \"a\"\npublish = false\n", workspacePublic, true},
 	}
 	for _, c := range cases {
 		if got := Unpublished([]byte(c.manifest), []byte(c.workspace)); got != c.want {
@@ -54,6 +55,7 @@ func TestLibPath(t *testing.T) {
 		"another section's path": "[package]\nname = \"app\"\n\n[dependencies]\ncore = { path = \"../core\" }\n",
 		"an inline comment":      "[package]\nname = \"app\"\n[lib]\npath = \"lib/core.rs\" # custom root\n",
 		"a # in the string":      "[package]\nname = \"app\"\n[lib]\npath = \"lib/#core.rs\"\n",
+		"a header comment":       "[package]\nname = \"app\"\n[lib] # custom library\npath = \"lib/core.rs\"\n",
 	}
 	want := map[string]string{
 		"custom path":            "lib/core.rs",
@@ -63,6 +65,7 @@ func TestLibPath(t *testing.T) {
 		"another section's path": "",
 		"an inline comment":      "lib/core.rs",
 		"a # in the string":      "lib/#core.rs",
+		"a header comment":       "lib/core.rs",
 	}
 	for name, toml := range cases {
 		if got := LibPath([]byte(toml)); got != want[name] {
