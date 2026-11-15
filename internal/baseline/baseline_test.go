@@ -152,8 +152,9 @@ func TestACycleIsKnownByItsFingerprintAlone(t *testing.T) {
 // is matched by its function's name when its file changed, as long as the
 // candidate has no more copies of a name than the entry recorded. Each
 // entry is matched so at most once, by the candidate that kept the most of
-// its files, so a second family of the same functions is still new.
-// Fingerprints are not matched here; they only tell the candidates apart.
+// its files, so a second family of the same functions is still new. A
+// candidate none of whose occurrences stayed in place must be the same
+// code, by its fingerprint.
 func TestMovedDuplicationStaysKnownAndNewCopiesDoNot(t *testing.T) {
 	base := FromReport(rep(
 		cand("rust:pair", "exact-clone", occ("a.rs", "f", 1), occ("b.rs", "f", 1)),
@@ -165,8 +166,8 @@ func TestMovedDuplicationStaysKnownAndNewCopiesDoNot(t *testing.T) {
 		cand("rust:elsewhere", "exact-clone", occ("d.rs", "f", 1), occ("e.rs", "f", 1)),
 		// One copy moved from a.rs to c.rs: known.
 		cand("rust:one-moved", "exact-clone", occ("c.rs", "f", 4), occ("b.rs", "f", 1)),
-		// Both copies moved: known.
-		cand("rust:both-moved", "near-miss", occ("z.rs", "load", 1), occ("w.rs", "store", 1)),
+		// Both copies moved, the same code (its fingerprint): known.
+		cand("rust:fam", "near-miss", occ("z.rs", "load", 1), occ("w.rs", "store", 1)),
 		// The same names under another kind: new.
 		cand("rust:other-kind", "renamed-clone", occ("q.rs", "load", 1), occ("r.rs", "store", 1)),
 	)
@@ -189,6 +190,18 @@ func TestAFurtherCopyOfAMovedPairIsNew(t *testing.T) {
 	now := rep(cand("rust:three", "exact-clone", occ("c.rs", "f", 1), occ("b.rs", "f", 1), occ("g.rs", "f", 1)))
 
 	if got, want := ids(Filter(now, base)), "[c1:rust:three]"; got != want {
+		t.Errorf("kept = %s, want %s", got, want)
+	}
+}
+
+// Unrelated clones that only share a known pair's function names, in files
+// the baseline never saw, are new: nothing stayed in place and the code is
+// not the same, though the pair they share names with is gone.
+func TestClonesSharingOnlyNamesWithAGonePairAreNew(t *testing.T) {
+	base := FromReport(rep(cand("rust:old", "exact-clone", occ("old/a.rs", "load", 1), occ("old/b.rs", "load", 1))))
+	now := rep(cand("rust:unrelated", "exact-clone", occ("new/c.rs", "load", 1), occ("new/d.rs", "load", 1)))
+
+	if got, want := ids(Filter(now, base)), "[c1:rust:unrelated]"; got != want {
 		t.Errorf("kept = %s, want %s", got, want)
 	}
 }

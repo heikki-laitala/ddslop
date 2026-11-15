@@ -144,7 +144,8 @@ func Filter(r report.Report, b Baseline) report.Report {
 
 // moved marks as known the candidates whose code moved to other files: a
 // candidate of an entry's kind with no more copies of each function name
-// than the entry recorded. Each entry no candidate matched otherwise is
+// than the entry recorded, and either an occurrence still in place or the
+// entry's fingerprint, as the same code keeps. Each entry no candidate matched otherwise is
 // matched so at most once, by the candidate that kept the most of its
 // occurrences in place, so a second family of the same functions, or a
 // further copy, is still new. Drifts and cycles are known by fingerprint
@@ -182,6 +183,11 @@ func moved(cs []report.Candidate, entries []Entry, isKnown, used []bool) {
 				if keys[key(o)] {
 					kept++
 				}
+			}
+			// Only names in common is no evidence: some copy stayed in
+			// place, or the code is the same (its fingerprint).
+			if kept == 0 && c.Fingerprint != e.Fingerprint {
+				continue
 			}
 			pairs = append(pairs, pair{ci, ei, kept})
 		}

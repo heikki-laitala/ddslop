@@ -2106,7 +2106,8 @@ A linter on a sloppy codebase must not fail every build on day one:
   change), and reports a new copy of known duplication. A candidate no
   entry knows that way is matched by function names, so duplication moved
   to another file stays known: of the entry's kind, with no more copies of
-  a name than the entry recorded, each entry at most once and by the
+  a name than the entry recorded, with an occurrence still in place or the
+  entry's fingerprint (shared names alone are no evidence), each entry at most once and by the
   candidate that kept the most occurrences in place, so a second family of
   the same functions or a further copy is still new. Measured on a Rust
   workspace across a day of refactors that moved code between modules:
