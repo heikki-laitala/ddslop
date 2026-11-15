@@ -240,8 +240,17 @@ The agent decides when to run it; no hook forces it.
 
 ## In CI
 
-Adopt it on an existing codebase by recording what is there, then gate
-only on what is new:
+Gate a pull request on what it adds: candidates the base branch already
+has are not reported, also where the change only moved them to another
+file, and anything new fails the check:
+
+```sh
+ddslop check --baseline-ref origin/main          # fails only on new candidates
+```
+
+It analyses the ref's code in a temporary Git worktree, so it needs no
+file in the repository and nothing to keep up to date. Or record what is
+there in a committed baseline and gate on that:
 
 ```sh
 ddslop baseline                                  # writes .ddslop-baseline.json
@@ -258,15 +267,16 @@ permissions:
 steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     with:
-      fetch-depth: 0   # diff needs the base commit
+      fetch-depth: 0   # baseline-ref needs the base commit
   - uses: heikki-laitala/ddslop@v1   # the latest v1.x release
     with:
-      diff: origin/${{ github.base_ref }}
-      baseline: .ddslop-baseline.json
+      baseline-ref: origin/${{ github.base_ref }}
 ```
 
 Pin an exact [release](https://github.com/heikki-laitala/ddslop/releases)
-such as `@v1.0.0` to stay on one. Other inputs: `path`, `fail-over`
+such as `@v1.0.0` to stay on one. Other inputs: `diff` (report only
+candidates touching changed lines), `baseline` (a baseline file instead of
+`baseline-ref`), `path`, `fail-over`
 (fail only above this duplication percentage), `args` and `upload-sarif`.
 A pull request from a fork or Dependabot cannot upload to code scanning,
 so there, and with `upload-sarif: "false"`, candidates show as workflow

@@ -2103,8 +2103,20 @@ A linter on a sloppy codebase must not fail every build on day one:
   candidate is known when all its occurrences appear together in one
   entry. Matching on occurrences rather than fingerprints keeps a near-miss
   family known while it shrinks during cleanup (its anchor and fingerprint
-  change), and reports a new copy of known duplication. Renaming a function
-  makes its duplication look new. The summary counts suppressed candidates
+  change), and reports a new copy of known duplication. A candidate no
+  entry knows that way is matched by function names, so duplication moved
+  to another file stays known: of the entry's kind, with no more copies of
+  a name than the entry recorded, each entry at most once and by the
+  candidate that kept the most occurrences in place, so a second family of
+  the same functions or a further copy is still new. Measured on a Rust
+  workspace across a day of refactors that moved code between modules:
+  matching on files alone reported 10 known candidates as new, and names
+  brought that to the one real new copy. Renaming a function still makes
+  its duplication look new. `check --baseline-ref REF` builds the baseline
+  from the code at REF instead of a file, analysed with the same options
+  in a temporary Git worktree (so its files are listed as a checkout's
+  are) that is removed afterwards: a pull request gate on what it adds,
+  with no baseline to commit or keep current. The summary counts suppressed candidates
   as `baselined`.
 - **Diff mode.** `--diff origin/main` in PR pipelines reports only
   duplication the PR introduces, compared against the whole repository.

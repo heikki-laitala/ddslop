@@ -18,6 +18,9 @@ inputs:
   baseline:
     description: Baseline file of known duplication to leave out (see ddslop baseline).
     default: ""
+  baseline-ref:
+    description: Leave out duplication the code at this Git ref already has, also where it moved to another file, such as origin/main, to fail only on what a pull request adds. Needs actions/checkout with fetch-depth 0.
+    default: ""
   fail-over:
     description: Fail only when the repository's duplication percentage is above this, instead of on any candidate.
     default: ""
@@ -72,6 +75,7 @@ runs:
         TARGET: ${{ inputs.path }}
         DIFF: ${{ inputs.diff }}
         BASELINE: ${{ inputs.baseline }}
+        BASELINE_REF: ${{ inputs.baseline-ref }}
         FAIL_OVER: ${{ inputs.fail-over }}
         ARGS: ${{ inputs.args }}
       run: |
@@ -79,6 +83,7 @@ runs:
         args=(check --format sarif)
         if [ -n "$DIFF" ]; then args+=(--diff "$DIFF"); fi
         if [ -n "$BASELINE" ]; then args+=(--baseline "$BASELINE"); fi
+        if [ -n "$BASELINE_REF" ]; then args+=(--baseline-ref "$BASELINE_REF"); fi
         if [ -n "$FAIL_OVER" ]; then args+=(--fail-over "$FAIL_OVER"); fi
         read -ra extra <<<"$ARGS"
         set +e

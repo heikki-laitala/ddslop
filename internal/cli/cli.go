@@ -83,7 +83,10 @@ candidates touching lines changed since ref are reported, and the changed
 occurrences are marked: use it to check what a change introduced, for
 example "--diff HEAD" for uncommitted work or "--diff origin/main" in a
 pull request. Exits 0 when nothing is found, 1 when candidates are found,
-2 on error. With --fail-over N, it exits 1 only when the repository's
+2 on error. With --baseline-ref <ref>, candidates the code at ref already
+has are not reported, also where the change moved them to another file:
+"--baseline-ref origin/main" in a pull request fails only on what it adds,
+with no baseline file to keep. With --fail-over N, it exits 1 only when the repository's
 duplication percentage is above N, still reporting every candidate: a
 softer gate for an existing codebase.
 
@@ -304,6 +307,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	format := fs.String("format", "", `output format, "text", "json" or "sarif" (default: text on a terminal, json otherwise)`)
 	diff := fs.String("diff", "", "only report candidates touching lines changed since this Git ref (committed, staged, unstaged and untracked)")
 	baselinePath := fs.String("baseline", "", "do not report duplication already recorded in this baseline file (see ddslop baseline)")
+	baselineRef := fs.String("baseline-ref", "", "do not report duplication the code at this Git ref already has, also where it moved to another file: a gate on what a change adds, with no baseline file")
 	failOver := fs.Float64("fail-over", 0, "exit 1 only when the repository's duplication percentage is above this, instead of on any candidate (candidates are still reported)")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
@@ -326,7 +330,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 
-	r, err := filteredCheck(root, opts, *diff, *baselinePath)
+	r, err := filteredCheck(root, opts, filters{diff: *diff, baseline: *baselinePath, baselineRef: *baselineRef})
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -357,21 +361,35 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	return exitClean
 }
 
+// filters are how check narrows its candidates: to those touching lines
+// changed since diff, and to those neither the baseline file nor the code
+// at baselineRef already has.
+type filters struct {
+	diff, baseline, baselineRef string
+}
+
 // filteredCheck analyses root and narrows the candidates as check reports
-// them: to those not in the baseline file, if one is given, and to those
-// touching lines changed since diffRef, if one is given. Candidate IDs
-// refer to this list, so commands that take an ID filter the same way.
-func filteredCheck(root string, opts options, diffRef, baselinePath string) (report.Report, error) {
+// them (see filters). Candidate IDs refer to this list, so commands that
+// take an ID filter the same way.
+func filteredCheck(root string, opts options, f filters) (report.Report, error) {
+	if f.baseline != "" && f.baselineRef != "" {
+		return report.Report{}, fmt.Errorf("--baseline and --baseline-ref both name what is known: give one")
+	}
 	var known baseline.Baseline
 	var err error
-	if baselinePath != "" {
-		if known, err = baseline.Load(baselinePath); err != nil {
+	if f.baseline != "" {
+		if known, err = baseline.Load(f.baseline); err != nil {
+			return report.Report{}, err
+		}
+	}
+	if f.baselineRef != "" {
+		if known, err = baselineAt(root, opts, f.baselineRef); err != nil {
 			return report.Report{}, err
 		}
 	}
 	var changes source.Changes
-	if diffRef != "" {
-		if changes, err = source.ChangedLines(root, diffRef); err != nil {
+	if f.diff != "" {
+		if changes, err = source.ChangedLines(root, f.diff); err != nil {
 			return report.Report{}, err
 		}
 	}
@@ -379,13 +397,28 @@ func filteredCheck(root string, opts options, diffRef, baselinePath string) (rep
 	if err != nil {
 		return report.Report{}, err
 	}
-	if baselinePath != "" {
+	if f.baseline != "" || f.baselineRef != "" {
 		r = baseline.Filter(r, known)
 	}
-	if diffRef != "" {
-		r = report.KeepChanged(r, diffRef, changes.Touches)
+	if f.diff != "" {
+		r = report.KeepChanged(r, f.diff, changes.Touches)
 	}
 	return r, nil
+}
+
+// baselineAt is the baseline of the code at ref: root's counterpart in a
+// temporary checkout of it, analysed with the same options.
+func baselineAt(root string, opts options, ref string) (baseline.Baseline, error) {
+	dir, cleanup, err := source.CheckoutAt(root, ref)
+	if err != nil {
+		return baseline.Baseline{}, err
+	}
+	defer cleanup()
+	r, err := check(dir, opts)
+	if err != nil {
+		return baseline.Baseline{}, err
+	}
+	return baseline.FromReport(r), nil
 }
 
 const baselineUsage = `usage: ddslop baseline [flags] [path]

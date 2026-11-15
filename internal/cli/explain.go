@@ -45,6 +45,7 @@ func runExplain(args []string, stdout, stderr io.Writer) int {
 	format := fs.String("format", "", `output format, "text" or "json" (default: text on a terminal, json otherwise)`)
 	diff := fs.String("diff", "", "number candidates as check --diff with this Git ref does")
 	baselinePath := fs.String("baseline", "", "number candidates as check --baseline with this file does")
+	baselineRef := fs.String("baseline-ref", "", "number candidates as check --baseline-ref with this ref does")
 	all := fs.Bool("all", false, "show the code of every occurrence, not only the first three")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
@@ -64,7 +65,7 @@ func runExplain(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 
-	r, err := filteredCheck(root, opts, *diff, *baselinePath)
+	r, err := filteredCheck(root, opts, filters{diff: *diff, baseline: *baselinePath, baselineRef: *baselineRef})
 	if err != nil {
 		return fail(stderr, err)
 	}
