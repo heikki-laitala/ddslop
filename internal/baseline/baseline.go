@@ -107,6 +107,10 @@ func Filter(r report.Report, b Baseline) report.Report {
 	}
 	isKnown := make([]bool, len(r.Candidates))
 	used := make([]bool, len(b.Candidates))
+	// within lists the entries holding each candidate known in place: one
+	// such entry is that candidate's; among several, the matching in moved
+	// chooses, so it takes the one no moved candidate needs.
+	within := make([][]int, len(r.Candidates))
 	for ci := range r.Candidates {
 		c := &r.Candidates[ci]
 		for i, entry := range known {
@@ -123,12 +127,19 @@ func Filter(r report.Report, b Baseline) report.Report {
 				continue
 			}
 			if all(c.Occurrences, entry) {
-				isKnown[ci], used[i] = true, true
-				break
+				isKnown[ci] = true
+				if drift {
+					used[i] = true
+					break
+				}
+				within[ci] = append(within[ci], i)
 			}
 		}
+		if len(within[ci]) == 1 {
+			used[within[ci][0]] = true
+		}
 	}
-	moved(r.Candidates, b.Candidates, isKnown, used)
+	moved(r.Candidates, b.Candidates, isKnown, used, within)
 	suppressed, next := 0, 0
 	r = report.Keep(r, func(*report.Candidate) bool {
 		k := isKnown[next]
@@ -152,12 +163,24 @@ func Filter(r report.Report, b Baseline) report.Report {
 // same functions, or a further copy, is still new. Candidates are matched
 // to entries as a whole (a maximum matching), the same code first, so one
 // that fits two entries does not strand another that fits one of them.
-// Drifts and cycles are known by fingerprint only and are left out.
-func moved(cs []report.Candidate, entries []Entry, isKnown, used []bool) {
+// A candidate known in place by several entries takes part too, so it
+// takes the entry no moved candidate needs. Drifts and cycles are known by
+// fingerprint only and are left out.
+func moved(cs []report.Candidate, entries []Entry, isKnown, used []bool, within [][]int) {
 	// fits[ci] lists the entries candidate ci may be, the same code first.
 	fits := make([][]int, len(cs))
 	same := make([][]bool, len(cs))
 	for ci, c := range cs {
+		if len(within[ci]) > 1 {
+			// Known in place by several entries: it takes one of them.
+			for _, ei := range within[ci] {
+				if !used[ei] {
+					fits[ci] = append(fits[ci], ei)
+					same[ci] = append(same[ci], true)
+				}
+			}
+			continue
+		}
 		if isKnown[ci] || byFingerprint(c.Kind) {
 			continue
 		}
@@ -205,9 +228,14 @@ func moved(cs []report.Candidate, entries []Entry, isKnown, used []bool) {
 		return false
 	}
 	matched := make([]bool, len(cs))
-	for _, sameOnly := range []bool{true, false} {
+	// Candidates known in place first, then the same code, then the rest:
+	// augmenting paths move earlier ones to other entries, never unmatch them.
+	for _, phase := range []struct{ inPlace, sameOnly bool }{{true, true}, {false, true}, {false, false}} {
 		for ci := range cs {
-			if !matched[ci] && len(fits[ci]) > 0 && augment(ci, make([]bool, len(entries)), sameOnly) {
+			if matched[ci] || len(fits[ci]) == 0 || (len(within[ci]) > 1) != phase.inPlace {
+				continue
+			}
+			if augment(ci, make([]bool, len(entries)), phase.sameOnly) {
 				matched[ci] = true
 			}
 		}

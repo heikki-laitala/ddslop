@@ -410,30 +410,54 @@ func filteredCheck(root string, opts options, f filters) (report.Report, error) 
 // when root has none, so both trees are analysed with the same exclusions.
 func sameConfig(root, dir string) error {
 	data, err := os.ReadFile(filepath.Join(root, config.File)) //nolint:gosec // the analysed repository's own file
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	// Removed first, never written through: at ref it may be a symlink.
 	target := filepath.Join(dir, config.File)
+	if rmErr := os.Remove(target); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+		return rmErr
+	}
 	if errors.Is(err, os.ErrNotExist) {
-		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
 		return nil
 	}
+	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // inside the temporary checkout
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(target, data, 0o600)
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// plainDirectory reports whether dir is a directory reached from tree
+// through no symlink: each path component, from dir up to tree, is one.
+func plainDirectory(tree, dir string) bool {
+	for p := dir; ; p = filepath.Dir(p) {
+		info, err := os.Lstat(p)
+		if err != nil || !info.IsDir() {
+			return false
+		}
+		if p == tree || filepath.Dir(p) == p {
+			return true
+		}
+	}
 }
 
 // baselineAt is the baseline of the code at ref: root's counterpart in a
 // temporary checkout of it, analysed with the same options and root's
 // configuration file.
 func baselineAt(root string, opts options, ref string) (baseline.Baseline, error) {
-	dir, cleanup, err := source.CheckoutAt(root, ref)
+	tree, dir, cleanup, err := source.CheckoutAt(root, ref)
 	if err != nil {
 		return baseline.Baseline{}, err
 	}
 	defer cleanup()
-	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
-		// A path the change adds: nothing in it is known.
+	if !plainDirectory(tree, dir) {
+		// A path the change adds, or one that was a file or a symlink at
+		// ref: nothing in it is known, and nothing it points at is read.
 		return baseline.Baseline{Version: baseline.Version, Candidates: []baseline.Entry{}}, nil
 	}
 	if err := sameConfig(root, dir); err != nil {

@@ -286,3 +286,22 @@ func TestMovedFindingsKeyedByTheirFilesStayKnown(t *testing.T) {
 		t.Errorf("kept = %s, want %s", got, want)
 	}
 }
+
+// A candidate known directly by two entries takes the one no moved
+// candidate needs.
+func TestADirectMatchLeavesAMovedCandidateItsOnlyEntry(t *testing.T) {
+	base := FromReport(rep(
+		cand("rust:a", "exact-clone", occ("a.rs", "f", 1), occ("b.rs", "f", 1)),
+		cand("rust:b", "exact-clone", occ("a.rs", "f", 1), occ("b.rs", "f", 1), occ("c.rs", "f", 1)),
+	))
+	now := rep(
+		// Known directly by both entries.
+		cand("rust:direct", "exact-clone", occ("a.rs", "f", 1), occ("b.rs", "f", 1)),
+		// The code of rust:a moved whole: fits that entry only.
+		cand("rust:a", "exact-clone", occ("m.rs", "f", 1), occ("k.rs", "f", 1)),
+	)
+
+	if got := ids(Filter(now, base)); got != "[]" {
+		t.Errorf("kept = %s, want none", got)
+	}
+}

@@ -2115,7 +2115,8 @@ A linter on a sloppy codebase must not fail every build on day one:
   like; the cost is one hidden finding in that coincidence, against a gate
   failing every real move of one), counted per file and function as
   the entry keeps them, each entry at most once, matched as a whole (a
-  maximum matching, the same code first), so a second family of the same
+  maximum matching that also places a candidate several entries know in
+  place, the same code first), so a second family of the same
   functions or a further copy is still new. Measured on a Rust
   workspace across a day of refactors that moved code between modules:
   matching on files alone reported 10 known candidates as new, and names
@@ -2124,6 +2125,8 @@ A linter on a sloppy codebase must not fail every build on day one:
   from the code at REF instead of a file, analysed with the same options
   in a temporary Git worktree (so its files are listed as a checkout's
   are) that is removed afterwards, with the current tree's configuration
+  (replacing the ref's file, never writing through it; a path that was a
+  file or a symlink at the ref has an empty baseline)
   file, so exclusions a change narrows bring no old duplication in as new:
   a pull request gate on what it adds,
   with no baseline to commit or keep current. The summary counts suppressed candidates

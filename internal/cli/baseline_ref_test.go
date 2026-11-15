@@ -118,3 +118,60 @@ func TestBaselineRefAnalysesTheRefWithTheChangesConfiguration(t *testing.T) {
 		t.Errorf("baselined = %d, want the pair", r.Summary.Baselined)
 	}
 }
+
+// The ref's configuration file is replaced, never written through: a
+// symlink there must not carry the current file to what it points at.
+func TestBaselineRefDoesNotWriteThroughASymlinkedConfiguration(t *testing.T) {
+	victim := filepath.Join(t.TempDir(), "victim.txt")
+	if err := os.WriteFile(victim, []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := committedRepo(t, map[string]string{"a.rs": users})
+	if err := os.Symlink(victim, filepath.Join(root, ".ddslop.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, root, "add", ".ddslop.yaml")
+	gitIn(t, root, "commit", "-q", "-m", "symlinked configuration")
+	if err := os.Remove(filepath.Join(root, ".ddslop.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".ddslop.yaml"), []byte("min-nodes: 20\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if code, _, stderr := run("check", "--format", "json", "--baseline-ref", "HEAD", root); code == 2 {
+		t.Fatalf("exit code 2: %s", stderr)
+	}
+	if got, err := os.ReadFile(victim); err != nil || string(got) != "keep\n" { //nolint:gosec // the test's own file
+		t.Fatalf("the file the ref's symlink points at now holds %q (%v), want it untouched", got, err)
+	}
+}
+
+// A path that was a file or a symlink at the ref is no directory there:
+// nothing in it is known, and nothing outside it is analysed instead.
+func TestBaselineRefOfAPathThatWasNoDirectoryKnowsNothing(t *testing.T) {
+	root := committedRepo(t, map[string]string{"elsewhere/a.rs": users, "elsewhere/b.rs": orders})
+	if err := os.Symlink("elsewhere", filepath.Join(root, "svc")); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, root, "add", "svc")
+	gitIn(t, root, "commit", "-q", "-m", "svc links elsewhere")
+	gitIn(t, root, "rm", "-q", "svc")
+	for name, content := range map[string]string{"svc/a.rs": users, "svc/b.rs": orders} {
+		p := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	code, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD", filepath.Join(root, "svc"))
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1 for the pair now in svc; stderr: %s", code, stderr)
+	}
+	if r := decode(t, stdout); r.Summary.Baselined != 0 {
+		t.Errorf("baselined = %d, want 0: the ref had no directory svc", r.Summary.Baselined)
+	}
+}
