@@ -398,7 +398,11 @@ func filteredCheck(root string, opts options, f filters) (report.Report, error) 
 		return report.Report{}, err
 	}
 	if f.baseline != "" || f.baselineRef != "" {
-		r = baseline.Filter(r, known)
+		current, err := functionsAt(root)
+		if err != nil {
+			return report.Report{}, err
+		}
+		r = baseline.FilterAgainst(r, known, current)
 	}
 	if f.diff != "" {
 		r = report.KeepChanged(r, f.diff, changes.Touches)

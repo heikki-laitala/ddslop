@@ -282,7 +282,9 @@ func TestMovedFindingsKeyedByTheirFilesStayKnown(t *testing.T) {
 		cand("rust:dead-code:3", "dead-code", occ("moved.rs", "other", 1)),
 	)
 
-	if got, want := ids(Filter(now, base)), "[c1:rust:dead-code:3]"; got != want {
+	// The flow's old entry points are gone from the code: it moved.
+	current := map[string]bool{"moved.rs#unused": true, "c.rs#create": true, "d.rs#update": true, "moved.rs#other": true}
+	if got, want := ids(FilterAgainst(now, base, current)), "[c1:rust:dead-code:3]"; got != want {
 		t.Errorf("kept = %s, want %s", got, want)
 	}
 }
@@ -359,5 +361,25 @@ func TestFlowsOfFunctionsTheBaseHadAreKnown(t *testing.T) {
 
 	if got, want := ids(Filter(now, base)), "[c1:rust:flow:z]"; got != want {
 		t.Errorf("kept = %s, want %s", got, want)
+	}
+}
+
+// A flow entry point is matched by name only where a known one of that
+// name is gone from the code, as a move leaves it: a new function that
+// merely shares an old entry point's name is new.
+func TestAFlowEntryPointSharingOnlyAnOldNameIsNew(t *testing.T) {
+	base := FromReport(rep(cand("rust:flow:a", "parallel-flow", occ("p.rs", "report", 1), occ("p.rs", "hold", 1))))
+	now := rep(cand("rust:flow:x", "parallel-flow", occ("n.rs", "report", 1), occ("p.rs", "hold", 1)))
+
+	stillThere := map[string]bool{"p.rs#report": true, "p.rs#hold": true, "n.rs#report": true}
+	if got, want := ids(FilterAgainst(now, base, stillThere)), "[c1:rust:flow:x]"; got != want {
+		t.Errorf("original still there: kept = %s, want %s", got, want)
+	}
+	moved := map[string]bool{"p.rs#hold": true, "n.rs#report": true}
+	if got := ids(FilterAgainst(now, base, moved)); got != "[]" {
+		t.Errorf("original moved: kept = %s, want none", got)
+	}
+	if got, want := ids(Filter(now, base)), "[c1:rust:flow:x]"; got != want {
+		t.Errorf("current code unknown: kept = %s, want %s (no name evidence)", got, want)
 	}
 }

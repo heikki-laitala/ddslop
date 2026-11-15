@@ -101,6 +101,13 @@ func Load(path string) (Baseline, error) {
 // functions, so a candidate no entry knows that way is then matched by
 // function names (see moved).
 func Filter(r report.Report, b Baseline) report.Report {
+	return FilterAgainst(r, b, nil)
+}
+
+// FilterAgainst is Filter knowing the current code's functions ("file#function";
+// nil when unknown), which tell a moved flow entry point from a new one that
+// only shares an old one's name (see regrouped).
+func FilterAgainst(r report.Report, b Baseline, current map[string]bool) report.Report {
 	known := make([]map[string]bool, len(b.Candidates))
 	for i, e := range b.Candidates {
 		known[i] = map[string]bool{}
@@ -143,7 +150,7 @@ func Filter(r report.Report, b Baseline) report.Report {
 		}
 	}
 	moved(r.Candidates, b.Candidates, isKnown, used, within)
-	regrouped(r.Candidates, b, isKnown)
+	regrouped(r.Candidates, b, isKnown, current)
 	suppressed, next := 0, 0
 	r = report.Keep(r, func(*report.Candidate) bool {
 		k := isKnown[next]
@@ -185,7 +192,8 @@ func moved(cs []report.Candidate, entries []Entry, isKnown, used []bool, within 
 			}
 			continue
 		}
-		if isKnown[ci] || byFingerprint(c.Kind) {
+		// Flows regroup rather than move, and regrouped tells which.
+		if isKnown[ci] || byFingerprint(c.Kind) || c.Kind == report.ParallelFlow {
 			continue
 		}
 		keys := map[string]bool{}
@@ -290,30 +298,40 @@ func holds(e Entry, names map[string]int) bool {
 }
 
 // regrouped marks as known the parallel flows whose entry points all
-// existed before: entry points of the baseline's flows (by file and
-// function, or by function where the code moved), or, when the baseline
-// knows the code's functions, any of them. A flow is a suggestion over entry
-// points, and a change that makes existing ones more alike regroups them
-// into other flows, which is no new duplication; a flow with an entry point
-// the code did not have is new.
-func regrouped(cs []report.Candidate, b Baseline, isKnown []bool) {
-	keys, names := map[string]bool{}, map[string]bool{}
+// existed before: entry points of the baseline's flows, or, when the
+// baseline knows the code's functions, any of them. A flow is a suggestion
+// over entry points, and a change that makes existing ones more alike
+// regroups them into other flows, which is no new duplication. An entry
+// point in another file counts by its name only where a known entry point
+// of that name is gone from the current code, as many as are gone, as a
+// move leaves it; with the current code unknown, names are no evidence. A
+// flow with an entry point the code did not have is new.
+func regrouped(cs []report.Candidate, b Baseline, isKnown []bool, current map[string]bool) {
+	keys, gone := map[string]bool{}, map[string]int{}
 	for _, e := range b.Candidates {
 		if e.Kind != report.ParallelFlow {
 			continue
 		}
 		for _, o := range e.Occurrences {
+			if !keys[o] && current != nil && !current[o] {
+				gone[name(o)]++
+			}
 			keys[o] = true
-			names[name(o)] = true
 		}
 	}
 	for ci, c := range cs {
 		if isKnown[ci] || c.Kind != report.ParallelFlow {
 			continue
 		}
+		byName := map[string]int{}
 		known := true
 		for _, o := range c.Occurrences {
-			known = known && (keys[key(o)] || names[o.Name] || b.Functions[key(o)])
+			if !keys[key(o)] && !b.Functions[key(o)] {
+				byName[o.Name]++
+			}
+		}
+		for n, count := range byName {
+			known = known && count <= gone[n]
 		}
 		isKnown[ci] = known
 	}
