@@ -766,6 +766,13 @@ func cycleCandidate(language string, c Cycle) Candidate {
 	return cand
 }
 
+// KeyedByFiles reports whether a kind's fingerprint hashes its
+// occurrences' files (a flow's entry points, a single function or trait),
+// so moving its code to another file changes the fingerprint.
+func KeyedByFiles(kind string) bool {
+	return kind == parallelFlow || kind == deadCode || kind == passThrough || kind == singleImpl
+}
+
 // newCandidate builds a candidate without differences. Its fingerprint is
 // language:tag:hash(key), where key identifies what the occurrences share.
 func newCandidate(language, kind, tag, key string, s Suggestion, score Score, occs []Occurrence) Candidate {

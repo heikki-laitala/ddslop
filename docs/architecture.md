@@ -2107,7 +2107,9 @@ A linter on a sloppy codebase must not fail every build on day one:
   entry knows that way is matched by function names, so duplication moved
   to another file stays known: of the entry's kind, with no more copies of
   a name than the entry recorded, with an occurrence still in place or the
-  entry's fingerprint (shared names alone are no evidence), counted per file and function as
+  entry's fingerprint (shared names alone are no evidence; for the kinds whose fingerprint
+  hashes their files, a flow's entry points or a single function or trait,
+  exactly the entry's functions), counted per file and function as
   the entry keeps them, each entry at most once, matched as a whole (a
   maximum matching, the same code first), so a second family of the same
   functions or a further copy is still new. Measured on a Rust

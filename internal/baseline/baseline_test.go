@@ -267,3 +267,22 @@ func TestTheSameCodeIsPreferredForAMovedEntry(t *testing.T) {
 		t.Errorf("kept = %s, want %s", got, want)
 	}
 }
+
+// Some kinds' fingerprints hash their files (a flow's entry points, a
+// single function or trait), so a move changes them: moved whole, the same
+// functions by name are the evidence instead. A different function is new.
+func TestMovedFindingsKeyedByTheirFilesStayKnown(t *testing.T) {
+	base := FromReport(rep(
+		cand("rust:dead-code:1", "dead-code", occ("a.rs", "unused", 1)),
+		cand("rust:flow:1", "parallel-flow", occ("a.rs", "create", 1), occ("b.rs", "update", 1)),
+	))
+	now := rep(
+		cand("rust:dead-code:2", "dead-code", occ("moved.rs", "unused", 1)),
+		cand("rust:flow:2", "parallel-flow", occ("c.rs", "create", 1), occ("d.rs", "update", 1)),
+		cand("rust:dead-code:3", "dead-code", occ("moved.rs", "other", 1)),
+	)
+
+	if got, want := ids(Filter(now, base)), "[c1:rust:dead-code:3]"; got != want {
+		t.Errorf("kept = %s, want %s", got, want)
+	}
+}
