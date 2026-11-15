@@ -97,3 +97,24 @@ func TestBaselineRefOfAPathTheRefLacksKnowsNothing(t *testing.T) {
 		t.Errorf("got %d candidates, %d baselined; want the new pair and nothing known", len(r.Candidates), r.Summary.Baselined)
 	}
 }
+
+// Both trees are analysed with the change's configuration: duplication a
+// change's narrower exclusions bring into view was there before it.
+func TestBaselineRefAnalysesTheRefWithTheChangesConfiguration(t *testing.T) {
+	root := committedRepo(t, map[string]string{
+		".ddslop.yaml": "exclude:\n  - gen/**\n",
+		"gen/a.rs":     users,
+		"gen/b.rs":     orders,
+	})
+	if err := os.WriteFile(filepath.Join(root, ".ddslop.yaml"), []byte("min-nodes: 20\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := run("check", "--format", "json", "--baseline-ref", "HEAD", root)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0: the pair was there before; stdout %s stderr %s", code, stdout, stderr)
+	}
+	if r := decode(t, stdout); r.Summary.Baselined != 1 {
+		t.Errorf("baselined = %d, want the pair", r.Summary.Baselined)
+	}
+}

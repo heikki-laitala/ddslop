@@ -2109,7 +2109,11 @@ A linter on a sloppy codebase must not fail every build on day one:
   a name than the entry recorded, with an occurrence still in place or the
   entry's fingerprint (shared names alone are no evidence; for the kinds whose fingerprint
   hashes their files, a flow's entry points or a single function or trait,
-  exactly the entry's functions), counted per file and function as
+  exactly the entry's functions: such a finding carries no identity of its
+  code, so a finding that leaves one file while a finding of the same
+  function arrives in another reads as moved, which is what a move looks
+  like; the cost is one hidden finding in that coincidence, against a gate
+  failing every real move of one), counted per file and function as
   the entry keeps them, each entry at most once, matched as a whole (a
   maximum matching, the same code first), so a second family of the same
   functions or a further copy is still new. Measured on a Rust
@@ -2119,7 +2123,9 @@ A linter on a sloppy codebase must not fail every build on day one:
   its duplication look new. `check --baseline-ref REF` builds the baseline
   from the code at REF instead of a file, analysed with the same options
   in a temporary Git worktree (so its files are listed as a checkout's
-  are) that is removed afterwards: a pull request gate on what it adds,
+  are) that is removed afterwards, with the current tree's configuration
+  file, so exclusions a change narrows bring no old duplication in as new:
+  a pull request gate on what it adds,
   with no baseline to commit or keep current. The summary counts suppressed candidates
   as `baselined`.
 - **Diff mode.** `--diff origin/main` in PR pipelines reports only

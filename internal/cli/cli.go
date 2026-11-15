@@ -406,8 +406,26 @@ func filteredCheck(root string, opts options, f filters) (report.Report, error) 
 	return r, nil
 }
 
+// sameConfig gives the checkout at dir root's configuration file, or none
+// when root has none, so both trees are analysed with the same exclusions.
+func sameConfig(root, dir string) error {
+	data, err := os.ReadFile(filepath.Join(root, config.File)) //nolint:gosec // the analysed repository's own file
+	target := filepath.Join(dir, config.File)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(target, data, 0o600)
+}
+
 // baselineAt is the baseline of the code at ref: root's counterpart in a
-// temporary checkout of it, analysed with the same options.
+// temporary checkout of it, analysed with the same options and root's
+// configuration file.
 func baselineAt(root string, opts options, ref string) (baseline.Baseline, error) {
 	dir, cleanup, err := source.CheckoutAt(root, ref)
 	if err != nil {
@@ -417,6 +435,9 @@ func baselineAt(root string, opts options, ref string) (baseline.Baseline, error
 	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
 		// A path the change adds: nothing in it is known.
 		return baseline.Baseline{Version: baseline.Version, Candidates: []baseline.Entry{}}, nil
+	}
+	if err := sameConfig(root, dir); err != nil {
+		return baseline.Baseline{}, err
 	}
 	r, err := check(dir, opts)
 	if err != nil {
