@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/report"
 )
@@ -92,6 +93,10 @@ func Load(path string) (Baseline, error) {
 // entry knows no candidate of another kind. A dependency cycle is its
 // crate and modules, whichever calls close it, so it is known by its
 // fingerprint alone, and its entry knows nothing else.
+//
+// Code moved to another file changes its occurrences' files but not their
+// functions, so a candidate no entry knows that way is then matched by
+// function names (see moved).
 func Filter(r report.Report, b Baseline) report.Report {
 	known := make([]map[string]bool, len(b.Candidates))
 	for i, e := range b.Candidates {
@@ -100,8 +105,10 @@ func Filter(r report.Report, b Baseline) report.Report {
 			known[i][o] = true
 		}
 	}
-	suppressed := 0
-	r = report.Keep(r, func(c *report.Candidate) bool {
+	isKnown := make([]bool, len(r.Candidates))
+	used := make([]bool, len(b.Candidates))
+	for ci := range r.Candidates {
+		c := &r.Candidates[ci]
 		for i, entry := range known {
 			drift := c.Kind == report.ConventionDrift || b.Candidates[i].Kind == report.ConventionDrift
 			if drift && b.Candidates[i].Fingerprint != c.Fingerprint {
@@ -110,20 +117,95 @@ func Filter(r report.Report, b Baseline) report.Report {
 			// A cycle is its crate and modules, whichever calls close it.
 			if c.Kind == report.DependencyCycle || b.Candidates[i].Kind == report.DependencyCycle {
 				if b.Candidates[i].Fingerprint == c.Fingerprint {
-					suppressed++
-					return false
+					isKnown[ci], used[i] = true, true
+					break
 				}
 				continue
 			}
 			if all(c.Occurrences, entry) {
-				suppressed++
-				return false
+				isKnown[ci], used[i] = true, true
+				break
 			}
 		}
-		return true
+	}
+	moved(r.Candidates, b.Candidates, isKnown, used)
+	suppressed, next := 0, 0
+	r = report.Keep(r, func(*report.Candidate) bool {
+		k := isKnown[next]
+		next++
+		if k {
+			suppressed++
+		}
+		return !k
 	})
 	r.Summary.Baselined = suppressed
 	return r
+}
+
+// moved marks as known the candidates whose code moved to other files: a
+// candidate of an entry's kind with no more copies of each function name
+// than the entry recorded. Each entry no candidate matched otherwise is
+// matched so at most once, by the candidate that kept the most of its
+// occurrences in place, so a second family of the same functions, or a
+// further copy, is still new. Drifts and cycles are known by fingerprint
+// only and are left out.
+func moved(cs []report.Candidate, entries []Entry, isKnown, used []bool) {
+	type pair struct{ c, e, kept int }
+	var pairs []pair
+	for ci, c := range cs {
+		if isKnown[ci] || byFingerprint(c.Kind) {
+			continue
+		}
+		names := map[string]int{}
+		for _, o := range c.Occurrences {
+			names[o.Name]++
+		}
+		for ei, e := range entries {
+			if used[ei] || e.Kind != c.Kind || byFingerprint(e.Kind) {
+				continue
+			}
+			recorded := map[string]int{}
+			keys := map[string]bool{}
+			for _, o := range e.Occurrences {
+				recorded[name(o)]++
+				keys[o] = true
+			}
+			fits := true
+			for n, count := range names {
+				fits = fits && count <= recorded[n]
+			}
+			if !fits {
+				continue
+			}
+			kept := 0
+			for _, o := range c.Occurrences {
+				if keys[key(o)] {
+					kept++
+				}
+			}
+			pairs = append(pairs, pair{ci, ei, kept})
+		}
+	}
+	slices.SortStableFunc(pairs, func(x, y pair) int { return cmp.Compare(y.kept, x.kept) })
+	for _, p := range pairs {
+		if !isKnown[p.c] && !used[p.e] {
+			isKnown[p.c], used[p.e] = true, true
+		}
+	}
+}
+
+// byFingerprint reports whether a kind is known by its fingerprint rather
+// than its occurrences.
+func byFingerprint(kind string) bool {
+	return kind == report.ConventionDrift || kind == report.DependencyCycle
+}
+
+// name is the function an occurrence key names.
+func name(k string) string {
+	if i := strings.LastIndex(k, "#"); i >= 0 {
+		return k[i+1:]
+	}
+	return k
 }
 
 // all reports whether every occurrence is in the entry.
