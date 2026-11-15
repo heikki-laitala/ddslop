@@ -414,6 +414,10 @@ func baselineAt(root string, opts options, ref string) (baseline.Baseline, error
 		return baseline.Baseline{}, err
 	}
 	defer cleanup()
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		// A path the change adds: nothing in it is known.
+		return baseline.Baseline{Version: baseline.Version, Candidates: []baseline.Entry{}}, nil
+	}
 	r, err := check(dir, opts)
 	if err != nil {
 		return baseline.Baseline{}, err

@@ -74,3 +74,26 @@ func TestBaselineRefErrors(t *testing.T) {
 		t.Errorf("outside Git: exit %d, stderr %q; want 2 saying a ref needs a Git repository", code, stderr)
 	}
 }
+
+// A path the ref does not have yet, such as a component the change adds,
+// has an empty baseline: everything in it is new, not an error.
+func TestBaselineRefOfAPathTheRefLacksKnowsNothing(t *testing.T) {
+	root := committedRepo(t, map[string]string{"old/a.rs": unrelated})
+	svc := filepath.Join(root, "svc")
+	if err := os.MkdirAll(svc, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"a.rs": users, "b.rs": orders} {
+		if err := os.WriteFile(filepath.Join(svc, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	code, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD", svc)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1 for the new pair; stderr: %s", code, stderr)
+	}
+	if r := decode(t, stdout); len(r.Candidates) != 1 || r.Summary.Baselined != 0 {
+		t.Errorf("got %d candidates, %d baselined; want the new pair and nothing known", len(r.Candidates), r.Summary.Baselined)
+	}
+}

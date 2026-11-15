@@ -15,8 +15,8 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/report"
 )
 
-// version is the baseline file format version.
-const version = 1
+// Version is the baseline file format version.
+const Version = 1
 
 // Baseline is the known duplication of a codebase.
 type Baseline struct {
@@ -39,7 +39,7 @@ func key(o report.Occurrence) string {
 // FromReport builds a baseline from a report's candidates, sorted so the
 // file diffs cleanly.
 func FromReport(r report.Report) Baseline {
-	b := Baseline{Version: version, Candidates: []Entry{}}
+	b := Baseline{Version: Version, Candidates: []Entry{}}
 	for _, c := range r.Candidates {
 		e := Entry{Fingerprint: c.Fingerprint, Kind: c.Kind}
 		for _, o := range c.Occurrences {
@@ -77,8 +77,8 @@ func Load(path string) (Baseline, error) {
 	if err := json.Unmarshal(data, &b); err != nil {
 		return Baseline{}, fmt.Errorf("baseline %s: %w", path, err)
 	}
-	if b.Version != version {
-		return Baseline{}, fmt.Errorf("baseline %s has version %d, this ddslop reads version %d", path, b.Version, version)
+	if b.Version != Version {
+		return Baseline{}, fmt.Errorf("baseline %s has version %d, this ddslop reads version %d", path, b.Version, Version)
 	}
 	return b, nil
 }
