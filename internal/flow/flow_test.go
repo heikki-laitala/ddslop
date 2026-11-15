@@ -1099,8 +1099,10 @@ func TestRustCallsThroughTraitsReachTheirOnlyImplementation(t *testing.T) {
 	if got, want := fmt.Sprint(g.ByName[0]), "[false false]"; got != want {
 		t.Errorf("ByName = %s, want %s", got, want)
 	}
-	if got, want := fmt.Sprint(g.Dispatched[0]), "[true true false false]"; got != want {
-		t.Errorf("Dispatched = %s, want %s: the two resolved calls went through the trait", got, want)
+	// Only the call reaching the implementation is dispatched: the
+	// trait's own default is in the trait's module, a dependency.
+	if got, want := fmt.Sprint(g.Dispatched[0]), "[true false false false]"; got != want {
+		t.Errorf("Dispatched = %s, want %s: only get reached an implementation", got, want)
 	}
 }
 

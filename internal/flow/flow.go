@@ -35,9 +35,10 @@ type Graph struct {
 	// by its method name, which may be another type's method).
 	Targets [][]int
 	// Dispatched marks, parallel to Targets, the calls that reached their
-	// target through a value of a trait type (dyn Store, S: Store): the
+	// target through a value of a trait type (dyn Store, S: Store) in the
 	// trait's only implementation, which the caller runs without
-	// depending on it.
+	// depending on it. A call reaching the trait's own default is not
+	// marked: it is in the trait's module, which the caller depends on.
 	Dispatched [][]bool
 	// Calls and Resolved count all call sites and the resolved ones.
 	Calls, Resolved int
@@ -165,7 +166,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 			g.Calls++
 			callee, byName, dispatched := r.resolve(k)
 			g.Targets[i][k] = callee
-			g.Dispatched[i][k] = dispatched && callee >= 0
+			g.Dispatched[i][k] = dispatched && callee >= 0 && units[callee].Trait != ""
 			if byName {
 				g.Targets[i][k] = -1
 			}
