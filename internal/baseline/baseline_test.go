@@ -205,3 +205,65 @@ func TestClonesSharingOnlyNamesWithAGonePairAreNew(t *testing.T) {
 		t.Errorf("kept = %s, want %s", got, want)
 	}
 }
+
+// A baseline keeps one key per function, so two blocks copied inside one
+// function are one key: a pure move of that function stays known.
+func TestAMovedFunctionWithTwoCopiedBlocksStaysKnown(t *testing.T) {
+	base := FromReport(rep(cand("rust:block", "block-clone", occ("a.rs", "run", 1), occ("a.rs", "run", 30))))
+	now := rep(cand("rust:block", "block-clone", occ("b.rs", "run", 1), occ("b.rs", "run", 30)))
+
+	if got := ids(Filter(now, base)); got != "[]" {
+		t.Errorf("kept = %s, want none", got)
+	}
+}
+
+// Moved candidates are matched to entries as a whole, not first come first
+// served: a candidate that fits two entries does not take the only entry
+// another one fits, and the same code (its fingerprint) is preferred.
+func TestMovedCandidatesAreMatchedWithoutStrandingAnother(t *testing.T) {
+	base := FromReport(rep(
+		cand("rust:a", "exact-clone", occ("a.rs", "f", 1), occ("c.rs", "f", 1)),
+		cand("rust:b", "exact-clone", occ("a.rs", "f", 1), occ("b.rs", "f", 1)),
+	))
+	now := rep(
+		// Kept a.rs in place, so it fits both entries.
+		cand("rust:n", "exact-clone", occ("a.rs", "f", 1), occ("n.rs", "f", 1)),
+		// Both copies moved, the code of rust:a: fits that entry only.
+		cand("rust:a", "exact-clone", occ("m.rs", "f", 1), occ("k.rs", "f", 1)),
+	)
+
+	if got := ids(Filter(now, base)); got != "[]" {
+		t.Errorf("kept = %s, want none: each fits an entry of its own", got)
+	}
+}
+
+// The same, with no fingerprint to go by: each candidate kept a copy in
+// place, one of them in a file only one entry has.
+func TestKeptCopiesAloneAreMatchedWithoutStrandingAnother(t *testing.T) {
+	base := FromReport(rep(
+		cand("rust:a", "exact-clone", occ("a.rs", "f", 1), occ("c.rs", "f", 1)),
+		cand("rust:b", "exact-clone", occ("a.rs", "f", 1), occ("b.rs", "f", 1)),
+	))
+	now := rep(
+		cand("rust:n", "exact-clone", occ("a.rs", "f", 1), occ("n.rs", "f", 1)),
+		cand("rust:m", "exact-clone", occ("c.rs", "f", 1), occ("m.rs", "f", 1)),
+	)
+
+	if got := ids(Filter(now, base)); got != "[]" {
+		t.Errorf("kept = %s, want none: each fits an entry of its own", got)
+	}
+}
+
+// Two candidates fitting one entry: the same code (its fingerprint) is the
+// moved one, and the other is new.
+func TestTheSameCodeIsPreferredForAMovedEntry(t *testing.T) {
+	base := FromReport(rep(cand("rust:pair", "exact-clone", occ("a.rs", "f", 1), occ("b.rs", "f", 1))))
+	now := rep(
+		cand("rust:new", "exact-clone", occ("a.rs", "f", 1), occ("n.rs", "f", 1)),
+		cand("rust:pair", "exact-clone", occ("m.rs", "f", 1), occ("k.rs", "f", 1)),
+	)
+
+	if got, want := ids(Filter(now, base)), "[c1:rust:new]"; got != want {
+		t.Errorf("kept = %s, want %s", got, want)
+	}
+}

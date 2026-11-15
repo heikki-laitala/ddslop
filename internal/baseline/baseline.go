@@ -144,60 +144,95 @@ func Filter(r report.Report, b Baseline) report.Report {
 
 // moved marks as known the candidates whose code moved to other files: a
 // candidate of an entry's kind with no more copies of each function name
-// than the entry recorded, and either an occurrence still in place or the
-// entry's fingerprint, as the same code keeps. Each entry no candidate matched otherwise is
-// matched so at most once, by the candidate that kept the most of its
-// occurrences in place, so a second family of the same functions, or a
-// further copy, is still new. Drifts and cycles are known by fingerprint
-// only and are left out.
+// than the entry recorded (occurrences counted per file and function, as
+// the entry keeps them), and either an occurrence still in place or the
+// entry's fingerprint, as the same code keeps. Each entry no candidate
+// matched otherwise is matched so at most once, so a second family of the
+// same functions, or a further copy, is still new. Candidates are matched
+// to entries as a whole (a maximum matching), the same code first, so one
+// that fits two entries does not strand another that fits one of them.
+// Drifts and cycles are known by fingerprint only and are left out.
 func moved(cs []report.Candidate, entries []Entry, isKnown, used []bool) {
-	type pair struct{ c, e, kept int }
-	var pairs []pair
+	// fits[ci] lists the entries candidate ci may be, the same code first.
+	fits := make([][]int, len(cs))
+	same := make([][]bool, len(cs))
 	for ci, c := range cs {
 		if isKnown[ci] || byFingerprint(c.Kind) {
 			continue
 		}
+		keys := map[string]bool{}
 		names := map[string]int{}
 		for _, o := range c.Occurrences {
-			names[o.Name]++
+			if k := key(o); !keys[k] {
+				keys[k] = true
+				names[o.Name]++
+			}
 		}
 		for ei, e := range entries {
-			if used[ei] || e.Kind != c.Kind || byFingerprint(e.Kind) {
+			if used[ei] || e.Kind != c.Kind || byFingerprint(e.Kind) || !holds(e, names) {
 				continue
 			}
-			recorded := map[string]int{}
-			keys := map[string]bool{}
+			kept := false
 			for _, o := range e.Occurrences {
-				recorded[name(o)]++
-				keys[o] = true
-			}
-			fits := true
-			for n, count := range names {
-				fits = fits && count <= recorded[n]
-			}
-			if !fits {
-				continue
-			}
-			kept := 0
-			for _, o := range c.Occurrences {
-				if keys[key(o)] {
-					kept++
-				}
+				kept = kept || keys[o]
 			}
 			// Only names in common is no evidence: some copy stayed in
 			// place, or the code is the same (its fingerprint).
-			if kept == 0 && c.Fingerprint != e.Fingerprint {
+			if !kept && c.Fingerprint != e.Fingerprint {
 				continue
 			}
-			pairs = append(pairs, pair{ci, ei, kept})
+			fits[ci] = append(fits[ci], ei)
+			same[ci] = append(same[ci], c.Fingerprint == e.Fingerprint)
 		}
 	}
-	slices.SortStableFunc(pairs, func(x, y pair) int { return cmp.Compare(y.kept, x.kept) })
-	for _, p := range pairs {
-		if !isKnown[p.c] && !used[p.e] {
-			isKnown[p.c], used[p.e] = true, true
+	match := make([]int, len(entries)) // entry -> candidate, or -1
+	for i := range match {
+		match[i] = -1
+	}
+	// augment finds an entry for candidate ci, moving other candidates to
+	// other entries they fit if need be (an augmenting path).
+	var augment func(ci int, seen []bool, sameOnly bool) bool
+	augment = func(ci int, seen []bool, sameOnly bool) bool {
+		for i, ei := range fits[ci] {
+			if seen[ei] || (sameOnly && !same[ci][i]) {
+				continue
+			}
+			seen[ei] = true
+			if match[ei] < 0 || augment(match[ei], seen, sameOnly) {
+				match[ei] = ci
+				return true
+			}
+		}
+		return false
+	}
+	matched := make([]bool, len(cs))
+	for _, sameOnly := range []bool{true, false} {
+		for ci := range cs {
+			if !matched[ci] && len(fits[ci]) > 0 && augment(ci, make([]bool, len(entries)), sameOnly) {
+				matched[ci] = true
+			}
 		}
 	}
+	for ei, ci := range match {
+		if ci >= 0 {
+			isKnown[ci], used[ei] = true, true
+		}
+	}
+}
+
+// holds reports whether an entry recorded at least as many occurrences of
+// each name as names counts.
+func holds(e Entry, names map[string]int) bool {
+	recorded := map[string]int{}
+	for _, o := range e.Occurrences {
+		recorded[name(o)]++
+	}
+	for n, count := range names {
+		if count > recorded[n] {
+			return false
+		}
+	}
+	return true
 }
 
 // byFingerprint reports whether a kind is known by its fingerprint rather
