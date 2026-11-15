@@ -193,7 +193,7 @@ func moduleGraph(g *flow.Graph, group Grouping) ([]string, edges) {
 				continue
 			}
 			b := index[moduleOf[callee]]
-			if a == b || !named(g, caller, k) {
+			if a == b || !dependsOn(g, caller, k) {
 				continue
 			}
 			e := es[a][b]

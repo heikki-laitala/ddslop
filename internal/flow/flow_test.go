@@ -1099,6 +1099,9 @@ func TestRustCallsThroughTraitsReachTheirOnlyImplementation(t *testing.T) {
 	if got, want := fmt.Sprint(g.ByName[0]), "[false false]"; got != want {
 		t.Errorf("ByName = %s, want %s", got, want)
 	}
+	if got, want := fmt.Sprint(g.Dispatched[0]), "[true true]"; got != want {
+		t.Errorf("Dispatched = %s, want %s: both reached through the trait", got, want)
+	}
 }
 
 // A concrete type named like a trait is no trait: its own methods. A

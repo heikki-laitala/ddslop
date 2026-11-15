@@ -28,6 +28,11 @@ type Graph struct {
 	// only by its method name: x.m() resolved because one method is named
 	// m. Such a call may well reach a library's method of the same name.
 	ByName [][]bool
+	// Dispatched marks, parallel to Callees, the callees every call
+	// reached through a value of a trait type (dyn Store, S: Store): the
+	// trait's only implementation, which the caller runs without
+	// depending on it.
+	Dispatched [][]bool
 	// ResolvedOf counts, per unit, its call sites that resolved.
 	ResolvedOf []int
 	// Targets holds, per unit and parallel to its calls, the unit each
@@ -149,7 +154,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 	}
 
 	g := &Graph{Units: units, Callees: make([][]int, len(units)), ByName: make([][]bool, len(units)),
-		ResolvedOf: make([]int, len(units)), Targets: make([][]int, len(units))}
+		Dispatched: make([][]bool, len(units)), ResolvedOf: make([]int, len(units)), Targets: make([][]int, len(units))}
 	for i, u := range units {
 		owner, _ := split(u.Name)
 		r := callResolver{ix: indexOf(u.File), units: units, caller: u, owner: owner,
@@ -157,7 +162,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		g.Targets[i] = make([]int, len(u.Calls))
 		for k := range u.Calls {
 			g.Calls++
-			callee, byName := r.resolve(k)
+			callee, byName, dispatched := r.resolve(k)
 			g.Targets[i][k] = callee
 			if byName {
 				g.Targets[i][k] = -1
@@ -169,10 +174,12 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 			g.ResolvedOf[i]++
 			if k := slices.Index(g.Callees[i], callee); k >= 0 {
 				g.ByName[i][k] = g.ByName[i][k] && byName
+				g.Dispatched[i][k] = g.Dispatched[i][k] && dispatched
 				continue
 			}
 			g.Callees[i] = append(g.Callees[i], callee)
 			g.ByName[i] = append(g.ByName[i], byName)
+			g.Dispatched[i] = append(g.Dispatched[i], dispatched)
 		}
 	}
 	return g
@@ -190,35 +197,36 @@ type callResolver struct {
 }
 
 // resolved is a call's resolution: its callee (-1 for none), whether
-// found by name alone, and the state (0 not yet, 1 under way, 2 done).
+// found by name alone or through a trait (see Graph.Dispatched), and the
+// state (0 not yet, 1 under way, 2 done).
 type resolved struct {
-	callee, state int
-	byName        bool
+	callee, state      int
+	byName, dispatched bool
 }
 
-// resolve returns the unit call k refers to, or -1, and whether it was
-// found by its method name alone.
-func (r *callResolver) resolve(k int) (int, bool) {
+// resolve returns the unit call k refers to, or -1, whether it was found
+// by its method name alone, and whether through a value of a trait type.
+func (r *callResolver) resolve(k int) (int, bool, bool) {
 	d := &r.done[k]
 	switch d.state {
 	case 2:
-		return d.callee, d.byName
+		return d.callee, d.byName, d.dispatched
 	case 1:
-		return -1, false // a call whose operand is itself: malformed
+		return -1, false, false // a call whose operand is itself: malformed
 	}
 	d.state = 1
-	d.callee, d.byName = r.resolveCall(r.caller.Calls[k])
+	d.callee, d.byName, d.dispatched = r.resolveCall(r.caller.Calls[k])
 	d.state = 2
-	return d.callee, d.byName
+	return d.callee, d.byName, d.dispatched
 }
 
 // resolveCall resolves a call whose operand may be another call's result:
 // typed by that result, read in the producing function's package. A
 // producer found by its method name alone may be another type's method,
 // so its result types nothing.
-func (r *callResolver) resolveCall(c unit.Call) (int, bool) {
+func (r *callResolver) resolveCall(c unit.Call) (int, bool, bool) {
 	if c.From > 0 && c.From <= len(r.done) {
-		callee, guessed := r.resolve(c.From - 1)
+		callee, guessed, _ := r.resolve(c.From - 1)
 		if adapter := r.caller.Calls[c.From-1]; (callee < 0 || guessed) && adapter.Adapts > 0 && (adapter.From > 0 || adapter.Field != "") {
 			// A Rust result adapter the repository does not define
 			// (anyhow's context, Result's unwrap): the value is still that
@@ -256,7 +264,7 @@ func (r *callResolver) resolveCall(c unit.Call) (int, bool) {
 					return r.ix.resolveTyped(r.units, r.ix.libraries.CrateOf(producer.File), typ, c.Name)
 				}
 				if u, known := resolve(); known {
-					return u, false
+					return u, false, isTrait(typ)
 				}
 			}
 		}
@@ -264,11 +272,12 @@ func (r *callResolver) resolveCall(c unit.Call) (int, bool) {
 	return r.ix.resolve(r.units, r.caller, r.owner, c)
 }
 
-// resolve returns the unit a call refers to, or -1, and whether it was
-// found by its method name alone (see Graph.ByName).
-func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) (int, bool) {
+// resolve returns the unit a call refers to, or -1, whether it was found
+// by its method name alone (see Graph.ByName), and whether through a
+// value of a trait type (see Graph.Dispatched).
+func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) (int, bool, bool) {
 	if c.Kind != unit.MethodCall || c.Qualifier == "self" {
-		return ix.resolveNamed(units, caller, owner, c), false
+		return ix.resolveNamed(units, caller, owner, c), false, false
 	}
 	typ, home := c.Type, caller
 	switch {
@@ -287,18 +296,22 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 	case typ == "":
 	case strings.HasSuffix(caller.File, ".rs"):
 		if u, done := ix.resolveRust(units, caller, home, typ, c.Name); done {
-			return u, false
+			return u, false, isTrait(typ)
 		}
 	default:
 		if u, known := ix.resolveTyped(units, ix.libraries.CrateOf(caller.File), typ, c.Name); known {
-			return u, false
+			return u, false, false
 		}
 	}
 	if stdMethods[c.Name] || (strings.HasSuffix(caller.File, ".go") && goStdMethods[c.Name]) {
-		return -1, false // most likely a standard-library method
+		return -1, false, false // most likely a standard-library method
 	}
-	return ix.pick(units, caller, ix.methods[c.Name]), true
+	return ix.pick(units, caller, ix.methods[c.Name]), true, false
 }
+
+// isTrait reports whether a Rust type, as unit.Call.Type writes types, is
+// a trait's (dyn Store, impl Store, S: Store).
+func isTrait(typ string) bool { return strings.HasPrefix(typ, "dyn ") }
 
 // resolveRust resolves a Rust method call on a value of the type path
 // typ, written where home is (the caller for a type it states, the

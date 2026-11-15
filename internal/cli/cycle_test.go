@@ -185,3 +185,29 @@ func TestCheckReportsCyclesThroughTheRootModule(t *testing.T) {
 		t.Errorf("values = %s, want a cycle through foo and the root module", got)
 	}
 }
+
+// A call through a trait (a dyn field, a generic bound) depends on the
+// trait, not on the implementation that happens to be its only one: the
+// implementation's module, which imports the trait, closes no loop.
+func TestCheckCallsThroughATraitCloseNoCycle(t *testing.T) {
+	trait := "pub trait Provide {\n    fn provide(&self) -> u32;\n}\n"
+	for name, caller := range map[string]string{
+		"dyn field": "pub struct Chain {\n    provider: Box<dyn Provide>,\n}\n" +
+			"impl Chain {\n    pub fn get(&self) -> u32 {\n        self.provider.provide()\n    }\n}\n",
+		"generic bound": "pub fn run<A: Provide>(a: &A) -> u32 {\n    a.provide()\n}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			files := map[string]string{
+				"Cargo.toml":    "[package]\nname = \"app\"\n",
+				"src/lib.rs":    "pub mod source;\npub mod pod;\n",
+				"src/source.rs": trait + caller,
+				"src/pod.rs": "use crate::source::Provide;\npub struct Pod;\n" +
+					"impl Provide for Pod {\n    fn provide(&self) -> u32 {\n        7\n    }\n}\n",
+			}
+			_, stdout, stderr := run("check", "--format", "json", repo(t, files))
+			if r := cycles(t, stdout); len(r.Candidates) != 0 {
+				t.Errorf("candidates = %+v, want none: source calls pod only through the trait; stderr = %s", r.Candidates, stderr)
+			}
+		})
+	}
+}

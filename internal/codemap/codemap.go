@@ -21,6 +21,15 @@ func named(g *flow.Graph, caller, k int) bool {
 	return caller >= len(g.ByName) || k >= len(g.ByName[caller]) || !g.ByName[caller][k]
 }
 
+// dependsOn reports whether a unit's k-th callee is a module dependency:
+// named (see named), and not reached only through a value of a trait type.
+// Such a call depends on the trait, wherever its only implementation is:
+// the implementation's module importing the trait closes no loop.
+func dependsOn(g *flow.Graph, caller, k int) bool {
+	dispatched := caller < len(g.Dispatched) && k < len(g.Dispatched[caller]) && g.Dispatched[caller][k]
+	return named(g, caller, k) && !dispatched
+}
+
 // Grouping names the group a unit belongs to (its module or its crate),
 // or "" to leave the unit out.
 type Grouping func(u unit.Unit) string
