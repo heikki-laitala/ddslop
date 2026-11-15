@@ -56,7 +56,10 @@ These are requirements, not suggestions.
    When its review comments arrive, fix them, push, and reply in each
    comment's own thread with what you changed, why, and the commit. If a
    comment is wrong or out of scope, change nothing and reply why. Then
-   comment `@codex review` again to review the fixes.
+   comment `@codex review` again to review the fixes. Run this loop at
+   most 10 times per PR; if comments still arrive after the tenth
+   review, stop and report the open ones to the user instead of
+   requesting another review.
 
 ## Engineering principles
 
