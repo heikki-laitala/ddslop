@@ -1099,8 +1099,8 @@ func TestRustCallsThroughTraitsReachTheirOnlyImplementation(t *testing.T) {
 	if got, want := fmt.Sprint(g.ByName[0]), "[false false]"; got != want {
 		t.Errorf("ByName = %s, want %s", got, want)
 	}
-	if got, want := fmt.Sprint(g.Dispatched[0]), "[true true]"; got != want {
-		t.Errorf("Dispatched = %s, want %s: both reached through the trait", got, want)
+	if got, want := fmt.Sprint(g.Dispatched[0]), "[true true false false]"; got != want {
+		t.Errorf("Dispatched = %s, want %s: the two resolved calls went through the trait", got, want)
 	}
 }
 

@@ -28,17 +28,17 @@ type Graph struct {
 	// only by its method name: x.m() resolved because one method is named
 	// m. Such a call may well reach a library's method of the same name.
 	ByName [][]bool
-	// Dispatched marks, parallel to Callees, the callees every call
-	// reached through a value of a trait type (dyn Store, S: Store): the
-	// trait's only implementation, which the caller runs without
-	// depending on it.
-	Dispatched [][]bool
 	// ResolvedOf counts, per unit, its call sites that resolved.
 	ResolvedOf []int
 	// Targets holds, per unit and parallel to its calls, the unit each
 	// call resolved to by name or type, or -1 (also for a call found only
 	// by its method name, which may be another type's method).
 	Targets [][]int
+	// Dispatched marks, parallel to Targets, the calls that reached their
+	// target through a value of a trait type (dyn Store, S: Store): the
+	// trait's only implementation, which the caller runs without
+	// depending on it.
+	Dispatched [][]bool
 	// Calls and Resolved count all call sites and the resolved ones.
 	Calls, Resolved int
 }
@@ -160,10 +160,12 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		r := callResolver{ix: indexOf(u.File), units: units, caller: u, owner: owner,
 			done: make([]resolved, len(u.Calls))}
 		g.Targets[i] = make([]int, len(u.Calls))
+		g.Dispatched[i] = make([]bool, len(u.Calls))
 		for k := range u.Calls {
 			g.Calls++
 			callee, byName, dispatched := r.resolve(k)
 			g.Targets[i][k] = callee
+			g.Dispatched[i][k] = dispatched && callee >= 0
 			if byName {
 				g.Targets[i][k] = -1
 			}
@@ -174,12 +176,10 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 			g.ResolvedOf[i]++
 			if k := slices.Index(g.Callees[i], callee); k >= 0 {
 				g.ByName[i][k] = g.ByName[i][k] && byName
-				g.Dispatched[i][k] = g.Dispatched[i][k] && dispatched
 				continue
 			}
 			g.Callees[i] = append(g.Callees[i], callee)
 			g.ByName[i] = append(g.ByName[i], byName)
-			g.Dispatched[i] = append(g.Dispatched[i], dispatched)
 		}
 	}
 	return g

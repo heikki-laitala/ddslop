@@ -195,6 +195,8 @@ func TestCheckCallsThroughATraitCloseNoCycle(t *testing.T) {
 		"dyn field": "pub struct Chain {\n    provider: Box<dyn Provide>,\n}\n" +
 			"impl Chain {\n    pub fn get(&self) -> u32 {\n        self.provider.provide()\n    }\n}\n",
 		"generic bound": "pub fn run<A: Provide>(a: &A) -> u32 {\n    a.provide()\n}\n",
+		// A guess by name is no dependency either, beside a trait call.
+		"trait call and a guess": "pub fn run(a: &dyn Provide) -> u32 {\n    let p = other::make();\n    a.provide() + p.provide()\n}\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			files := map[string]string{
@@ -209,5 +211,28 @@ func TestCheckCallsThroughATraitCloseNoCycle(t *testing.T) {
 				t.Errorf("candidates = %+v, want none: source calls pod only through the trait; stderr = %s", r.Candidates, stderr)
 			}
 		})
+	}
+}
+
+// A function calling an implementation both through its trait and
+// directly depends on it by the direct call, and that call is the site.
+func TestACycleThroughATraitAndADirectCallIsTheDirectCall(t *testing.T) {
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "pub mod source;\npub mod pod;\n",
+		"src/source.rs": "pub trait Provide {\n    fn provide(&self) -> u32;\n}\n" +
+			"pub fn both(a: &dyn Provide, b: &crate::pod::Pod) -> u32 {\n    let x = a.provide();\n    x + b.provide()\n}\n",
+		"src/pod.rs": "use crate::source::Provide;\npub struct Pod;\n" +
+			"impl Provide for Pod {\n    fn provide(&self) -> u32 {\n        7\n    }\n}\n",
+	}
+	_, stdout, _ := run("check", "--format", "json", repo(t, files))
+	r := cycles(t, stdout)
+	if len(r.Candidates) != 1 {
+		t.Fatalf("candidates = %+v, want source and pod depending on each other", r.Candidates)
+	}
+	for _, o := range r.Candidates[0].Occurrences {
+		if filepath.ToSlash(o.File) == "src/source.rs" && o.StartLine != 6 {
+			t.Errorf("source's site = line %d, want 6, the direct call", o.StartLine)
+		}
 	}
 }

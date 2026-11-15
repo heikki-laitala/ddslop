@@ -1592,7 +1592,7 @@ A call through a value of a trait type (`dyn Store`, `S: Store`) is no
 module dependency, for the layers or the cycles: the call graph follows
 it to the trait's only implementation, but the caller depends on the
 trait, and the implementation's module, which imports the trait, would
-otherwise close a loop that the code does not have (`Graph.Dispatched`).
+otherwise close a loop that the code does not have (`Graph.Dispatched`, per call: a function that also calls the implementation directly depends on it, and that call is the site).
 On a Rust workspace this removed two cycles, both of that shape, and
 changed no other.
 Only Rust modules within a crate can form one: Go's compiler forbids

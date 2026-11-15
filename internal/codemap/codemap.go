@@ -22,12 +22,26 @@ func named(g *flow.Graph, caller, k int) bool {
 }
 
 // dependsOn reports whether a unit's k-th callee is a module dependency:
-// named (see named), and not reached only through a value of a trait type.
-// Such a call depends on the trait, wherever its only implementation is:
-// the implementation's module importing the trait closes no loop.
+// a call reaches it by name or type (see named), not through a value of
+// a trait type. Such a call depends on the trait, wherever its only
+// implementation is: the implementation's module importing the trait
+// closes no loop.
 func dependsOn(g *flow.Graph, caller, k int) bool {
-	dispatched := caller < len(g.Dispatched) && k < len(g.Dispatched[caller]) && g.Dispatched[caller][k]
-	return named(g, caller, k) && !dispatched
+	if caller >= len(g.Dispatched) {
+		return named(g, caller, k) // a graph without per-call targets
+	}
+	return directCall(g, caller, g.Callees[caller][k]) >= 0
+}
+
+// directCall returns the index among a unit's calls of the first that
+// reaches callee by name or type and not through a trait, or -1.
+func directCall(g *flow.Graph, caller, callee int) int {
+	for k, target := range g.Targets[caller] {
+		if target == callee && !g.Dispatched[caller][k] {
+			return k
+		}
+	}
+	return -1
 }
 
 // Grouping names the group a unit belongs to (its module or its crate),
