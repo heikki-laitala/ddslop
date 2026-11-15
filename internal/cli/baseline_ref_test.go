@@ -175,3 +175,16 @@ func TestBaselineRefOfAPathThatWasNoDirectoryKnowsNothing(t *testing.T) {
 		t.Errorf("baselined = %d, want 0: the ref had no directory svc", r.Summary.Baselined)
 	}
 }
+
+// A configuration path that was a directory at the ref is replaced too.
+func TestBaselineRefReplacesAConfigurationDirectory(t *testing.T) {
+	root := committedRepo(t, map[string]string{"a.rs": users, ".ddslop.yaml/old.txt": "x\n"})
+	gitIn(t, root, "rm", "-q", "-r", ".ddslop.yaml")
+	if err := os.WriteFile(filepath.Join(root, ".ddslop.yaml"), []byte("min-nodes: 20\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if code, _, stderr := run("check", "--format", "json", "--baseline-ref", "HEAD", root); code == 2 {
+		t.Fatalf("exit code 2: %s", stderr)
+	}
+}

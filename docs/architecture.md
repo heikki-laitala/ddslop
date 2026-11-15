@@ -2109,6 +2109,7 @@ A linter on a sloppy codebase must not fail every build on day one:
   a name than the entry recorded, with an occurrence still in place or the
   entry's fingerprint (shared names alone are no evidence; for the kinds whose fingerprint
   hashes their files, a flow's entry points or a single function or trait,
+  and for a near-miss family, whose anchor a move can change,
   exactly the entry's functions: such a finding carries no identity of its
   code, so a finding that leaves one file while a finding of the same
   function arrives in another reads as moved, which is what a move looks

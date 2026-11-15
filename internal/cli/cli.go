@@ -413,9 +413,10 @@ func sameConfig(root, dir string) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	// Removed first, never written through: at ref it may be a symlink.
+	// Removed first, never written through: at ref it may be a symlink
+	// (RemoveAll removes the link, not its target) or a directory.
 	target := filepath.Join(dir, config.File)
-	if rmErr := os.Remove(target); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+	if rmErr := os.RemoveAll(target); rmErr != nil {
 		return rmErr
 	}
 	if errors.Is(err, os.ErrNotExist) {

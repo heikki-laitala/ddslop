@@ -157,8 +157,8 @@ func Filter(r report.Report, b Baseline) report.Report {
 // candidate of an entry's kind with no more copies of each function name
 // than the entry recorded (occurrences counted per file and function, as
 // the entry keeps them), and either an occurrence still in place or the
-// entry's fingerprint, as the same code keeps (for a kind keyed by its
-// files, exactly the entry's functions). Each entry no candidate
+// entry's fingerprint, as the same code keeps (for a kind whose fingerprint
+// a move can change, exactly the entry's functions). Each entry no candidate
 // matched otherwise is matched so at most once, so a second family of the
 // same functions, or a further copy, is still new. Candidates are matched
 // to entries as a whole (a maximum matching), the same code first, so one
@@ -249,13 +249,10 @@ func moved(cs []report.Candidate, entries []Entry, isKnown, used []bool, within 
 
 // sameCode reports whether a candidate none of whose occurrences stayed in
 // place is an entry's code moved elsewhere: the same fingerprint, or, for a
-// kind whose fingerprint hashes its files, exactly the entry's functions.
+// kind whose fingerprint a move can change, exactly the entry's functions.
 // Only names in common is no evidence.
 func sameCode(c report.Candidate, e Entry, names map[string]int) bool {
-	if report.KeyedByFiles(c.Kind) {
-		return sameNames(e, names)
-	}
-	return c.Fingerprint == e.Fingerprint
+	return c.Fingerprint == e.Fingerprint || (report.MovesFingerprint(c.Kind) && sameNames(e, names))
 }
 
 // sameNames reports whether an entry recorded exactly the names names

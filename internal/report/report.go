@@ -766,11 +766,12 @@ func cycleCandidate(language string, c Cycle) Candidate {
 	return cand
 }
 
-// KeyedByFiles reports whether a kind's fingerprint hashes its
-// occurrences' files (a flow's entry points, a single function or trait),
-// so moving its code to another file changes the fingerprint.
-func KeyedByFiles(kind string) bool {
-	return kind == parallelFlow || kind == deadCode || kind == passThrough || kind == singleImpl
+// MovesFingerprint reports whether moving a kind's code to other files
+// can change its fingerprint: it hashes the occurrences' files (a flow's
+// entry points, a single function or trait), or a near-miss family's
+// anchor, which is chosen in the members' file order.
+func MovesFingerprint(kind string) bool {
+	return kind == parallelFlow || kind == deadCode || kind == passThrough || kind == singleImpl || kind == nearMiss
 }
 
 // newCandidate builds a candidate without differences. Its fingerprint is

@@ -305,3 +305,18 @@ func TestADirectMatchLeavesAMovedCandidateItsOnlyEntry(t *testing.T) {
 		t.Errorf("kept = %s, want none", got)
 	}
 }
+
+// A near-miss family's fingerprint is its anchor's shape, and a move can
+// change which member is the anchor: moved whole, exactly the entry's
+// functions are the evidence, as for findings keyed by their files.
+func TestAMovedNearMissFamilyWithANewAnchorStaysKnown(t *testing.T) {
+	base := FromReport(rep(cand("rust:anchor-a~2", "near-miss", occ("a.rs", "load", 1), occ("b.rs", "store", 1))))
+	now := rep(
+		cand("rust:anchor-b~2", "near-miss", occ("y.rs", "load", 1), occ("x.rs", "store", 1)),
+		cand("rust:other~2", "near-miss", occ("p.rs", "load", 1), occ("q.rs", "save", 1)),
+	)
+
+	if got, want := ids(Filter(now, base)), "[c1:rust:other~2]"; got != want {
+		t.Errorf("kept = %s, want %s", got, want)
+	}
+}
