@@ -22,6 +22,9 @@ const Version = 1
 type Baseline struct {
 	Version    int     `json:"version"`
 	Candidates []Entry `json:"candidates"`
+	// Functions are the code's functions, as "file#function", when known: a
+	// baseline built from a ref's code knows them, a baseline file does not.
+	Functions map[string]bool `json:"-"`
 }
 
 // Entry is one known candidate: its occurrences as "file#function".
@@ -140,6 +143,7 @@ func Filter(r report.Report, b Baseline) report.Report {
 		}
 	}
 	moved(r.Candidates, b.Candidates, isKnown, used, within)
+	regrouped(r.Candidates, b, isKnown)
 	suppressed, next := 0, 0
 	r = report.Keep(r, func(*report.Candidate) bool {
 		k := isKnown[next]
@@ -283,6 +287,36 @@ func holds(e Entry, names map[string]int) bool {
 		}
 	}
 	return true
+}
+
+// regrouped marks as known the parallel flows whose entry points all
+// existed before: entry points of the baseline's flows (by file and
+// function, or by function where the code moved), or, when the baseline
+// knows the code's functions, any of them. A flow is a suggestion over entry
+// points, and a change that makes existing ones more alike regroups them
+// into other flows, which is no new duplication; a flow with an entry point
+// the code did not have is new.
+func regrouped(cs []report.Candidate, b Baseline, isKnown []bool) {
+	keys, names := map[string]bool{}, map[string]bool{}
+	for _, e := range b.Candidates {
+		if e.Kind != report.ParallelFlow {
+			continue
+		}
+		for _, o := range e.Occurrences {
+			keys[o] = true
+			names[name(o)] = true
+		}
+	}
+	for ci, c := range cs {
+		if isKnown[ci] || c.Kind != report.ParallelFlow {
+			continue
+		}
+		known := true
+		for _, o := range c.Occurrences {
+			known = known && (keys[key(o)] || names[o.Name] || b.Functions[key(o)])
+		}
+		isKnown[ci] = known
+	}
 }
 
 // byFingerprint reports whether a kind is known by its fingerprint rather

@@ -468,7 +468,28 @@ func baselineAt(root string, opts options, ref string) (baseline.Baseline, error
 	if err != nil {
 		return baseline.Baseline{}, err
 	}
-	return baseline.FromReport(r), nil
+	b := baseline.FromReport(r)
+	if b.Functions, err = functionsAt(dir); err != nil {
+		return baseline.Baseline{}, err
+	}
+	return b, nil
+}
+
+// functionsAt lists the functions of the code at dir, as "file#function",
+// from the index check left there.
+func functionsAt(dir string) (map[string]bool, error) {
+	db, files, _, err := openFiles(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	functions := map[string]bool{}
+	for _, f := range files {
+		for _, u := range f.Units {
+			functions[u.File+"#"+u.Name] = true
+		}
+	}
+	return functions, nil
 }
 
 const baselineUsage = `usage: ddslop baseline [flags] [path]

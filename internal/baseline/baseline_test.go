@@ -320,3 +320,44 @@ func TestAMovedNearMissFamilyWithANewAnchorStaysKnown(t *testing.T) {
 		t.Errorf("kept = %s, want %s", got, want)
 	}
 }
+
+// A parallel flow is a suggestion over entry points the code already has:
+// when a change makes them more alike, ddslop regroups them into other
+// flows. A flow all of whose entry points were in the baseline's flows is
+// that regrouping, known; one with an entry point no flow had is new.
+func TestRegroupedFlowsOfKnownEntryPointsAreKnown(t *testing.T) {
+	base := FromReport(rep(
+		cand("rust:flow:a", "parallel-flow", occ("p.rs", "report", 1), occ("p.rs", "hold", 1), occ("p.rs", "engage", 1)),
+		cand("rust:flow:b", "parallel-flow", occ("m.rs", "request", 1), occ("p.rs", "complete", 1)),
+		cand("rust:flow:c", "parallel-flow", occ("m.rs", "lift_global", 1), occ("m.rs", "update_provider", 1)),
+	))
+	now := rep(
+		// complete joined report's flow: entry points all known.
+		cand("rust:flow:x", "parallel-flow", occ("p.rs", "report", 1), occ("p.rs", "complete", 1), occ("p.rs", "hold", 1), occ("p.rs", "engage", 1)),
+		// a pair across two known flows.
+		cand("rust:flow:y", "parallel-flow", occ("m.rs", "update_provider", 1), occ("m.rs", "request", 1)),
+		// a flow with an entry point no flow had: new.
+		cand("rust:flow:z", "parallel-flow", occ("p.rs", "report", 1), occ("n.rs", "fresh", 1)),
+	)
+
+	if got, want := ids(Filter(now, base)), "[c1:rust:flow:z]"; got != want {
+		t.Errorf("kept = %s, want %s", got, want)
+	}
+}
+
+// With the base's functions known (as --baseline-ref knows them), a flow
+// whose entry points all existed there is a regrouping too, even with one
+// no flow had: the change made existing handlers alike. A flow with an
+// entry point the base did not have is new.
+func TestFlowsOfFunctionsTheBaseHadAreKnown(t *testing.T) {
+	base := FromReport(rep(cand("rust:flow:c", "parallel-flow", occ("m.rs", "lift_global", 1), occ("m.rs", "update_provider", 1))))
+	base.Functions = map[string]bool{"m.rs#lift_provider": true, "m.rs#lift_global": true, "m.rs#update_provider": true}
+	now := rep(
+		cand("rust:flow:y", "parallel-flow", occ("m.rs", "lift_provider", 1), occ("m.rs", "update_provider", 1)),
+		cand("rust:flow:z", "parallel-flow", occ("m.rs", "added", 1), occ("m.rs", "update_provider", 1)),
+	)
+
+	if got, want := ids(Filter(now, base)), "[c1:rust:flow:z]"; got != want {
+		t.Errorf("kept = %s, want %s", got, want)
+	}
+}

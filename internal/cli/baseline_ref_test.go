@@ -188,3 +188,20 @@ func TestBaselineRefReplacesAConfigurationDirectory(t *testing.T) {
 		t.Fatalf("exit code 2: %s", stderr)
 	}
 }
+
+// A baseline built from a ref knows the ref's functions, so a flow of
+// handlers the ref already had is not new however a change regroups them.
+func TestABaselineFromARefKnowsItsFunctions(t *testing.T) {
+	root := committedRepo(t, map[string]string{"src/a.rs": users, "src/b.rs": orders})
+	opts, err := analysisFlags(newFlags("check", "", nil))(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := baselineAt(root, opts, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !b.Functions[filepath.Join("src", "a.rs")+"#load_user"] || !b.Functions[filepath.Join("src", "b.rs")+"#load_order"] {
+		t.Errorf("functions = %v, want the ref's two", b.Functions)
+	}
+}

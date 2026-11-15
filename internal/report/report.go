@@ -766,6 +766,10 @@ func cycleCandidate(language string, c Cycle) Candidate {
 	return cand
 }
 
+// ParallelFlow is the kind of a feature pipeline candidate: entry points
+// running the same steps.
+const ParallelFlow = parallelFlow
+
 // MovesFingerprint reports whether moving a kind's code to other files
 // can change its fingerprint: it hashes the occurrences' files (a flow's
 // entry points, a single function or trait), or a near-miss family's
