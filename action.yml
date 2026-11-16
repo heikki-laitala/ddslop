@@ -30,6 +30,9 @@ inputs:
   upload-sarif:
     description: Upload the results to GitHub code scanning (needs the security-events write permission). Pull requests from forks and Dependabot, whose token cannot upload, get workflow annotations instead, as when this is "false" (they need jq, which GitHub's runners have).
     default: "true"
+  annotate:
+    description: Show results as workflow annotations, each candidate where they are not uploaded and an error when the check fails. "false" leaves the exit code and the SARIF report (output sarif-file) only, for a workflow that reads the result itself.
+    default: "true"
 
 outputs:
   sarif-file:
@@ -117,7 +120,7 @@ runs:
         category: ddslop
 
     - name: Annotate
-      if: always() && steps.report.outputs.upload != 'true' && steps.check.outputs.exit-code != '2'
+      if: always() && inputs.annotate != 'false' && steps.report.outputs.upload != 'true' && steps.check.outputs.exit-code != '2'
       shell: bash
       env:
         SARIF: ${{ steps.check.outputs.sarif-file }}
@@ -153,9 +156,14 @@ runs:
       shell: bash
       env:
         CODE: ${{ steps.check.outputs.exit-code }}
+        ANNOTATE: ${{ inputs.annotate }}
       run: |
+        # Without annotations the outcome is still a failure, written as
+        # plain log lines.
+        error="::error::"
+        if [ "$ANNOTATE" = false ]; then error="ddslop: "; fi
         case "$CODE" in
           0) echo "ddslop: passed" ;;
-          1) echo "::error::ddslop found duplication to refactor (see the annotations on the changed files)"; exit 1 ;;
-          *) echo "::error::ddslop failed (exit code $CODE)"; exit 2 ;;
+          1) echo "${error}ddslop found duplication to refactor (see the annotations on the changed files)"; exit 1 ;;
+          *) echo "${error}ddslop failed (exit code $CODE)"; exit 2 ;;
         esac

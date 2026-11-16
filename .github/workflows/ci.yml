@@ -98,6 +98,7 @@ jobs:
           path: ${{ runner.temp }}/sample
           args: --min-nodes 20
           upload-sarif: "false"
+          annotate: "false"
       - name: The action found the copy and failed
         env:
           OUTCOME: ${{ steps.ddslop.outcome }}
@@ -126,6 +127,7 @@ jobs:
           diff: HEAD~1
           args: --min-nodes 20
           upload-sarif: "false"
+          annotate: "false"
       - name: Run the action on no change
         id: unchanged
         uses: ./
@@ -134,8 +136,11 @@ jobs:
           diff: HEAD
           args: --min-nodes 20
           upload-sarif: "false"
+          annotate: "false"
       # Below fail-over the check passes, its candidates annotated as
-      # warnings.
+      # warnings: the one run that annotates, so the annotation code runs.
+      # The others leave annotations out, which would read as findings of
+      # this pull request.
       - name: Run the action under a duplication limit
         id: limit
         uses: ./

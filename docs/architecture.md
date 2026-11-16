@@ -2474,8 +2474,13 @@ Built, following pruner's release setup:
   its SARIF to code scanning, so pull requests carry the same annotations
   as users'. Pull requests from forks and Dependabot,
   whose token cannot upload, and `upload-sarif: "false"` get workflow annotations from the
-  SARIF instead. The action job also runs the action on a sample with a
-  renamed copy, whole and in diff mode on a sample history. The repository has the ddslop skill
+  SARIF instead, unless `annotate: "false"`, which leaves the exit code
+  and the SARIF report only. The action job also runs the action on a
+  sample with a renamed copy, whole and in diff mode on a sample history,
+  with `annotate: "false"` where it fails on purpose, so the sample's
+  copy does not read as a finding of the pull request; its run under a
+  duplication limit annotates, as warnings, so the annotation code runs.
+  The repository has the ddslop skill
   installed for Claude Code and Codex (`ddslop init --claude --codex`).
 - **Releases** (`.github/workflows/release.yml`, on `vX.Y.Z` tags): Linux and
   macOS binaries for x86_64 and aarch64, built with cgo and each
