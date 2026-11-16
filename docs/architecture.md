@@ -2477,9 +2477,12 @@ Built, following pruner's release setup:
   SARIF instead, unless `annotate: "false"`, which leaves the exit code
   and the SARIF report only. The action job also runs the action on a
   sample with a renamed copy, whole and in diff mode on a sample history,
-  with `annotate: "false"` where it fails on purpose, so the sample's
-  copy does not read as a finding of the pull request; its run under a
-  duplication limit annotates, as warnings, so the annotation code runs.
+  with `fail: "false"` and `annotate: "false"` where it finds the copy:
+  a failed step, even one allowed to fail, puts an error on every pull
+  request's checks, so those runs report through `exit-code` and the
+  SARIF report instead. Its run under a duplication limit annotates, as
+  warnings, so the annotation code runs; no run takes the `exit 1` that
+  fails a job on candidates.
   The repository has the ddslop skill
   installed for Claude Code and Codex (`ddslop init --claude --codex`).
 - **Releases** (`.github/workflows/release.yml`, on `vX.Y.Z` tags): Linux and

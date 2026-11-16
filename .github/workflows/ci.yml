@@ -90,22 +90,25 @@ jobs:
           }
           RUST
           done
+      # The runs that find the copy report it without failing (fail and
+      # annotate "false"): a failed step, even one allowed to fail, puts an
+      # error on every pull request's checks.
       - name: Run the action
         id: ddslop
         uses: ./
-        continue-on-error: true
         with:
           path: ${{ runner.temp }}/sample
           args: --min-nodes 20
           upload-sarif: "false"
           annotate: "false"
-      - name: The action found the copy and failed
+          fail: "false"
+      - name: The action found the copy
         env:
           OUTCOME: ${{ steps.ddslop.outcome }}
           CODE: ${{ steps.ddslop.outputs.exit-code }}
           SARIF: ${{ steps.ddslop.outputs.sarif-file }}
         run: |
-          test "$OUTCOME" = failure || { echo "outcome $OUTCOME, want failure" >&2; exit 1; }
+          test "$OUTCOME" = success || { echo "outcome $OUTCOME, want success with fail false" >&2; exit 1; }
           test "$CODE" = 1 || { echo "exit code $CODE, want 1" >&2; exit 1; }
           grep -q '"ruleId": "renamed-clone"' "$SARIF" || { echo "the SARIF report has no renamed-clone result" >&2; cat "$SARIF"; exit 1; }
       # Diff mode, as pull requests use it: the copy is reported when the
@@ -121,13 +124,13 @@ jobs:
       - name: Run the action on the change adding the copy
         id: added
         uses: ./
-        continue-on-error: true
         with:
           path: ${{ runner.temp }}/sample
           diff: HEAD~1
           args: --min-nodes 20
           upload-sarif: "false"
           annotate: "false"
+          fail: "false"
       - name: Run the action on no change
         id: unchanged
         uses: ./
@@ -140,7 +143,8 @@ jobs:
       # Below fail-over the check passes, its candidates annotated as
       # warnings: the one run that annotates, so the annotation code runs.
       # The others leave annotations out, which would read as findings of
-      # this pull request.
+      # this pull request. No run fails on purpose, so the exit 1 that
+      # fails a job on candidates is the one path no run takes.
       - name: Run the action under a duplication limit
         id: limit
         uses: ./

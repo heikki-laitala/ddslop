@@ -33,6 +33,9 @@ inputs:
   annotate:
     description: Show results as workflow annotations, each candidate where they are not uploaded and an error when the check fails. "false" leaves the exit code and the SARIF report (output sarif-file) only, for a workflow that reads the result itself.
     default: "true"
+  fail:
+    description: Fail the job when the check reports candidates (or, with fail-over, duplication above the limit). "false" lets the job pass and reports through the exit-code output, the SARIF report and annotations, as warnings; an analysis error still fails it.
+    default: "true"
 
 outputs:
   sarif-file:
@@ -126,6 +129,7 @@ runs:
         SARIF: ${{ steps.check.outputs.sarif-file }}
         TARGET: ${{ inputs.path }}
         CODE: ${{ steps.check.outputs.exit-code }}
+        FAIL: ${{ inputs.fail }}
       run: |
         # SARIF paths are relative to the analysed path; annotations take
         # paths relative to the repository. Below fail-over the check
@@ -144,7 +148,7 @@ runs:
           *) prefix=$abs ;; # outside the repository: annotations cannot attach
         esac
         level=error
-        if [ "$CODE" = 0 ]; then level=warning; fi
+        if [ "$CODE" = 0 ] || [ "$FAIL" = false ]; then level=warning; fi
         jq -r --arg prefix "$prefix" --arg level "$level" '
           def data: gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A");
           def prop: data | gsub(":"; "%3A") | gsub(","; "%2C");
@@ -157,6 +161,7 @@ runs:
       env:
         CODE: ${{ steps.check.outputs.exit-code }}
         ANNOTATE: ${{ inputs.annotate }}
+        FAIL: ${{ inputs.fail }}
       run: |
         # Without annotations the outcome is still a failure, written as
         # plain log lines.
@@ -164,6 +169,10 @@ runs:
         if [ "$ANNOTATE" = false ]; then error="ddslop: "; fi
         case "$CODE" in
           0) echo "ddslop: passed" ;;
-          1) echo "${error}ddslop found duplication to refactor (see the annotations on the changed files)"; exit 1 ;;
+          1) if [ "$FAIL" = false ]; then
+               echo "ddslop: found duplication to refactor; fail is false, so the job passes"
+               exit 0
+             fi
+             echo "${error}ddslop found duplication to refactor (see the annotations on the changed files)"; exit 1 ;;
           *) echo "${error}ddslop failed (exit code $CODE)"; exit 2 ;;
         esac
