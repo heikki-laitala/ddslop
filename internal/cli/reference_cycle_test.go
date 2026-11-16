@@ -470,6 +470,23 @@ func TestRootImportsAreTheRootsOwn(t *testing.T) {
 			"mod child;\npub use A as B;\npub use B as A;\npub fn run() -> u8 { child::f() }\n",
 			"pub fn f() -> u8 { let _a: Option<crate::A> = None; 1 }\n")))
 	})
+	t.Run("a glob re-export is the module that defines the name", func(t *testing.T) {
+		wantCycles(t, 0, "the root re-exports refusal's items by glob; child uses one", repo(t, crate(
+			"mod child;\nmod refusal;\npub use refusal::*;\npub fn run() -> u8 { child::f() }\n",
+			"pub fn f() -> u8 { let _r: Option<crate::Refusal> = None; 1 }\n",
+			"src/refusal.rs", "pub enum Refusal { Empty }\n")))
+	})
+	t.Run("a test-only root import is not production's", func(t *testing.T) {
+		wantCycleBetween(t, ". -> child, child -> .", repo(t, crate(
+			"mod child;\nmod foo;\n#[cfg(test)]\nuse crate::foo::Thing;\n#[cfg(not(test))]\npub struct Thing;\npub fn run() -> u8 { child::f() }\n",
+			"pub fn f() -> u8 { let _t: Option<crate::Thing> = None; 1 }\n",
+			"src/foo.rs", "pub struct Thing;\n")))
+	})
+	t.Run("a re-export from an inline module is the root's", func(t *testing.T) {
+		wantCycleBetween(t, ". -> child, child -> .", repo(t, crate(
+			"mod child;\nmod nested {\n    pub struct Thing;\n}\npub use nested::Thing;\npub fn run() -> u8 { child::f() }\n",
+			"pub fn f() -> u8 { let _t: Option<crate::Thing> = None; 1 }\n")))
+	})
 	t.Run("a macro the root imports is its module's", func(t *testing.T) {
 		wantCycles(t, 0, "child invokes the macro the root imports from macros", repo(t, crate(
 			"#[macro_use]\nmod macros;\nmod child;\npub(crate) use macros::one;\npub fn run() -> u8 { child::f() }\n",

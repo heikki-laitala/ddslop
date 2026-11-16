@@ -876,6 +876,20 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		}
 	}
 	rootValues, selfAliases, rootImports, rootItems := map[string]bool{}, map[string]bool{}, map[string]string{}, map[string]bool{}
+	inline, moduleItems := map[string]bool{}, map[string]map[string]bool{}
+	var globs []string
+	for _, f := range files {
+		if codemap.Crate(f.Path, crates) != name {
+			continue
+		}
+		m := codemap.Module(f.Path, crates)
+		if moduleItems[m] == nil {
+			moduleItems[m] = map[string]bool{}
+		}
+		for _, n := range definedNames(f) {
+			moduleItems[m][n] = true
+		}
+	}
 	for _, f := range files {
 		crate, rel := codemap.CratePath(f.Path, crates)
 		root := rel == "lib.rs" || rel == "main.rs" && !libraries[crate]
@@ -885,23 +899,30 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		for _, u := range f.Units {
 			if u.Module == "" && !strings.Contains(u.Name, "::") {
 				rootValues[strings.TrimPrefix(u.Name, "r#")] = true
-				rootItems[strings.TrimPrefix(u.Name, "r#")] = true
 			}
 		}
 		for _, k := range f.Decls.Consts {
 			rootValues[strings.TrimPrefix(k.Name, "r#")] = true
-			rootItems[strings.TrimPrefix(k.Name, "r#")] = true
+		}
+		for _, n := range definedNames(f) {
+			rootItems[n] = true
 		}
 		// a name the root imports (pub use values::foo) beside its mod foo
 		// cannot be a module too: it is a value
 		for name := range f.Imports {
-			rootValues[strings.TrimPrefix(name, "r#")] = true
+			if !strings.HasPrefix(name, "*") {
+				rootValues[strings.TrimPrefix(name, "r#")] = true
+			}
 		}
 		for name, path := range f.TopImports {
+			if strings.HasPrefix(name, "*") {
+				globs = append(globs, path)
+				continue
+			}
 			rootImports[strings.TrimPrefix(name, "r#")] = path
 		}
-		for _, n := range append(slices.Clone(f.Decls.TypeNames), f.Traits...) {
-			rootItems[strings.TrimPrefix(n, "r#")] = true
+		for _, m := range f.InlineModules {
+			inline[strings.TrimPrefix(m, "r#")] = true
 		}
 		for _, r := range f.References {
 			if r.Alias != "" && (tests || !r.Test) {
@@ -909,7 +930,9 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 			}
 		}
 	}
-	facts := codemap.CrateFacts{Modules: modules, RootValues: rootValues, SelfAliases: selfAliases, RootImports: rootImports, RootItems: rootItems}
+	slices.Sort(globs)
+	facts := codemap.CrateFacts{Modules: modules, RootValues: rootValues, SelfAliases: selfAliases, RootImports: rootImports,
+		RootItems: rootItems, RootGlobs: globs, InlineModules: inline, ModuleItems: moduleItems}
 	var deps []codemap.Dependency
 	for _, f := range files {
 		if generated[f.Path] || codemap.Crate(f.Path, crates) != name || !inLibrary(f.Path, crates, libraries) {
@@ -926,6 +949,24 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		}
 	}
 	return deps
+}
+
+// definedNames lists the items a Rust file defines at its top level:
+// functions, constants, types and traits.
+func definedNames(f index.File) []string {
+	var out []string
+	for _, u := range f.Units {
+		if u.Module == "" && !strings.Contains(u.Name, "::") {
+			out = append(out, strings.TrimPrefix(u.Name, "r#"))
+		}
+	}
+	for _, k := range f.Decls.Consts {
+		out = append(out, strings.TrimPrefix(k.Name, "r#"))
+	}
+	for _, n := range append(slices.Clone(f.Decls.TypeNames), f.Traits...) {
+		out = append(out, strings.TrimPrefix(n, "r#"))
+	}
+	return out
 }
 
 // libraryCrates returns the crates whose package has a library target
@@ -1330,7 +1371,7 @@ func languageOf(path string) string {
 func parseRust(file syntax.Source) (index.Parsed, error) {
 	units, decls, err := rust.ParseAs(file)
 	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(file.Src),
-		Modules: rust.DeclaredModules(file.Src), References: rust.ReferencesAs(file)}
+		Modules: rust.DeclaredModules(file.Src), InlineModules: rust.InlineModules(file.Src), References: rust.ReferencesAs(file)}
 	for _, t := range decls.Traits {
 		parsed.Traits = append(parsed.Traits, t.Name)
 	}

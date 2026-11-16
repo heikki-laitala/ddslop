@@ -36,6 +36,9 @@ type Parsed struct {
 	TestModules []string
 	// Modules are all the modules the file declares out of line (Rust).
 	Modules []string
+	// InlineModules are the modules the file declares inline at its top
+	// level (Rust).
+	InlineModules []string
 	// Decls are the file's declarations other than functions.
 	Decls unit.Decls
 	// References are the paths the file writes that name another module
@@ -99,15 +102,16 @@ const versionKey = "version"
 
 // stored is what the units column of a file row holds.
 type stored struct {
-	Units       []unit.Unit
-	Traits      []string
-	Imports     map[string]string
-	TopImports  map[string]string
-	TestModules []string
-	Modules     []string
-	Decls       unit.Decls
-	References  []unit.Reference
-	Words       map[string]int
+	Units         []unit.Unit
+	Traits        []string
+	Imports       map[string]string
+	TopImports    map[string]string
+	TestModules   []string
+	Modules       []string
+	InlineModules []string
+	Decls         unit.Decls
+	References    []unit.Reference
+	Words         map[string]int
 }
 
 // DB is an open index database.
@@ -271,7 +275,7 @@ func (d *DB) write(reset bool, version string, changes []change, deleted []strin
 	defer func() { _ = upsert.Close() }()
 	for _, c := range changes {
 		var blob bytes.Buffer
-		if err = gob.NewEncoder(&blob).Encode(stored{c.parsed.Units, c.parsed.Traits, c.parsed.Imports, c.parsed.TopImports, c.parsed.TestModules, c.parsed.Modules, c.parsed.Decls, c.parsed.References, c.parsed.Words}); err != nil {
+		if err = gob.NewEncoder(&blob).Encode(stored{c.parsed.Units, c.parsed.Traits, c.parsed.Imports, c.parsed.TopImports, c.parsed.TestModules, c.parsed.Modules, c.parsed.InlineModules, c.parsed.Decls, c.parsed.References, c.parsed.Words}); err != nil {
 			return err
 		}
 		if _, err = upsert.Exec(c.path, c.stamp.mtime, c.stamp.size, c.parsed.Generated, blob.Bytes()); err != nil {
@@ -317,7 +321,7 @@ func (d *DB) Files() ([]File, error) {
 		if err := gob.NewDecoder(bytes.NewReader(blob)).Decode(&st); err != nil {
 			return f, fmt.Errorf("index: %s: %w", f.Path, err)
 		}
-		f.Units, f.Traits, f.Imports, f.TopImports, f.TestModules, f.Modules, f.Decls, f.References, f.Words = st.Units, st.Traits, st.Imports, st.TopImports, st.TestModules, st.Modules, st.Decls, st.References, st.Words
+		f.Units, f.Traits, f.Imports, f.TopImports, f.TestModules, f.Modules, f.InlineModules, f.Decls, f.References, f.Words = st.Units, st.Traits, st.Imports, st.TopImports, st.TestModules, st.Modules, st.InlineModules, st.Decls, st.References, st.Words
 		return f, nil
 	})
 }

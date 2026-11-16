@@ -227,6 +227,14 @@ type CrateFacts struct {
 	// RootItems are the items the root module defines itself: functions,
 	// constants, types and traits.
 	RootItems map[string]bool
+	// RootGlobs are the paths the root re-exports every item of (pub use
+	// refusal::*), in order.
+	RootGlobs []string
+	// InlineModules are the modules the root declares inline, part of the
+	// root module.
+	InlineModules map[string]bool
+	// ModuleItems are, by module, the items each defines at its top level.
+	ModuleItems map[string]map[string]bool
 }
 
 // ReferencedModule returns the module of its crate a reference written in
@@ -277,6 +285,15 @@ func ReferencedModule(file string, crates *Packages, ref unit.Reference, crate C
 		if target, ok := crate.RootImports[at[0]]; ok {
 			return importedModule(name, target, crate, map[string]bool{at[0]: true})
 		}
+		// A name a glob re-export supplies (pub use refusal::*) is the
+		// module's that defines it.
+		if !crate.RootItems[at[0]] {
+			for _, glob := range crate.RootGlobs {
+				if m := importedModule(name, glob, crate, map[string]bool{}); m != moduleName(name, "") && crate.ModuleItems[m][at[0]] {
+					return m
+				}
+			}
+		}
 	}
 	// A path ending at a root value's name (crate::foo for the root's fn
 	// foo) names that value, though a module foo may exist beside it.
@@ -312,6 +329,9 @@ func importedModule(crate, path string, facts CrateFacts, seen map[string]bool) 
 	// define a name in one namespace.
 	if facts.Modules[moduleName(crate, first)] {
 		return moduleName(crate, first)
+	}
+	if facts.InlineModules[first] {
+		return moduleName(crate, "") // an inline module is part of the root
 	}
 	if next, ok := facts.RootImports[first]; ok && !seen[first] {
 		seen[first] = true

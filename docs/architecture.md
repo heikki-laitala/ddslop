@@ -1750,8 +1750,16 @@ children while they use its items is Rust's facade, not a cycle. Nor is
 a path through it: a child naming `crate::Refusal`, which the root
 imports from `refusal`, depends on `refusal`, not on the root, and one
 naming a name the root imports from another crate depends on no module
-of its own. Otherwise every crate whose root both re-exports a type and
-calls the module using it showed a cycle with its root.
+of its own. Root imports are the use declarations directly in the root
+file, not those of its inline modules, functions or blocks, nor those
+marked `#[cfg(test)]`; an alias of the root's own item or of the crate
+(`use crate as facade`) is the root's, one from an inline module is the
+root's too (it is part of the root module), chains of re-exports are
+followed to their source, and a name a glob re-export supplies
+(`pub use refusal::*`) is the module's that defines it. Otherwise every
+crate whose root both re-exports a type and calls the module using it
+showed a cycle with its root, and a glob facade hid every cycle among
+its modules behind one with its root.
 The map's cycles stay those of calls, as its layers are. Measured on
 that workspace: 139 candidates where calls alone gave 31, the constants
 pair among them.

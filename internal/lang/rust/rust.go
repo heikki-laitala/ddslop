@@ -796,10 +796,14 @@ func Traits(src []byte) []string {
 // refers to: "use a::b::{c, d as e}" gives c -> a::b::c and e -> a::b::d.
 // Wildcard imports and imports inside #[cfg(test)] modules are skipped.
 // The second map is the file's own scope's: its top-level use
-// declarations, not those of an inline module, a function or a block.
+// declarations, not those of an inline module, a function or a block,
+// with each glob (use a::b::*) under "*" and its source.
 func Imports(src []byte) (all, top map[string]string) {
 	_ = syntax.Parse(language, src, func(root *sitter.Node) {
 		all, top = importsOf(root, src), usesIn(root, src)
+		// A glob names no one item: only the root's are followed, through
+		// their source modules' items.
+		maps.DeleteFunc(all, func(name, _ string) bool { return strings.HasPrefix(name, "*") })
 	})
 	return all, top
 }
@@ -870,6 +874,16 @@ func collectUse(n *sitter.Node, prefix string, src []byte, out map[string]string
 		for i := uint(0); i < n.NamedChildCount(); i++ {
 			collectUse(n.NamedChild(i), prefix, src, out)
 		}
+	case "use_wildcard":
+		// use a::b::* names no one item: it is recorded under "*" and its
+		// source, a key no name can be.
+		path := prefix
+		if n.NamedChildCount() > 0 {
+			path = join(n.NamedChild(0).Utf8Text(src))
+		}
+		if path != "" {
+			out["*"+path] = path
+		}
 	}
 }
 
@@ -918,15 +932,25 @@ func (e *extractor) visibleImports(item *sitter.Node) map[string]string {
 }
 
 // usesIn returns the imports of the use declarations directly in a
-// module's item list or a block, as Imports gives them.
+// module's item list or a block, as Imports gives them, but those marked
+// #[cfg(test)], which are test code's.
+//
+// ddslop:ignore Rust's use walk; TypeScript's import walk reads another grammar
 func usesIn(container *sitter.Node, src []byte) map[string]string {
 	out := map[string]string{}
+	test := false
 	for i := uint(0); i < container.NamedChildCount(); i++ {
-		if n := container.NamedChild(i); n.Kind() == "use_declaration" {
+		n := container.NamedChild(i)
+		if n.Kind() == "attribute_item" {
+			test = test || isCfgTest(n.Utf8Text(src))
+			continue
+		}
+		if n.Kind() == "use_declaration" && !test {
 			if arg := n.ChildByFieldName("argument"); arg != nil {
 				collectUse(arg, "", src, out)
 			}
 		}
+		test = false
 	}
 	return out
 }
@@ -1829,7 +1853,7 @@ func manifestValues(cargoToml []byte, key string, sections ...string) []string {
 // name;), at its top level, in source order: each one's name, or the file
 // a #[path] attribute places it in, ending in .rs.
 func DeclaredModules(src []byte) []string {
-	return outOfLineModules(src, func(name string, attrs []string) string {
+	return topModules(src, false, func(name string, attrs []string) string {
 		for _, attr := range attrs {
 			if file, ok := pathAttribute(attr); ok {
 				return file
@@ -1855,7 +1879,7 @@ func pathAttribute(attr string) (string, bool) {
 //
 // Only declarations at the top level of the file are considered.
 func TestModules(src []byte) []string {
-	return outOfLineModules(src, func(name string, attrs []string) string {
+	return topModules(src, false, func(name string, attrs []string) string {
 		if slices.ContainsFunc(attrs, isCfgTest) {
 			return name
 		}
@@ -1863,10 +1887,16 @@ func TestModules(src []byte) []string {
 	})
 }
 
-// outOfLineModules returns, for the modules a file declares out of line at
-// its top level, what entry makes of each one's name and attributes, ""
-// leaving it out.
-func outOfLineModules(src []byte, entry func(name string, attrs []string) string) []string {
+// InlineModules returns the names of the modules a file declares inline
+// (mod name { ... }) at its top level, in source order.
+func InlineModules(src []byte) []string {
+	return topModules(src, true, func(name string, _ []string) string { return name })
+}
+
+// topModules returns, for the modules a file declares at its top level,
+// inline ones or out-of-line ones, what entry makes of each one's name and
+// attributes, "" leaving it out.
+func topModules(src []byte, inline bool, entry func(name string, attrs []string) string) []string {
 	var names []string
 	_ = syntax.Parse(language, src, func(root *sitter.Node) {
 		var attrs []string
@@ -1878,7 +1908,7 @@ func outOfLineModules(src []byte, entry func(name string, attrs []string) string
 				continue
 			case child.IsExtra():
 				continue
-			case child.Kind() == "mod_item" && child.ChildByFieldName("body") == nil:
+			case child.Kind() == "mod_item" && (child.ChildByFieldName("body") != nil) == inline:
 				if name := child.ChildByFieldName("name"); name != nil {
 					if e := entry(name.Utf8Text(src), attrs); e != "" {
 						names = append(names, e)
