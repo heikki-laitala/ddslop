@@ -43,6 +43,9 @@ type Parsed struct {
 	// TopReexports what its visible top-level uses bring in (Rust).
 	TopNames     []string
 	TopReexports map[string]string
+	// TopExports are the TopNames visible outside the module, and its
+	// public modules: what a glob of the module supplies of its own.
+	TopExports []string
 	// Decls are the file's declarations other than functions.
 	Decls unit.Decls
 	// References are the paths the file writes that name another module
@@ -115,6 +118,7 @@ type stored struct {
 	InlineModules []string
 	TopNames      []string
 	TopReexports  map[string]string
+	TopExports    []string
 	Decls         unit.Decls
 	References    []unit.Reference
 	Words         map[string]int
@@ -281,7 +285,7 @@ func (d *DB) write(reset bool, version string, changes []change, deleted []strin
 	defer func() { _ = upsert.Close() }()
 	for _, c := range changes {
 		var blob bytes.Buffer
-		if err = gob.NewEncoder(&blob).Encode(stored{c.parsed.Units, c.parsed.Traits, c.parsed.Imports, c.parsed.TopImports, c.parsed.TestModules, c.parsed.Modules, c.parsed.InlineModules, c.parsed.TopNames, c.parsed.TopReexports, c.parsed.Decls, c.parsed.References, c.parsed.Words}); err != nil {
+		if err = gob.NewEncoder(&blob).Encode(stored{c.parsed.Units, c.parsed.Traits, c.parsed.Imports, c.parsed.TopImports, c.parsed.TestModules, c.parsed.Modules, c.parsed.InlineModules, c.parsed.TopNames, c.parsed.TopReexports, c.parsed.TopExports, c.parsed.Decls, c.parsed.References, c.parsed.Words}); err != nil {
 			return err
 		}
 		if _, err = upsert.Exec(c.path, c.stamp.mtime, c.stamp.size, c.parsed.Generated, blob.Bytes()); err != nil {
@@ -327,7 +331,7 @@ func (d *DB) Files() ([]File, error) {
 		if err := gob.NewDecoder(bytes.NewReader(blob)).Decode(&st); err != nil {
 			return f, fmt.Errorf("index: %s: %w", f.Path, err)
 		}
-		f.Units, f.Traits, f.Imports, f.TopImports, f.TestModules, f.Modules, f.InlineModules, f.TopNames, f.TopReexports, f.Decls, f.References, f.Words = st.Units, st.Traits, st.Imports, st.TopImports, st.TestModules, st.Modules, st.InlineModules, st.TopNames, st.TopReexports, st.Decls, st.References, st.Words
+		f.Units, f.Traits, f.Imports, f.TopImports, f.TestModules, f.Modules, f.InlineModules, f.TopNames, f.TopReexports, f.TopExports, f.Decls, f.References, f.Words = st.Units, st.Traits, st.Imports, st.TopImports, st.TestModules, st.Modules, st.InlineModules, st.TopNames, st.TopReexports, st.TopExports, st.Decls, st.References, st.Words
 		return f, nil
 	})
 }

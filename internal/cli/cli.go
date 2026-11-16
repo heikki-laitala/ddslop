@@ -898,6 +898,7 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 	}
 	rootValues, selfAliases, rootImports, rootItems := map[string]bool{}, map[string]bool{}, map[string]string{}, map[string]bool{}
 	inline, moduleItems, moduleReexports := map[string]bool{}, map[string]map[string]bool{}, map[string]map[string]string{}
+	moduleGlobs := map[string][]string{}
 	var globs []string
 	for _, f := range files {
 		if codemap.Crate(f.Path, crates) != name {
@@ -907,10 +908,16 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		if moduleItems[m] == nil {
 			moduleItems[m] = map[string]bool{}
 		}
-		for _, n := range f.TopNames {
+		for _, n := range f.TopExports {
 			moduleItems[m][n] = true
 		}
 		for n, path := range f.TopReexports {
+			if strings.HasPrefix(n, "*") {
+				if target, ok := codemap.ReexportPath(f.Path, crates, path); ok {
+					moduleGlobs[m] = append(moduleGlobs[m], target)
+				}
+				continue
+			}
 			if target, ok := codemap.ReexportPath(f.Path, crates, path); ok {
 				if moduleReexports[m] == nil {
 					moduleReexports[m] = map[string]string{}
@@ -961,7 +968,8 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 	}
 	slices.Sort(globs)
 	facts := codemap.CrateFacts{Modules: modules, RootValues: rootValues, SelfAliases: selfAliases, RootImports: rootImports,
-		RootItems: rootItems, RootGlobs: globs, InlineModules: inline, ModuleItems: moduleItems, ModuleReexports: moduleReexports}
+		RootItems: rootItems, RootGlobs: globs, InlineModules: inline, ModuleItems: moduleItems, ModuleReexports: moduleReexports,
+		ModuleGlobs: moduleGlobs}
 	var deps []codemap.Dependency
 	for _, f := range files {
 		if generated[f.Path] || codemap.Crate(f.Path, crates) != name || !inLibrary(f.Path, crates, libraries) {
@@ -1370,7 +1378,7 @@ func loadFiles(root string, db *index.DB) ([]index.File, error) {
 		if !test {
 			continue
 		}
-		files[i].Imports, files[i].TopImports, files[i].TopReexports = nil, nil, nil
+		files[i].Imports, files[i].TopImports, files[i].TopReexports, files[i].TopExports = nil, nil, nil, nil
 		markTest(&files[i])
 	}
 	return files, nil
@@ -1466,7 +1474,12 @@ func parseSource(file syntax.Source) (index.Parsed, error) {
 		case "rust":
 			entries = rust.Traits(src)
 		}
-		return index.Parsed{Generated: true, Traits: entries, Words: source.Words(src)}, nil
+		parsed := index.Parsed{Generated: true, Traits: entries, Words: source.Words(src)}
+		if language == "rust" {
+			// A generated module's names still resolve paths through it.
+			parsed.TopNames, parsed.TopExports, parsed.TopReexports = rust.TopNames(src), rust.TopExports(src), rust.TopReexports(src)
+		}
+		return parsed, nil
 	}
 	var parsed index.Parsed
 	var err error
@@ -1502,7 +1515,7 @@ func parseRust(file syntax.Source) (index.Parsed, error) {
 	units, decls, err := rust.ParseAs(file)
 	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(file.Src),
 		Modules: rust.DeclaredModules(file.Src), InlineModules: rust.InlineModules(file.Src), References: rust.ReferencesAs(file),
-		TopNames: rust.TopNames(file.Src), TopReexports: rust.TopReexports(file.Src)}
+		TopNames: rust.TopNames(file.Src), TopReexports: rust.TopReexports(file.Src), TopExports: rust.TopExports(file.Src)}
 	for _, t := range decls.Traits {
 		parsed.Traits = append(parsed.Traits, t.Name)
 	}

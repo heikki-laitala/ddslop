@@ -235,10 +235,13 @@ type CrateFacts struct {
 	InlineModules map[string]bool
 	// ModuleItems are, by module, the items each defines at its top level.
 	ModuleItems map[string]map[string]bool
-	// ModuleReexports are, by module, the crate:: paths its top-level use
-	// declarations bring in under each name: what a glob of it supplies
-	// besides its own items.
+	// ModuleReexports are, by module, the crate:: paths its visible
+	// top-level use declarations bring in under each name: what a glob of
+	// it supplies besides its own items.
 	ModuleReexports map[string]map[string]string
+	// ModuleGlobs are, by module, the crate:: paths its visible top-level
+	// globs re-export: a glob of it supplies theirs too.
+	ModuleGlobs map[string][]string
 }
 
 // ReferencedModule returns the module of its crate a reference written in
@@ -292,23 +295,8 @@ func ReferencedModule(file string, crates *Packages, ref unit.Reference, crate C
 		// A name a glob re-export supplies (pub use refusal::*) is the
 		// module's that defines it.
 		if !crate.RootItems[at[0]] {
-			// The module defining the name comes first: a module's own use
-			// of it (use crate::Response) may be private, not the re-export.
-			var sources []string
-			for _, glob := range crate.RootGlobs {
-				if m := importedModule(name, glob, crate, map[string]bool{}); m != moduleName(name, "") {
-					sources = append(sources, m)
-				}
-			}
-			for _, m := range sources {
-				if crate.ModuleItems[m][at[0]] {
-					return m
-				}
-			}
-			for _, m := range sources {
-				if path, ok := crate.ModuleReexports[m][at[0]]; ok {
-					return importedModule(name, path, crate, map[string]bool{at[0]: true})
-				}
+			if m := globSupplier(name, at[0], crate, crate.RootGlobs, map[string]bool{}); m != "" {
+				return m
 			}
 		}
 	}
@@ -319,6 +307,36 @@ func ReferencedModule(file string, crates *Packages, ref unit.Reference, crate C
 		return moduleName(name, at[0])
 	}
 	return moduleName(name, "")
+}
+
+// globSupplier returns the module that supplies item through globs (the
+// crate:: paths of pub use m::*), "" for none: a module defining it comes
+// first, then one re-exporting it by name, then one whose own globs
+// supply it; seen holds the modules looked through already.
+func globSupplier(crate, item string, facts CrateFacts, globs []string, seen map[string]bool) string {
+	var sources []string
+	for _, glob := range globs {
+		if m := importedModule(crate, glob, facts, map[string]bool{}); m != moduleName(crate, "") && !seen[m] {
+			seen[m] = true
+			sources = append(sources, m)
+		}
+	}
+	for _, m := range sources {
+		if facts.ModuleItems[m][item] {
+			return m
+		}
+	}
+	for _, m := range sources {
+		if path, ok := facts.ModuleReexports[m][item]; ok {
+			return importedModule(crate, path, facts, map[string]bool{item: true})
+		}
+	}
+	for _, m := range sources {
+		if supplier := globSupplier(crate, item, facts, facts.ModuleGlobs[m], seen); supplier != "" {
+			return supplier
+		}
+	}
+	return ""
 }
 
 // importedModule returns the module of crate a root import's path names:

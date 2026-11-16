@@ -1948,29 +1948,40 @@ func TopNames(src []byte) []string {
 	}, func(name string, _ []string) string { return strings.TrimPrefix(name, "r#") })
 }
 
+// TopExports returns the names a file's own scope makes visible outside
+// its module: what a glob of the module supplies of its own. They are
+// TopNames' items with a visibility, and its public modules.
+func TopExports(src []byte) []string {
+	return topItems(src, func(item *sitter.Node, attrs []string) bool {
+		return (topItemKinds[item.Kind()] || item.Kind() == "mod_item") && visible(item, src) &&
+			!slices.ContainsFunc(attrs, isCfgTest)
+	}, func(name string, _ []string) string { return strings.TrimPrefix(name, "r#") })
+}
+
 // TopReexports returns the names a file's top-level use declarations with
 // a visibility (pub, pub(crate)) bring in, each with its path: what a glob
-// of the file's module supplies besides its items. Globs and test code's
-// uses are left out.
+// of the file's module supplies besides its items. A visible glob (pub use
+// a::*) is kept under "*" and its source. Test code's uses are left out.
 func TopReexports(src []byte) map[string]string {
 	out := map[string]string{}
 	topLevel(src, func(item *sitter.Node, attrs []string) {
-		if item.Kind() != "use_declaration" || slices.ContainsFunc(attrs, isCfgTest) || !visible(item) {
+		if item.Kind() != "use_declaration" || slices.ContainsFunc(attrs, isCfgTest) || !visible(item, src) {
 			return
 		}
 		if arg := item.ChildByFieldName("argument"); arg != nil {
 			collectUse(arg, "", src, out)
 		}
 	})
-	maps.DeleteFunc(out, func(name, _ string) bool { return strings.HasPrefix(name, "*") })
 	return out
 }
 
-// visible reports whether a declaration carries a visibility modifier.
-func visible(n *sitter.Node) bool {
+// visible reports whether a declaration is visible outside its module: it
+// carries a visibility, and not pub(self), which keeps it private.
+func visible(n *sitter.Node, src []byte) bool {
 	for i := uint(0); i < n.NamedChildCount(); i++ {
-		if n.NamedChild(i).Kind() == "visibility_modifier" {
-			return true
+		if m := n.NamedChild(i); m.Kind() == "visibility_modifier" {
+			v := strings.Join(strings.Fields(m.Utf8Text(src)), "")
+			return v != "pub(self)" && v != "pub(inself)"
 		}
 	}
 	return false

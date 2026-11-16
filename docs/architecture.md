@@ -1856,11 +1856,14 @@ marked `#[cfg(test)]`; an alias of the root's own item or of the crate
 (`use crate as facade`) is the root's, one from an inline module is the
 root's too (it is part of the root module), chains of re-exports are
 followed to their source, and a name a glob re-export supplies
-(`pub use refusal::*`) is the module's that defines it in its own scope
-(its top-level items, `TopNames`, not an inline module's), else the
-module a visible top-level use of it there names (`pub use
-super::foo::X`, read from that module; `TopReexports`: a private use is
-not what a glob supplies). Otherwise every
+(`pub use refusal::*`) is the module's that defines it visibly in its
+own scope (`TopExports`: its top-level items and modules with a
+visibility, not `pub(self)`, not an inline module's), else the module a
+visible top-level use of it there names (`pub use super::foo::X`, read
+from that module; `TopReexports`), else what that module's own visible
+globs supply, followed through every glob once. A generated module's
+names count too: paths resolve through it though its code is not
+analysed. Otherwise every
 crate whose root both re-exports a type and calls the module using it
 showed a cycle with its root, and a glob facade hid every cycle among
 its modules behind one with its root.
