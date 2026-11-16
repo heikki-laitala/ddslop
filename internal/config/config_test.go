@@ -53,7 +53,7 @@ func TestLoadRejectsUnknownKeysAndBadYAML(t *testing.T) {
 		"exclude: \"*.go\"\n": "cannot unmarshal",
 	} {
 		_, err := Load(write(t, content))
-		if err == nil || !strings.Contains(err.Error(), File) || !strings.Contains(err.Error(), want) {
+		if err == nil || !strings.Contains(err.Error(), File) || !strings.Contains(err.Error(), want) { // ddslop:ignore asserts the message the user reads
 			t.Errorf("%q: error = %v, want one naming %s and saying %q", content, err, File, want)
 		}
 	}
@@ -80,7 +80,7 @@ func TestExcludedMatchesGlobsAgainstSlashPaths(t *testing.T) {
 
 func TestValidateRejectsBadGlobs(t *testing.T) {
 	_, err := Load(write(t, "exclude:\n  - \"src/[a\"\n"))
-	if err == nil || !strings.Contains(err.Error(), `exclude "src/[a"`) {
+	if err == nil || !strings.Contains(err.Error(), `exclude "src/[a"`) { // ddslop:ignore asserts the message the user reads
 		t.Errorf("error = %v, want one naming the bad pattern", err)
 	}
 }
