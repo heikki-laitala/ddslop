@@ -598,6 +598,18 @@ func TestAGlobSuppliesItsModulesOwnScope(t *testing.T) {
 			"src/facade.rs", "pub mod inner;\npub use inner::X;\n",
 			"src/facade/inner.rs", "pub struct X;\npub fn g() -> u8 { crate::child::f() }\n")))
 	})
+	t.Run("a bare re-export through a name the module imports", func(t *testing.T) {
+		for _, facade := range []string{
+			"use crate::foo;\npub use foo::X;\n",
+			"pub use crate::foo::X as Z;\npub use Z as X;\n",
+		} {
+			wantCycleBetween(t, "child -> foo, foo -> child", repo(t, crate(
+				"src/lib.rs", "mod child;\nmod facade;\nmod foo;\npub use facade::*;\n",
+				"src/child.rs", child,
+				"src/facade.rs", facade,
+				"src/foo.rs", foo)))
+		}
+	})
 	t.Run("not a visibility restricted to the module", func(t *testing.T) {
 		wantCycleBetween(t, "child -> foo, foo -> child", repo(t, crate(
 			"src/lib.rs", "mod child;\nmod facade;\nmod foo;\npub use facade::*;\npub use foo::*;\n",
