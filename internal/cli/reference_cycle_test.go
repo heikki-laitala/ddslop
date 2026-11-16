@@ -423,6 +423,25 @@ func TestRootImportsAreTheRootsOwn(t *testing.T) {
 			"mod child;\npub struct Error;\npub use crate::Error as PublicError;\npub fn run() -> u8 { child::f() }\n",
 			"pub fn f() -> u8 { let _e: Option<crate::PublicError> = None; 1 }\n")))
 	})
+	t.Run("a use in a root function is that function's", func(t *testing.T) {
+		wantCycleBetween(t, ". -> child, child -> .", repo(t, crate(
+			"mod child;\nmod foo;\npub struct Thing;\npub fn local() {\n    use crate::foo::Thing;\n    let _t: Option<Thing> = None;\n}\npub fn run() -> u8 { child::f() }\n",
+			"pub fn f() -> u8 { let _t: Option<crate::Thing> = None; 1 }\n",
+			"src/foo.rs", "pub struct Thing;\n")))
+	})
+	t.Run("a path through a module is the module's, though a function shares its name", func(t *testing.T) {
+		wantCycleBetween(t, "child -> one, one -> child", repo(t, crate(
+			"mod child;\nmod one;\nmod values;\npub use values::one;\n",
+			"pub fn f() -> u8 { let _t: Option<crate::one::Thing> = None; 1 }\n",
+			"src/one.rs", "pub struct Thing;\npub fn g() -> u8 { crate::child::f() }\n",
+			"src/values.rs", "pub fn one() -> u8 { 1 }\n")))
+	})
+	t.Run("a chained re-export reaches the module it started from", func(t *testing.T) {
+		wantCycleBetween(t, "child -> foo, foo -> child", repo(t, crate(
+			"mod child;\nmod foo;\npub use foo::X;\npub use X as Y;\n",
+			"pub fn f() -> u8 { let _y: Option<crate::Y> = None; 1 }\n",
+			"src/foo.rs", "pub struct X;\npub fn g() -> u8 { crate::child::f() }\n")))
+	})
 	t.Run("a macro the root imports is its module's", func(t *testing.T) {
 		wantCycles(t, 0, "child invokes the macro the root imports from macros", repo(t, crate(
 			"#[macro_use]\nmod macros;\nmod child;\npub(crate) use macros::one;\npub fn run() -> u8 { child::f() }\n",

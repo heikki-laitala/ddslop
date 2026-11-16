@@ -795,18 +795,17 @@ func Traits(src []byte) []string {
 // Imports maps each name a file brings into scope with use to the path it
 // refers to: "use a::b::{c, d as e}" gives c -> a::b::c and e -> a::b::d.
 // Wildcard imports and imports inside #[cfg(test)] modules are skipped.
-// The second map is the file's own scope's: the use declarations of
-// modules declared inline in it are theirs.
+// The second map is the file's own scope's: its top-level use
+// declarations, not those of an inline module, a function or a block.
 func Imports(src []byte) (all, top map[string]string) {
 	_ = syntax.Parse(language, src, func(root *sitter.Node) {
-		all, top = importsOf(root, src, true), importsOf(root, src, false)
+		all, top = importsOf(root, src), usesIn(root, src)
 	})
 	return all, top
 }
 
-// importsOf is Imports for a parsed file's root, inline modules' imports
-// included when nested.
-func importsOf(root *sitter.Node, src []byte, nested bool) map[string]string {
+// importsOf is the first map of Imports for a parsed file's root.
+func importsOf(root *sitter.Node, src []byte) map[string]string {
 	out := map[string]string{}
 	var walk func(n *sitter.Node)
 	walk = func(n *sitter.Node) {
@@ -825,7 +824,7 @@ func importsOf(root *sitter.Node, src []byte, nested bool) map[string]string {
 				continue
 			case child.IsExtra():
 				continue
-			case child.Kind() == "mod_item" && (!nested || slices.ContainsFunc(attrs, isCfgTest)):
+			case child.Kind() == "mod_item" && slices.ContainsFunc(attrs, isCfgTest):
 				// test modules' imports are not dependencies of the code
 			default:
 				walk(child)
