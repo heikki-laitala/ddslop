@@ -9,9 +9,10 @@ contributions are reports of findings it gets wrong:
 - **A bug:** use the "Bug report" form.
 - **A security issue:** do not open an issue; see [SECURITY.md](SECURITY.md).
 
-ddslop supports Rust and Go, and TypeScript for copied code. Before starting
-a larger change, such as a new detector or language, open an issue to
-agree on the approach.
+ddslop supports Rust, Go and TypeScript (in TypeScript, unused exports,
+the map and feature flows are in progress). Before starting a larger
+change, such as a new detector or language, open an issue to agree on
+the approach.
 
 ## Changing the code
 
