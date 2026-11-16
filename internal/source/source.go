@@ -15,7 +15,8 @@ import (
 // Files returns the paths, relative to root and sorted, of files under root
 // whose names end in one of exts. Inside a Git work tree it lists tracked and
 // untracked-but-not-ignored files, so .gitignore is respected. Elsewhere it
-// walks the directory, skipping hidden directories and "target".
+// walks the directory, skipping hidden directories, "target" (Rust's build
+// output) and "node_modules" (installed packages).
 func Files(root string, exts ...string) ([]string, error) {
 	info, err := os.Stat(root)
 	if err != nil {
@@ -82,7 +83,7 @@ func walkFiles(root string) ([]string, error) {
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if path != root && (strings.HasPrefix(name, ".") || name == "target") {
+			if path != root && (strings.HasPrefix(name, ".") || name == "target" || name == "node_modules") {
 				return filepath.SkipDir
 			}
 			return nil

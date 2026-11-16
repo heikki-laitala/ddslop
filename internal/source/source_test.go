@@ -43,16 +43,16 @@ func TestFilesInGitRepoRespectsGitignore(t *testing.T) {
 	}
 }
 
-func TestFilesOutsideGitSkipsHiddenAndTargetDirs(t *testing.T) {
+func TestFilesOutsideGitSkipsHiddenTargetAndNodeModulesDirs(t *testing.T) {
 	root := t.TempDir()
-	write(t, root, "z.rs", "a/b.rs", "target/gen.rs", ".hidden/h.rs", "notes.txt")
+	write(t, root, "z.rs", "a/b.rs", "target/gen.rs", ".hidden/h.rs", "notes.txt", "web/app.ts", "web/node_modules/pkg/src/x.ts")
 
-	files, err := Files(root, ".rs")
+	files, err := Files(root, ".rs", ".ts")
 	if err != nil {
 		t.Fatalf("Files: %v", err)
 	}
-	if got := fmt.Sprint(files); got != "[a/b.rs z.rs]" {
-		t.Errorf("files = %s, want [a/b.rs z.rs]", got)
+	if got, want := fmt.Sprint(files), "[a/b.rs web/app.ts z.rs]"; got != want {
+		t.Errorf("files = %s, want %s", got, want)
 	}
 }
 
