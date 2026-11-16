@@ -194,6 +194,18 @@ func tsManifests(root string, files []index.File) map[string]tsfile.Manifest {
 	return manifests(root, files, tsfile.IsSource, "package.json", tsfile.ReadManifest)
 }
 
+// tsPackageNames maps the directory of every named TypeScript package to
+// its name (@acme/db).
+func tsPackageNames(root string, files []index.File) map[string]string {
+	names := map[string]string{}
+	for dir, m := range tsManifests(root, files) {
+		if m.Name != "" {
+			names[dir] = m.Name
+		}
+	}
+	return names
+}
+
 // graphInputs collects what call resolution needs: each file's imports,
 // each crate's name from its Cargo.toml under root, the types of Go
 // struct fields, the module path of each go.mod above a Go file, the
@@ -206,12 +218,7 @@ func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
 		path := golang.ModulePath(data)
 		return path, path != ""
 	})
-	tsPackages := map[string]string{}
-	for dir, m := range tsManifests(root, files) {
-		if m.Name != "" {
-			tsPackages[dir] = m.Name
-		}
-	}
+	tsPackages := tsPackageNames(root, files)
 	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{},
 		Fields: map[string]map[string]flow.FieldType{}, Modules: modules, TSPackages: tsPackages, TSInterfaces: map[string][]string{},
 		Libraries: packages(root, files).Libraries}

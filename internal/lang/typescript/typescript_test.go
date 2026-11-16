@@ -557,9 +557,16 @@ class Cache<T> {}
 }
 
 // A method call records its operand's type where the code states it: a
-// typed parameter, or a constant typed or made with new.
+// typed parameter, or a constant typed or made with new. A name bound
+// again (a constant of no stated type, a nested function's parameter, a
+// for-of loop, a catch clause, a destructuring) is no longer the typed
+// outer one.
 func TestMethodCallsRecordTheTypeTheCodeStates(t *testing.T) {
-	units, _ := testutil.Parse(t, Parse, "src/users/handler.ts", `import { UserRepo } from "../store/users";
+	for _, tc := range []struct {
+		name, src string
+		want      []string
+	}{
+		{"stated", `import { UserRepo } from "../store/users";
 
 export async function handle(repo: UserRepo, id: string) {
   const cache = new Map<string, User>();
@@ -573,13 +580,34 @@ export async function handle(repo: UserRepo, id: string) {
     repo.find(id);
   }
 }
-`)
-	testutil.Lines(t, "calls", testutil.Format(units[0].Calls, func(c unit.Call) string {
-		if c.Kind != unit.MethodCall {
-			return ""
-		}
-		return c.Name + " " + c.Type
-	}), []string{"find ../store/users.UserRepo", "get Map", "send Mailer", "run ", "find "})
+`, []string{"find ../store/users.UserRepo", "get Map", "send Mailer", "run ", "find "}},
+		{"bound again", `export function main(item: Item, store: Store, repo: Repo, cache: Cache, svc: Service) {
+  others.map((item) => item.save());
+  for (const store of stores) {
+    store.put();
+  }
+  try {
+    run();
+  } catch (repo) {
+    repo.find();
+  }
+  const { cache } = context;
+  cache.get();
+  const { a = svc } = context;
+  svc.run();
+}
+`, []string{"map ", "save ", "put ", "find ", "get ", "run Service"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			units, _ := testutil.Parse(t, Parse, "src/users/handler.ts", tc.src)
+			testutil.Lines(t, "calls", testutil.Format(units[0].Calls, func(c unit.Call) string {
+				if c.Kind != unit.MethodCall {
+					return ""
+				}
+				return c.Name + " " + c.Type
+			}), tc.want)
+		})
+	}
 }
 
 // An interface's or object type's properties record their types too, and
@@ -623,12 +651,16 @@ export class Repo extends Base implements IRepo, Other<string> {
 }
 
 class Plain {}
+
+interface ICachedRepo extends IRepo {
+  flush(): void;
+}
 `)
 	testutil.Lines(t, "traits", testutil.Format(decls.Traits, func(tr unit.Trait) string {
 		return fmt.Sprintf("%s %d-%d public=%v", tr.Name, tr.StartLine, tr.EndLine, tr.Public)
-	}), []string{"IRepo 3-5 public=true"})
+	}), []string{"IRepo 3-5 public=true", "ICachedRepo 17-19 public=false"})
 	testutil.Lines(t, "impls", testutil.Format(decls.Impls, func(im unit.Impl) string {
 		return fmt.Sprintf("%s %s %s %d-%d", im.Type, im.Trait, im.TraitPath, im.StartLine, im.EndLine)
-	}), []string{"Repo IRepo IRepo 11-13", "Repo Other ./other.Other 11-13"})
+	}), []string{"Repo IRepo IRepo 11-13", "Repo Other ./other.Other 11-13", "ICachedRepo IRepo IRepo 17-19"})
 	testutil.Lines(t, "type names", decls.TypeNames, []string{"Repo", "Plain"})
 }

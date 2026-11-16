@@ -107,14 +107,17 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		}
 	case n.Kind() == "variable_declarator":
 		// const repo: Repo = make(), const cache = new Cache(); a variable
-		// of no stated type shadows any earlier one's
-		if name := n.ChildByFieldName("name"); name != nil && name.Kind() == "identifier" {
-			if typ := g.p.declaredType(n); typ != "" {
-				g.vars[name.Utf8Text(s.Src)] = typ
-			} else {
-				delete(g.vars, name.Utf8Text(s.Src))
-			}
+		// of no stated type, or a destructured one, shadows any earlier one's
+		name := n.ChildByFieldName("name")
+		if typ := g.p.declaredType(n); name != nil && name.Kind() == "identifier" && typ != "" {
+			g.vars[name.Utf8Text(s.Src)] = typ
+		} else {
+			g.forget(name, s.Src)
 		}
+	case n.Kind() == "for_in_statement":
+		g.forget(n.ChildByFieldName("left"), s.Src)
+	case n.Kind() == "catch_clause":
+		g.forget(n.ChildByFieldName("parameter"), s.Src)
 	case n.Kind() == "switch_statement":
 		s.RecordStringMatch(n, caseStrings(n, s.Src))
 	case n.Kind() == "return_statement":
@@ -122,10 +125,35 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 			s.Exits++
 		}
 	case functionKinds[n.Kind()] && syntax.Span(n) != g.fn:
+		// a nested function's parameters shadow the outer names
+		g.forget(n.ChildByFieldName("parameter"), s.Src)
+		eachParam(n, func(p, _, _ *sitter.Node) { g.forget(p.ChildByFieldName("pattern"), s.Src) })
 		s.Closures++
 		return func() { s.Closures-- }
 	}
 	return nil
+}
+
+// forget drops the stated types of the names a binding (a name, or a
+// destructuring pattern) introduces: they shadow any earlier variable.
+// No type is restored after: a lost type only leaves a call unresolved.
+// ddslop:ignore the Rust adapter's forget over TypeScript's node kinds; each changes with its own grammar
+func (g grammar) forget(binding *sitter.Node, src []byte) {
+	if binding == nil {
+		return
+	}
+	switch binding.Kind() {
+	case "identifier", "shorthand_property_identifier_pattern":
+		delete(g.vars, binding.Utf8Text(src))
+	case "assignment_pattern", "object_assignment_pattern":
+		g.forget(binding.ChildByFieldName("left"), src) // a default value binds nothing
+	case "pair_pattern":
+		g.forget(binding.ChildByFieldName("value"), src) // nor does a key
+	default:
+		for i := uint(0); i < binding.NamedChildCount(); i++ {
+			g.forget(binding.NamedChild(i), src)
+		}
+	}
 }
 
 // Parse parses TypeScript source and returns one unit per function,
@@ -285,6 +313,7 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 	case "interface_declaration":
 		p.structure(n, n.ChildByFieldName("body"))
 		p.contract(n, exported)
+		p.bases(n)
 	case "type_alias_declaration":
 		switch value := n.ChildByFieldName("value"); {
 		case value == nil:
@@ -621,25 +650,42 @@ func (p *parser) implementations(class *sitter.Node) {
 	}
 	p.decls.TypeNames = append(p.decls.TypeNames, name.Utf8Text(p.src))
 	for i := uint(0); i < class.NamedChildCount(); i++ {
-		heritage := class.NamedChild(i)
-		for j := uint(0); heritage.Kind() == "class_heritage" && j < heritage.NamedChildCount(); j++ {
-			clause := heritage.NamedChild(j)
-			for k := uint(0); clause.Kind() == "implements_clause" && k < clause.NamedChildCount(); k++ {
-				p.implementation(class, name.Utf8Text(p.src), clause.NamedChild(k))
-			}
+		if heritage := class.NamedChild(i); heritage.Kind() == "class_heritage" {
+			p.implementedIn(class, heritage, "implements_clause", name.Utf8Text(p.src))
 		}
 	}
 }
 
-// implementation records that a class implements the interface typ.
-func (p *parser) implementation(class *sitter.Node, name string, typ *sitter.Node) {
+// bases records each interface an interface extends as implemented by
+// it: every class implementing it implements those too, so they are no
+// single class's.
+func (p *parser) bases(decl *sitter.Node) {
+	if name := decl.ChildByFieldName("name"); name != nil {
+		p.implementedIn(decl, decl, "extends_type_clause", name.Utf8Text(p.src))
+	}
+}
+
+// implementedIn records the declaration decl, named name, as implementing
+// each interface listed by the clauses of a kind among holder's children.
+func (p *parser) implementedIn(decl, holder *sitter.Node, clause, name string) {
+	for i := uint(0); i < holder.NamedChildCount(); i++ {
+		c := holder.NamedChild(i)
+		for j := uint(0); c.Kind() == clause && j < c.NamedChildCount(); j++ {
+			p.implementation(decl, name, c.NamedChild(j))
+		}
+	}
+}
+
+// implementation records that a class, or an interface extending it,
+// implements the interface typ.
+func (p *parser) implementation(decl *sitter.Node, name string, typ *sitter.Node) {
 	path := p.typeOf(typ)
 	if path == "" {
 		return
 	}
 	p.decls.Impls = append(p.decls.Impls, unit.Impl{
 		File: p.file, Trait: path[strings.LastIndex(path, ".")+1:], TraitPath: path, Type: name,
-		StartLine: syntax.Line(class.StartPosition()), EndLine: syntax.Line(class.EndPosition()), Test: p.test,
+		StartLine: syntax.Line(decl.StartPosition()), EndLine: syntax.Line(decl.EndPosition()), Test: p.test,
 	})
 }
 

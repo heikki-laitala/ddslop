@@ -378,3 +378,67 @@ func TestSingleImplementationsKeepTheirLanguage(t *testing.T) {
 
 	testutil.Lines(t, "single implementations", candidateLines(decode(t, stdout), "single-impl-trait"), nil)
 }
+
+// Files ddslop does not analyse (.vue, .js) call TypeScript exports too:
+// one they name is not unused.
+func TestExportsOnlyOtherFilesNameAreNotUnused(t *testing.T) {
+	root := repo(t, map[string]string{
+		"package.json":                  `{"name": "web", "private": true}`,
+		"src/composables/useCounter.ts": "export function useCounter() {\n  return 1;\n}\n",
+		"src/composables/useTitle.ts":   "export function useTitle() {\n  return \"\";\n}\n",
+		"src/components/Counter.vue":    "<script setup>\nimport { useCounter } from \"../composables/useCounter\";\nconst n = useCounter();\n</script>\n",
+		"src/legacy.js":                 "import { useTitle } from \"./composables/useTitle\";\nuseTitle();\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "unused", candidateLines(decode(t, stdout), "dead-code"), nil)
+}
+
+// A module imported whole through its workspace package's name may have
+// any export used, as drizzle uses a schema package's relations.
+func TestExportsOfAWorkspacePackageImportedWholeAreNotUnused(t *testing.T) {
+	root := repo(t, map[string]string{
+		"package.json":               `{"name": "acme", "private": true}`,
+		"packages/db/package.json":   `{"name": "@acme/db", "private": true}`,
+		"packages/db/src/schema.ts":  "export function usersRelations() {\n  return [];\n}\n",
+		"packages/app/package.json":  `{"name": "@acme/app", "private": true}`,
+		"packages/app/src/client.ts": "import * as schema from \"@acme/db\";\n\nexport const db = { schema };\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "unused", candidateLines(decode(t, stdout), "dead-code"), nil)
+}
+
+// An interface another extends has the classes implementing that one as
+// implementations too: it is no single implementation's.
+func TestAnExtendedInterfaceIsNoSingleImplementation(t *testing.T) {
+	root := repo(t, map[string]string{
+		"package.json":  `{"name": "web", "private": true}`,
+		"src/store.ts":  "export interface Store {\n  get(): string;\n}\n\nexport interface CachedStore extends Store {\n  flush(): void;\n}\n",
+		"src/disk.ts":   "import type { Store } from \"./store\";\n\nexport class DiskStore implements Store {\n  get() {\n    return \"disk\";\n  }\n}\n",
+		"src/memory.ts": "import type { CachedStore } from \"./store\";\n\nexport class MemStore implements CachedStore {\n  get() {\n    return \"mem\";\n  }\n  flush() {}\n}\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "single implementations", candidateLines(decode(t, stdout), "single-impl-trait"), []string{
+		"typescript single-impl-trait [src/store.ts CachedStore, src/memory.ts CachedStore for MemStore]",
+	})
+}
+
+// A file .ddslop.yaml excludes (a committed build bundle) is not read for
+// the names it mentions: its copy of every export uses none.
+func TestExcludedFilesDoNotUseExports(t *testing.T) {
+	root := repo(t, map[string]string{
+		".ddslop.yaml":   "exclude:\n  - dist/**\n",
+		"package.json":   `{"name": "action", "private": true}`,
+		"src/main.ts":    "export function forgotten() {\n  return 1;\n}\n",
+		"dist/bundle.js": "function forgotten() { return 1; }\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "unused", candidateLines(decode(t, stdout), "dead-code"), []string{"typescript dead-code [src/main.ts forgotten]"})
+}

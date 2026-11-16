@@ -11,8 +11,9 @@ it writes the next copy.**
 > `.cts`) it finds exact, renamed and near-miss copies, copied blocks,
 > types and constants declared again, wrappers that only pass their
 > parameters on, parameters passed together, strings switched on in
-> many functions, and unused exports of private packages, and `ddslop
-> map` describes its layers and shared helpers; feature flows and
+> many functions, unused exports of private packages and
+> single-implementation interfaces, and `ddslop map` describes its
+> layers and shared helpers; feature flows and
 > idioms are in progress. Files in other languages are not analysed.
 
 Coding agents regenerate rather than reuse. Each session that cannot see
@@ -164,7 +165,7 @@ the check that stops an agent adding the next copy.
 | **Code to simplify** | | |
 | `dead-code` | a public function nothing in the repository uses | delete it |
 | `pass-through` | a wrapper that only forwards its parameters | call the target |
-| `single-impl-trait` | a trait with one implementation and no test double | drop the trait |
+| `single-impl-trait` | a trait or TypeScript interface with one implementation and no test double | drop the trait |
 
 Each candidate carries everything an agent needs to fix it:
 

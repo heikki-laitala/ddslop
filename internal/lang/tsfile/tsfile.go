@@ -14,6 +14,11 @@ import (
 // Extensions are the file extensions of TypeScript source.
 var Extensions = []string{".ts", ".tsx", ".mts", ".cts"}
 
+// Importers are the extensions of files that may import TypeScript code
+// without being TypeScript: JavaScript, and the components of Vue,
+// Svelte, Astro and MDX.
+var Importers = []string{".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".astro", ".mdx"}
+
 // IsSource reports whether a file is TypeScript source, by its extension.
 func IsSource(file string) bool {
 	return slices.ContainsFunc(Extensions, func(ext string) bool { return strings.HasSuffix(file, ext) })
@@ -87,4 +92,29 @@ func PackageDir[T any](file string, packages map[string]T) string {
 		}
 		dir = path.Dir(dir)
 	}
+}
+
+// ModuleFiles reports, for a file, whether it is the module a module path
+// names as importer imports it: the file a relative path names (see
+// ModuleIs), or one of the workspace package a package path names
+// (@acme/db, @acme/db/query; packages maps each named package's directory
+// to its name), outside the packages nested in it.
+func ModuleFiles(importer, module string, packages map[string]string) func(file string) bool {
+	if dir, ok := packageNamed(module, packages); ok {
+		return func(file string) bool { return PackageDir(file, packages) == dir }
+	}
+	return func(file string) bool { return ModuleIs(importer, module, file) }
+}
+
+// packageNamed returns the directory of the workspace package a module
+// path names, itself or a subpath of it, when exactly one package has
+// that name.
+func packageNamed(module string, packages map[string]string) (string, bool) {
+	found, n := "", 0
+	for dir, name := range packages {
+		if module == name || strings.HasPrefix(module, name+"/") {
+			found, n = dir, n+1
+		}
+	}
+	return found, n == 1
 }

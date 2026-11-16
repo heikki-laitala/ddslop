@@ -775,11 +775,11 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 // name in the module a relative path names (see tsfile.ModuleIs), or
 // anywhere in the workspace package a package path names (@acme/db,
 // @acme/db/query) outside the packages nested in it, never an outside
-// package's (see inTSModule); a call on this is the caller's class's
-// method; one on a value whose type the code states (a typed parameter, a
-// field of this or of a typed variable) is the method of that type's class
-// (see resolveTSMethod, tsFieldType). Without a type, the name of any
-// other method says nothing: it is not resolved.
+// package's (see tsfile.ModuleFiles); a call on this is the caller's
+// class's method; one on a value whose type the code states (a typed
+// parameter, a field of this or of a typed variable) is the method of that
+// type's class (see resolveTSMethod, tsFieldType). Without a type, the
+// name of any other method says nothing: it is not resolved.
 func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) int {
 	sameFile := func(u unit.Unit) bool { return u.File == caller.File }
 	switch {
@@ -789,7 +789,7 @@ func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner str
 		}
 		return only(units, ix.free[c.Name], sameFile)
 	case c.Kind == unit.PathCall:
-		inModule := ix.inTSModule(caller.File, c.Qualifier)
+		inModule := tsfile.ModuleFiles(caller.File, c.Qualifier, ix.tsPackages)
 		return only(units, ix.free[c.Name], func(u unit.Unit) bool { return u.Public && inModule(u.File) })
 	case c.Qualifier == "self" && owner != "":
 		return only(units, ix.owned[owner+"::"+c.Name], sameFile)
@@ -835,13 +835,13 @@ func (ix index) resolveTSMethod(units []unit.Unit, home, typ, method string) int
 	return only(units, cands, func(u unit.Unit) bool { return declares(u.File) })
 }
 
-// tsDeclares reports, for a file, whether it is where the TypeScript
-// type typ, as unit.Call.Type writes it read in home, is declared: in the
-// module it is imported from (see inTSModule), or home itself for a local
-// type.
+// tsDeclares reports, for a file, whether it is where the TypeScript type
+// typ, as unit.Call.Type writes it read in home, is declared: in the
+// module it is imported from (see tsfile.ModuleFiles), or home itself for
+// a local type.
 func (ix index) tsDeclares(home, typ string) func(file string) bool {
 	if i := strings.LastIndex(typ, "."); i >= 0 {
-		return ix.inTSModule(home, typ[:i])
+		return tsfile.ModuleFiles(home, typ[:i], ix.tsPackages)
 	}
 	return func(file string) bool { return file == home }
 }
@@ -874,30 +874,6 @@ func (ix index) tsFieldType(home, typ, field string) (FieldType, bool) {
 // local one. An outside interface (vscode's Disposable) has none.
 func (ix index) tsInterfaceFile(home, typ string) (string, bool) {
 	return onlyOne(ix.tsInterfaces[typ[strings.LastIndex(typ, ".")+1:]], ix.tsDeclares(home, typ))
-}
-
-// inTSModule reports, for a file, whether it is the module a module path
-// names as importer imports it: the file a relative path names (see
-// tsfile.ModuleIs), or one of the workspace package a package path names
-// (@acme/db), outside the packages nested in it.
-func (ix index) inTSModule(importer, module string) func(file string) bool {
-	if dir, ok := ix.tsPackageOf(module); ok {
-		return func(file string) bool { return tsfile.PackageDir(file, ix.tsPackages) == dir }
-	}
-	return func(file string) bool { return tsfile.ModuleIs(importer, module, file) }
-}
-
-// tsPackageOf returns the directory of the workspace package a module
-// path names, itself or a subpath of it (@acme/db/query), when exactly one
-// package of the repository has that name.
-func (ix index) tsPackageOf(module string) (string, bool) {
-	found, n := "", 0
-	for dir, name := range ix.tsPackages {
-		if module == name || strings.HasPrefix(module, name+"/") {
-			found, n = dir, n+1
-		}
-	}
-	return found, n == 1
 }
 
 // pick chooses among candidates the one in the caller's file, else the

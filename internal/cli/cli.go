@@ -572,21 +572,29 @@ type options struct {
 	tests                                 bool
 }
 
+// includedFiles lists the files under root with one of the extensions
+// that .ddslop.yaml does not exclude (see source.Files).
+func includedFiles(root string, exts ...string) ([]string, error) {
+	paths, err := source.Files(root, exts...)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.Load(root)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(paths, func(p string) bool { return cfg.Excluded(filepath.ToSlash(p)) }), nil
+}
+
 // syncIndex opens the index under root and brings it up to date with the
 // Rust, Go and TypeScript files there that .ddslop.yaml does not exclude,
 // TypeScript declaration files aside. The caller closes the database.
 func syncIndex(root string) (*index.DB, index.Stats, error) {
-	paths, err := source.Files(root, append([]string{".rs", ".go"}, tsfile.Extensions...)...)
+	paths, err := includedFiles(root, append([]string{".rs", ".go"}, tsfile.Extensions...)...)
 	if err != nil {
 		return nil, index.Stats{}, err
 	}
-	cfg, err := config.Load(root)
-	if err != nil {
-		return nil, index.Stats{}, err
-	}
-	paths = slices.DeleteFunc(paths, func(p string) bool {
-		return cfg.Excluded(filepath.ToSlash(p)) || tsfile.IsDeclarationFile(p)
-	})
+	paths = slices.DeleteFunc(paths, tsfile.IsDeclarationFile)
 	version, err := extractorVersion()
 	if err != nil {
 		return nil, index.Stats{}, err
@@ -727,7 +735,11 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 	internal := internalCrates(root, files)
 	flows := parallelFlows(g, traits, opts.minNodes)
 	found, conventions := drifts(units, packages(root, files), judged)
-	importedWhole := wholeImported(files)
+	importedWhole := wholeImported(root, files)
+	words, err := wordCounts(root, files)
+	if err != nil {
+		return report.Report{}, nil, err
+	}
 	r := report.Build(languageOf, report.Findings{
 		Groups: append(groups, helperGroups...), NearMisses: nearMisses, Blocks: blocks, Flows: flows,
 		Structs: byLanguage(structs, func(_ string, s []unit.Struct) []clone.StructGroup { return clone.Structs(s, minStructFields) }),
@@ -736,7 +748,7 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 		Inlined: byLanguage(consts, func(lang string, c []unit.Const) []clone.InlinedConst {
 			return clone.InlinedConstants(c, inLanguage(lang, units), flow.CrateOf)
 		}),
-		Dead: simplify.Dead(units, wordCounts(files), func(file string) bool {
+		Dead: simplify.Dead(units, words, func(file string) bool {
 			return internal(file) && !importedWhole[file]
 		}),
 		Wrappers: simplify.PassThrough(g),
@@ -998,15 +1010,33 @@ func recordHealth(db *index.DB, root string, h report.Health) error {
 }
 
 // wordCounts adds up the words of every indexed file, generated and test
-// files included: a name used only there is still used.
-func wordCounts(files []index.File) map[string]int {
+// code included, and, where TypeScript is analysed, of the files that may
+// import it without being analysed (see tsfile.Importers), files
+// .ddslop.yaml excludes aside: a .vue component naming an export uses it.
+func wordCounts(root string, files []index.File) (map[string]int, error) {
 	words := map[string]int{}
 	for _, f := range files {
 		for w, n := range f.Words {
 			words[w] += n
 		}
 	}
-	return words
+	if !slices.ContainsFunc(files, func(f index.File) bool { return tsfile.IsSource(f.Path) }) {
+		return words, nil
+	}
+	importers, err := includedFiles(root, tsfile.Importers...)
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range importers {
+		src, err := os.ReadFile(filepath.Join(root, path)) //nolint:gosec // a file under the analysed root
+		if err != nil {
+			return nil, err
+		}
+		for w, n := range source.Words(src) {
+			words[w] += n
+		}
+	}
+	return words, nil
 }
 
 // singleImpls finds the traits with a single implementation in each
@@ -1039,15 +1069,17 @@ func withoutTestDoubles(decls unit.Decls, files []index.File) unit.Decls {
 }
 
 // wholeImported reports the TypeScript files another file imports whole
-// (import * as schema, import("./routes")), by a relative path or one
-// through a path alias (see tsfile.AliasMayBe): they may use any of its
-// exports without naming it.
-func wholeImported(files []index.File) map[string]bool {
+// (import * as schema, import("./routes")), by a relative path, a
+// workspace package's name (see tsfile.ModuleFiles) or a path alias (see
+// tsfile.AliasMayBe): they may use any of its exports without naming it.
+func wholeImported(root string, files []index.File) map[string]bool {
+	packages := tsPackageNames(root, files)
 	out := map[string]bool{}
 	for _, importer := range files {
 		for _, module := range importer.Decls.WholeImports {
+			names := tsfile.ModuleFiles(importer.Path, module, packages)
 			for _, f := range files {
-				if tsfile.IsSource(f.Path) && (tsfile.ModuleIs(importer.Path, module, f.Path) || tsfile.AliasMayBe(module, f.Path)) {
+				if tsfile.IsSource(f.Path) && (names(f.Path) || tsfile.AliasMayBe(module, f.Path)) {
 					out[f.Path] = true
 				}
 			}
