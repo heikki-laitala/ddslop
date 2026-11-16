@@ -11,9 +11,9 @@ it writes the next copy.**
 > `.cts`) it finds exact, renamed and near-miss copies, copied blocks,
 > types and constants declared again, wrappers that only pass their
 > parameters on, parameters passed together, strings switched on in
-> many functions, and unused exports of private packages; the map and
-> feature flows are in progress. Files in other languages are not
-> analysed.
+> many functions, and unused exports of private packages, and `ddslop
+> map` describes its layers and shared helpers; feature flows and
+> idioms are in progress. Files in other languages are not analysed.
 
 Coding agents regenerate rather than reuse. Each session that cannot see
 the helper written in the last one writes it again, a little differently:

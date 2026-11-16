@@ -752,6 +752,9 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 // languages are the languages check analyses, each on its own.
 var languages = []string{"go", "rust", "typescript"}
 
+// languageNames are the languages' names in text output.
+var languageNames = map[string]string{"go": "Go", "rust": "Rust", "typescript": "TypeScript"}
+
 // byLanguage runs detect on each language's items on its own, so no
 // candidate puts together declarations or functions of two languages,
 // which neither could share.

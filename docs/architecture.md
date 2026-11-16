@@ -500,6 +500,19 @@ packages found 3 more on Excalidraw, each calling into another of its
 packages (`cloneLibraryItems` passing on to `@excalidraw/common`'s
 `cloneJSON`).
 
+`ddslop map --lang typescript` describes TypeScript by directory (scope
+`directories`, as `packages` would read as npm packages): a directory is
+a module, as a Go package is, and its layers, breaks, cycles and shared
+helpers come from the calls resolved above, workspace packages included.
+It records no forms yet, so it has no idioms, and finds no entry points,
+so it has no features. On Excalidraw (about 4 seconds) the layers follow
+its packages, `common` and `math` at the bottom, then `element`,
+`excalidraw` and the app, and the shared helpers are what new code
+should reuse (`t`, `pointFrom`, `arrayToMap`); on tRPC its examples
+share `@trpc/client`'s `httpBatchLink` and `createTRPCClient`, though
+only 19% of its calls resolve, most being method chains (`t.router()`)
+no types follow.
+
 TypeScript functions record their parameters named by one name, each
 with its type as written (`""` when it has none), and their switches on
 strings (`case "a":`, quote style normalised as for unions), so

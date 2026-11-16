@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/codemap"
@@ -25,16 +26,18 @@ import (
 const mapUsage = `usage: ddslop map [flags] [path]
 
 Describes the conventions of the code under path (default "."), for an
-agent to read before writing code: the layers its modules form, the calls
-breaking them, the helpers other modules share, the features that copy
-one pipeline (parallel-flow candidates in check: extract the pipeline
-rather than add another copy), and the idioms: the form the code uses
-for each concern, such as checking and wrapping errors. Each language
-gets a map of its own. A module is a Go package, or a Rust module directly under
-its crate. A Rust workspace is described as crates, each with how many
-modules and layers it holds; --crate describes one crate's modules, as a
-single crate is by default, and --lang describes one language. Calls are resolved by name, as in flows; only
-calls that name their target count, and test code is left out.
+agent to read before writing code: the layers its modules form, the
+calls breaking them, the helpers other modules share, the features that
+copy one pipeline (parallel-flow candidates in check: extract the
+pipeline rather than add another copy), and the idioms: the form the
+code uses for each concern, such as checking and wrapping errors. Each
+language gets a map of its own. A module is a Go package, a TypeScript
+directory, or a Rust module directly under its crate. A Rust workspace
+is described as crates, each with how many modules and layers it holds;
+--crate describes one crate's modules, as a single crate is by default,
+and --lang describes one language. Calls are resolved by name, as in
+flows; only calls that name their target count, and test code is left
+out.
 
 Flags:
 `
@@ -46,8 +49,9 @@ type mapReport struct {
 
 type mapJSON struct {
 	Lang string `json:"lang"`
-	// Scope says what the layers hold: "packages" (Go), "crates" (a Rust
-	// workspace) or "crate" (the modules of Crate).
+	// Scope says what the layers hold: "packages" (Go), "directories"
+	// (TypeScript), "crates" (a Rust workspace) or "crate" (the modules of
+	// Crate).
 	Scope         string      `json:"scope"`
 	Crate         string      `json:"crate,omitempty"`
 	Crates        []crateJSON `json:"crates,omitempty"`
@@ -183,7 +187,7 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 	format := fs.String("format", "", `output format, "text" or "json" (default: text on a terminal, json otherwise)`)
 	limit := fs.Int("limit", 10, "list at most this many modules per layer, breaks, functions per break, helpers, features, steps and other members per feature, and forms per idiom")
 	crate := fs.String("crate", "", "describe the modules of this Rust crate (default: a workspace's crates)")
-	only := fs.String("lang", "", `describe only this language, "go" or "rust" (default: each language found)`)
+	only := fs.String("lang", "", "describe only this language, "+orList(quoted(languages))+" (default: each language found)")
 	root, code, ok := parseRoot(fs, args, stderr)
 	if !ok {
 		return code
@@ -195,16 +199,16 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 	if *limit < 1 {
 		return fail(stderr, fmt.Errorf("--limit must be at least 1, got %d", *limit))
 	}
-	langs := []string{"go", "rust"}
-	switch *only {
-	case "":
-	case "go", "rust":
+	langs := languages
+	switch {
+	case *only == "":
+	case slices.Contains(languages, *only):
 		langs = []string{*only}
 	default:
-		return fail(stderr, fmt.Errorf(`--lang must be "go" or "rust", got %q`, *only))
+		return fail(stderr, fmt.Errorf("--lang must be %s, got %q", orList(quoted(languages)), *only))
 	}
-	if *crate != "" && *only == "go" {
-		return fail(stderr, fmt.Errorf("--crate describes a Rust crate, not Go code"))
+	if *crate != "" && *only != "" && *only != "rust" {
+		return fail(stderr, fmt.Errorf("--crate describes a Rust crate, not %s code", languageNames[*only]))
 	}
 
 	cfg, err := config.Load(root)
@@ -255,14 +259,18 @@ type mapOptions struct {
 	minNodes int
 }
 
-// buildMap describes one language's files: Go by package, a Rust
-// workspace by crate, and one Rust crate (opts.crate, or the only one) by
-// module.
+// buildMap describes one language's files: Go by package, TypeScript by
+// directory, a Rust workspace by crate, and one Rust crate (opts.crate, or
+// the only one) by module.
 func buildMap(root, lang string, files []index.File, opts mapOptions) (mapJSON, error) {
 	limit, want := opts.limit, opts.crate
 	g, traits := callGraph(root, files)
 	crates := packages(root, files)
-	m := mapJSON{Lang: lang, Scope: "packages", Calls: g.Calls, ResolvedCalls: g.Resolved,
+	scope := "packages"
+	if lang == "typescript" {
+		scope = "directories"
+	}
+	m := mapJSON{Lang: lang, Scope: scope, Calls: g.Calls, ResolvedCalls: g.Resolved,
 		Layers: []layerJSON{}, Breaks: []breakJSON{}, Unplaced: []string{}, Helpers: []helperJSON{},
 		Features: []featureJSON{}, Idioms: []idiomJSON{}, Cycles: []cycleJSON{}}
 	layerGroup, helperGroup := codemap.ByModule(crates), codemap.ByModule(crates)
@@ -336,8 +344,11 @@ func buildMap(root, lang string, files []index.File, opts mapOptions) (mapJSON, 
 		}
 		m.Features = append(m.Features, fj)
 	}
-	idiomatic := golang.IdiomaticForms
-	if lang == "rust" {
+	var idiomatic map[string]string // TypeScript records no forms yet
+	switch lang {
+	case "go":
+		idiomatic = golang.IdiomaticForms
+	case "rust":
 		idiomatic = rust.IdiomaticForms
 	}
 	for _, id := range codemap.Idioms(g, helperGroup, idiomatic) {
@@ -351,6 +362,23 @@ func buildMap(root, lang string, files []index.File, opts mapOptions) (mapJSON, 
 		m.Idioms = append(m.Idioms, ij)
 	}
 	return m, nil
+}
+
+// orList writes items as "a, b or c".
+func orList(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
+}
+
+// quoted puts each item in double quotes.
+func quoted(items []string) []string {
+	out := make([]string, len(items))
+	for i, s := range items {
+		out[i] = strconv.Quote(s)
+	}
+	return out
 }
 
 // cyclesJSON describes cycles, each list capped at limit.
@@ -605,12 +633,11 @@ func writeMapText(w io.Writer, r mapReport, langs []string) error {
 		writeIdiomsText(&b, m.Idioms)
 	}
 	if len(r.Maps) == 0 {
-		names := map[string]string{"go": "Go", "rust": "Rust"}
 		var missing []string
 		for _, l := range langs {
-			missing = append(missing, names[l])
+			missing = append(missing, languageNames[l])
 		}
-		fmt.Fprintf(&b, "no %s code found\n", strings.Join(missing, " or "))
+		fmt.Fprintf(&b, "no %s code found\n", orList(missing))
 	}
 	_, err := io.WriteString(w, b.String())
 	return err

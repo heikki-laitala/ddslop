@@ -283,17 +283,22 @@ func TestMapLangWithoutItsCodeIsEmpty(t *testing.T) {
 	if !strings.Contains(stdout, "no Rust code found") {
 		t.Errorf("text = %q, want it to say there is no Rust code", stdout)
 	}
+	_, stdout, _ = run("map", "--format", "text", repo(t, map[string]string{"README.md": "# none\n"}))
+	if !strings.Contains(stdout, "no Go, Rust or TypeScript code found") {
+		t.Errorf("text = %q, want it to name the languages it looked for", stdout)
+	}
 }
 
 func TestMapOfAnUnknownLangFails(t *testing.T) {
-	code, _, stderr := run("map", "--lang", "typescript", repo(t, layeredService))
-	if code != 2 || !strings.Contains(stderr, `"go" or "rust"`) {
+	code, _, stderr := run("map", "--lang", "python", repo(t, layeredService))
+	if code != 2 || !strings.Contains(stderr, `"go", "rust" or "typescript"`) {
 		t.Errorf("exit %d, stderr %q; want 2 and the languages there are", code, stderr)
 	}
 }
 
 func TestMapOfACrateInGoFails(t *testing.T) {
-	wantError(t, "--crate", "map", "--lang", "go", "--crate", "service", repo(t, goAndRust()))
+	wantError(t, "not Go code", "map", "--lang", "go", "--crate", "service", repo(t, goAndRust()))
+	wantError(t, "not TypeScript code", "map", "--lang", "typescript", "--crate", "service", repo(t, layeredWeb))
 }
 
 func TestMapOfAnUnknownCrateFails(t *testing.T) {
@@ -698,5 +703,42 @@ func TestMapLimitCapsACyclesLoop(t *testing.T) {
 	decodeInto(t, stdout, &r)
 	if cs := r.Maps[0].Cycles; len(cs) != 1 || len(cs[0].Loop) != 2 || cs[0].LoopMore != 2 {
 		t.Errorf("cycles = %+v, want a loop of 4 steps capped at 2, 2 more", cs)
+	}
+}
+
+// layeredWeb is a TypeScript app in three layers, each a directory, with
+// a helper two of them share.
+var layeredWeb = map[string]string{
+	"src/api/users.ts": `import { loadUser } from "../service/users";
+import { respond } from "../util/respond";
+
+export function getUser(id: string) {
+  return respond(loadUser(id));
+}
+`,
+	"src/service/users.ts": `import { query } from "../store/db";
+import { respond } from "../util/respond";
+
+export function loadUser(id: string) {
+  respond(id);
+  return query("SELECT * FROM users WHERE id = $1", id);
+}
+`,
+	"src/store/db.ts":     "export function query(sql: string, id: string) {\n  return [sql, id];\n}\n",
+	"src/util/respond.ts": "export function respond(body: unknown) {\n  return { body };\n}\n",
+}
+
+func TestMapOfTypeScriptLayersItsDirectories(t *testing.T) {
+	stdout, _ := runCode(t, 0, "map", "--format", "json", "--lang", "typescript", repo(t, layeredWeb))
+	var r scopedMap
+	var out mapOutput
+	decodeInto(t, stdout, &r)
+	decodeInto(t, stdout, &out)
+	if len(r.Maps) != 1 || r.Maps[0].Lang != "typescript" || r.Maps[0].Scope != "directories" {
+		t.Fatalf("maps = %+v, want one TypeScript map of directories", r.Maps)
+	}
+	wantLayers(t, r, []string{"src/api"}, []string{"src/service"}, []string{"src/store", "src/util"})
+	if h := out.Maps[0].Helpers; len(h) != 1 || h[0].Name != "respond" || !reflect.DeepEqual(h[0].Modules, []string{"src/api", "src/service"}) {
+		t.Errorf("helpers = %+v, want respond used by src/api and src/service", h)
 	}
 }

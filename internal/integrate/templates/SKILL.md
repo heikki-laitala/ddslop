@@ -10,8 +10,9 @@ allowed-tools: Bash(ddslop *), Read, Grep, Glob
 
 ddslop is a duplicate-code linter for Rust, Go and TypeScript (in
 TypeScript it finds copied code, types, constants, pass-through
-wrappers, parameter groups, string kinds and unused exports; the map
-and feature flows are Rust and Go only so far).
+wrappers, parameter groups, string kinds and unused exports, and maps
+its layers and helpers; feature flows and idioms are Rust and Go only
+so far).
 It reports refactoring candidates as JSON, with exact file paths and line
 ranges, what differs between the copies, and a suggested action. It also
 reports code to simplify: unused public helpers, wrappers that only
@@ -53,10 +54,11 @@ ddslop map --format json .
 ```
 
 describes the codebase's conventions, one map per language. Its `scope`
-says what the layers hold: Go `packages`; for a Rust workspace,
-`crates`, with a summary of each crate's modules and layers; or one
-crate's modules (`crate`), which a single-crate repository gets by
-default. In a workspace, then look inside the crate you are changing:
+says what the layers hold: Go `packages`; TypeScript `directories`; for
+a Rust workspace, `crates`, with a summary of each crate's modules and
+layers; or one crate's modules (`crate`), which a single-crate
+repository gets by default. In a workspace, then look inside the crate
+you are changing:
 
 ```sh
 ddslop map --format json --crate <name> .
