@@ -182,7 +182,7 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 			case d.Kind() != "variable_declarator" || name == nil || name.Kind() != "identifier" || value == nil:
 			case isFunction(value):
 				p.units = append(p.units, p.unit(name.Utf8Text(p.src), d, value, exported))
-			case constant && literalsOnly(value) && (!exported || !p.routeOption(name.Utf8Text(p.src))):
+			case constant && isConstant(value) && (!exported || !p.routeOption(name.Utf8Text(p.src))):
 				p.constant(name, value)
 			}
 		}
@@ -221,12 +221,24 @@ func (p *parser) routeOption(name string) bool {
 	return false
 }
 
+// isConstant reports whether a const's value is a constant: made of
+// literals and operators only, and no empty object or array, which is
+// state to fill (const cache = {}).
+func isConstant(value *sitter.Node) bool {
+	empty := (value.Kind() == "object" || value.Kind() == "array") && value.NamedChildCount() == 0
+	return !empty && literalsOnly(value)
+}
+
 // literalsOnly reports whether a value is made of literals and operators
 // only (5 * 60 * 1000, { retries: 3 } as const): one naming anything,
-// such as a call or another constant, is computed at run time.
+// such as a call or another constant, is computed at run time, and a
+// function is code.
 func literalsOnly(n *sitter.Node) bool {
 	switch n.Kind() {
 	case "identifier", "shorthand_property_identifier", "this", "super", "meta_property", "template_substitution":
+		return false
+	}
+	if functionKinds[n.Kind()] {
 		return false
 	}
 	for i := uint(0); i < n.NamedChildCount(); i++ {
@@ -344,7 +356,7 @@ func caseStrings(n *sitter.Node, src []byte) []string {
 
 // quoted writes a string literal in double quotes: 'a' and "a" are one
 // variant.
-func quoted(literal string) string { return `"` + strings.Trim(literal, `'"`) + `"` }
+func quoted(literal string) string { return `"` + literal[1:len(literal)-1] + `"` }
 
 func (p *parser) addEnum(decl *sitter.Node, variants []unit.Variant) {
 	name := decl.ChildByFieldName("name")

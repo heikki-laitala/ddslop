@@ -420,7 +420,8 @@ properties, methods left out; an enum is an enum, an initialiser its
 variant's payload (`High = 10`); a union of string literals
 (`"queued" | "running"`) is an enum of them, the idiomatic TypeScript
 enum. A `const` is a constant only when its value is made of literals and
-operators (`5 * 60 * 1000`, `{ retries: 3 } as const`): TypeScript binds
+operators (`5 * 60 * 1000`, `{ retries: 3 } as const`), and not an
+empty object or array, which is state to fill (`const cache = {}`): TypeScript binds
 any value with `const`, and on Hono and tRPC counting every one reported
 140 groups of call results (`const root = createRoot(el)`, one router
 per example) where 17 copied values remained. Next.js route options
@@ -440,7 +441,9 @@ call to the class's method. A package's import (`node:fs`, `@acme/db`)
 resolves to nothing, even a workspace package's, and nor does any other
 method call: JavaScript's own method names (`map`, `get`, `then`) are
 too many to tell from the code's. Wrappers work as in Go, an awaited
-call included (`return await load(id)`); class members are left out,
+call included (`return await load(id)`), but a function giving a
+parameter a default value (`opts = {}`) is no wrapper: inlined, its
+callers that leave the argument out would change; class members are left out,
 as they may implement an interface, which TypeScript checks by shape.
 All TypeScript extensions share one call index, so a `.tsx` component
 calls a `.ts` helper. Calls through packages are not followed, so no

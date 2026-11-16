@@ -109,7 +109,7 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 // returned, awaited or not, passing the function's parameters on in
 // order: function f(a, b) { return g(a, b); }, or (a) => g(a). Calls on
 // fields (this.inner.get(x)) do not count, and nor do functions without
-// parameters or with a rest or destructured one.
+// parameters or with a rest, destructured or defaulted one (opts = {}).
 func forwards(fn *sitter.Node, src []byte) string {
 	ps, plain := params(fn, src)
 	expr := fn.ChildByFieldName("body")
@@ -154,8 +154,10 @@ func forwards(fn *sitter.Node, src []byte) string {
 }
 
 // params returns a function's parameters that bind one name, in order,
-// each with its type as written ("" for none), and false when a rest or
-// destructured parameter was left out. A this parameter is no parameter.
+// each with its type as written ("" for none), and whether all are plain
+// names: false when a rest or destructured parameter was left out, or
+// one has a default value (opts = {}), which its callers then need not
+// pass. A this parameter is no parameter.
 func params(fn *sitter.Node, src []byte) ([]unit.Param, bool) {
 	if p := fn.ChildByFieldName("parameter"); p != nil {
 		return []unit.Param{{Name: p.Utf8Text(src)}}, true // x => g(x)
@@ -174,6 +176,7 @@ func params(fn *sitter.Node, src []byte) ([]unit.Param, bool) {
 		case (p.Kind() != "required_parameter" && p.Kind() != "optional_parameter") || pattern == nil || pattern.Kind() != "identifier":
 			plain = false
 		default:
+			plain = plain && p.ChildByFieldName("value") == nil
 			param := unit.Param{Name: pattern.Utf8Text(src)}
 			if typ != nil && typ.NamedChild(0) != nil {
 				param.Type = syntax.Compact(typ.NamedChild(0).Utf8Text(src))
