@@ -1510,6 +1510,8 @@ func parseSource(file syntax.Source) (index.Parsed, error) {
 		if language == "rust" {
 			// A generated module's names still resolve paths through it.
 			parsed.TopNames, parsed.TopExports, parsed.TopReexports = rust.TopNames(src), rust.TopExports(src), rust.TopReexports(src)
+			parsed.Modules, parsed.InlineModules = rust.DeclaredModules(src), rust.InlineModules(src)
+			_, parsed.TopImports = rust.Imports(src)
 		}
 		return parsed, nil
 	}
