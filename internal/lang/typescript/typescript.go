@@ -212,8 +212,8 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 			name, value := d.ChildByFieldName("name"), d.ChildByFieldName("value")
 			switch {
 			case d.Kind() != "variable_declarator" || name == nil || name.Kind() != "identifier" || value == nil:
-			case isFunction(value):
-				p.units = append(p.units, p.unit(name.Utf8Text(p.src), d, value, exported))
+			case isFunction(unwrapped(value)):
+				p.units = append(p.units, p.unit(name.Utf8Text(p.src), d, unwrapped(value), exported))
 			case constant && isConstant(value) && (!exported || !p.routeOption(name.Utf8Text(p.src))):
 				p.constant(name, value)
 			}
@@ -253,13 +253,20 @@ func (p *parser) routeOption(name string) bool {
 	return false
 }
 
+// unwrapped returns the value a type assertion or check, or parentheses,
+// wrap ({} as Cache, (x => f(x)) satisfies Handler), else the value.
+func unwrapped(value *sitter.Node) *sitter.Node {
+	for value.NamedChildCount() > 0 && (value.Kind() == "as_expression" || value.Kind() == "satisfies_expression" || value.Kind() == "parenthesized_expression") {
+		value = value.NamedChild(0)
+	}
+	return value
+}
+
 // isConstant reports whether a const's value is a constant: made of
 // literals and operators only, and no empty object or array, which is
 // state to fill (const cache = {}, or {} as Cache).
 func isConstant(value *sitter.Node) bool {
-	for value.NamedChildCount() > 0 && (value.Kind() == "as_expression" || value.Kind() == "satisfies_expression" || value.Kind() == "parenthesized_expression") {
-		value = value.NamedChild(0) // {} as Cache
-	}
+	value = unwrapped(value)
 	empty := (value.Kind() == "object" || value.Kind() == "array") && value.NamedChildCount() == 0
 	return !empty && literalsOnly(value)
 }
@@ -301,7 +308,8 @@ func (p *parser) constant(name, value *sitter.Node) {
 
 // structure records an interface or object type as a struct of its
 // properties, each with its type as written, an optional one's as
-// T|undefined; methods are left out.
+// T|undefined; methods are left out. An interface's bases are a field
+// named extends (extends:Base,Other<T>): they are part of its type.
 func (p *parser) structure(decl, body *sitter.Node) {
 	name := decl.ChildByFieldName("name")
 	if name == nil || body == nil {
@@ -311,6 +319,11 @@ func (p *parser) structure(decl, body *sitter.Node) {
 		File: p.file, Name: name.Utf8Text(p.src),
 		StartLine: syntax.Line(decl.StartPosition()), EndLine: syntax.Line(decl.EndPosition()),
 		Nodes: syntax.CountNodes(decl), Test: p.test,
+	}
+	for i := uint(0); i < decl.NamedChildCount(); i++ {
+		if bases := decl.NamedChild(i); bases.Kind() == "extends_type_clause" {
+			s.Fields = append(s.Fields, unit.Field{Name: "extends", Type: typeList(bases, p.src), Line: syntax.Line(bases.StartPosition())})
+		}
 	}
 	for i := uint(0); i < body.NamedChildCount(); i++ {
 		prop := body.NamedChild(i)
@@ -325,6 +338,15 @@ func (p *parser) structure(decl, body *sitter.Node) {
 		s.Fields = append(s.Fields, unit.Field{Name: field.Utf8Text(p.src), Type: t, Line: syntax.Line(prop.StartPosition())})
 	}
 	p.decls.Structs = append(p.decls.Structs, s)
+}
+
+// typeList writes the types a clause lists, as written, comma-separated.
+func typeList(clause *sitter.Node, src []byte) string {
+	types := make([]string, clause.NamedChildCount())
+	for i := range types {
+		types[i] = syntax.Compact(clause.NamedChild(uint(i)).Utf8Text(src))
+	}
+	return strings.Join(types, ",")
 }
 
 // optional reports whether a property is optional (a?: T): its value may
@@ -435,7 +457,10 @@ func (p *parser) members(class *sitter.Node, exported bool) {
 		m := body.NamedChild(i)
 		member, fn := m.ChildByFieldName("name"), m
 		if m.Kind() == "public_field_definition" {
-			fn = m.ChildByFieldName("value")
+			fn = nil
+			if value := m.ChildByFieldName("value"); value != nil {
+				fn = unwrapped(value)
+			}
 		}
 		if member == nil || member.Kind() == "computed_property_name" || (m.Kind() != "method_definition" && !isFunction(fn)) {
 			continue

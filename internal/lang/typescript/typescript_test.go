@@ -343,6 +343,8 @@ export const withDefaults = (id: string, opts = {}) => load(id, opts);
 export function* steps(x: number) {
   return step(x);
 }
+
+export const maybe = (id?: string) => load(id);
 `
 	units, _, err := Parse("src/store/store.ts", []byte(src))
 	if err != nil {
@@ -358,9 +360,11 @@ export function* steps(x: number) {
 		}
 	}
 	// A rest parameter, reordered arguments, a second statement or a
-	// default value it adds make no wrapper, and nor does an async
-	// function or a generator: its callers get a promise or an iterator,
-	// not the call's value. A this parameter is no argument to pass on.
+	// default value it adds make no wrapper. Nor does an optional
+	// parameter, which it passes on although its callers left it out,
+	// or an async function or a generator: its callers get a promise or
+	// an iterator, not the call's value. A this parameter is no argument
+	// to pass on.
 	wantForwards := "Store.visible -> this.inNamespace\ncheck -> verifyToken\nload -> open\nbound -> load"
 	if strings.Join(forwards, "\n") != wantForwards {
 		t.Errorf("wrappers:\n%s\nwant:\n%s", strings.Join(forwards, "\n"), wantForwards)
@@ -384,6 +388,7 @@ export function* steps(x: number) {
 		fmt.Sprintf("bound:%d:::load", unit.FreeCall),
 		fmt.Sprintf("withDefaults:%d:::load", unit.FreeCall),
 		fmt.Sprintf("steps:%d:::step", unit.FreeCall),
+		fmt.Sprintf("maybe:%d:::load", unit.FreeCall),
 	}
 	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(calls, "\n"), strings.Join(want, "\n"))
@@ -465,4 +470,23 @@ export { helper } from "./other";
 `)
 	testutil.Lines(t, "units", testutil.Format(units, func(u unit.Unit) string { return fmt.Sprintf("%s public=%v", u.Name, u.Public) }),
 		[]string{"load public=true", "save public=true", "remove public=true", "helper public=false"})
+}
+
+// An interface's bases are part of its type: two interfaces extending
+// different bases differ there, however alike their own properties.
+func TestInterfaceBasesAreRecordedAsAField(t *testing.T) {
+	_, decls := testutil.Parse(t, Parse, "src/child.ts", "interface Child extends Base, Other<T> {\n  a: string;\n}\n")
+	testutil.Lines(t, "structs", testutil.Format(decls.Structs, func(s unit.Struct) string {
+		return s.Name + " " + fmt.Sprint(testutil.Format(s.Fields, func(f unit.Field) string { return fmt.Sprintf("%s:%s@%d", f.Name, f.Type, f.Line) }))
+	}), []string{"Child [extends:Base,Other<T>@1 a:string@2]"})
+}
+
+// A function a type assertion or check wraps (as, satisfies, parentheses)
+// is a function all the same.
+func TestWrappedFunctionConstantsAreUnits(t *testing.T) {
+	units, _ := testutil.Parse(t, Parse, "src/handlers.ts", `export const typed = ((req: Req) => work(req)) satisfies Handler;
+const cast = (function (x: number) { return x; }) as Fn;
+`)
+	testutil.Lines(t, "units", testutil.Format(units, func(u unit.Unit) string { return u.Name + " -> " + u.Forwards }),
+		[]string{"typed -> work", "cast -> "})
 }

@@ -412,30 +412,32 @@ prefix, so a component and a plain function can be copies. Its units are
 top-level functions, a class's methods and fields holding a function
 (named `Class.member`), and constants holding an arrow function or
 function expression (`const load = async () => {}`, named after the
-constant); `export`, before the declaration or in an export clause
-(`export { load }`, `export default save`), makes them public, unless a
-member is private, protected or `#named`. A member with a computed name
+constant, also behind `as`, `satisfies` or parentheses); `export`,
+before the declaration or in an export clause (`export { load }`,
+`export default save`), makes them public, unless a member is private,
+protected or `#named`. A member with a computed name
 (`[Symbol.iterator]`) is no unit: code never calls it by name. Nested
 functions stay part of their function, and a return in one leaves only
 it. `.test` and `.spec` files and `__tests__` directories are test code;
 test runners take their cases as callbacks (`it("...", () => {})`), so
 no TypeScript unit is a test case. Declaration files (`.d.ts`) are not
 indexed: they hold no code. Module-level declarations feed the type and
-constant detectors: an interface or object type (`type Budget = { ...
-}`) is a struct of its properties, methods left out, an optional one
-typed `T|undefined`, so copies differing in it are shown with that
-difference, as Rust's `Option<T>` is; an enum is an enum, an initialiser
-its variant's payload (`High = 10`); a union of string literals
-(`"queued" | "running"`) is an enum of them, the idiomatic TypeScript
-enum. A `const` is a constant only when its value is made of literals
-and operators (`5 * 60 * 1000`, `{ retries: 3 } as const`), and not an
-empty object or array, which is state to fill (`const cache = {}`, `{}
-as Cache`): TypeScript binds any value with `const`, and on Hono and
-tRPC counting every one reported 140 groups of call results (`const root
-= createRoot(el)`, one router per example) where 17 copied values
-remained. Next.js route options (`export const dynamic = ...` in page,
-layout and route files) are left out: the framework asks every route for
-them.
+constant detectors: an interface or object type
+(`type Budget = { ... }`) is a struct of its properties, methods left
+out, an interface's bases a field named `extends`
+(`extends:Base,Other<T>`), an optional one typed `T|undefined`, so
+copies differing in it are shown with that difference, as Rust's
+`Option<T>` is; an enum is an enum, an initialiser its variant's payload
+(`High = 10`); a union of string literals (`"queued" | "running"`) is an
+enum of them, the idiomatic TypeScript enum. A `const` is a constant
+only when its value is made of literals and operators (`5 * 60 * 1000`,
+`{ retries: 3 } as const`), and not an empty object or array, which is
+state to fill (`const cache = {}`, `{} as Cache`): TypeScript binds any
+value with `const`, and on Hono and tRPC counting every one reported 140
+groups of call results (`const root = createRoot(el)`, one router per
+example) where 17 copied values remained. Next.js route options
+(`export const dynamic = ...` in page, layout and route files) are left
+out: the framework asks every route for them.
 
 TypeScript calls are recorded from the file's imports: an imported
 function (`import { verify as check } from "../auth/verify.js"`) is a
@@ -452,8 +454,9 @@ of the module may share), and a self call to the class's method. A package's imp
 resolves to nothing, even a workspace package's, and nor does any other
 method call: JavaScript's own method names (`map`, `get`, `then`) are
 too many to tell from the code's. Wrappers work as in Go, but a
-function giving a parameter a default value (`opts = {}`) is no
-wrapper: inlined, its callers that leave the argument out would change;
+function giving a parameter a default value (`opts = {}`) or taking an
+optional one (`id?: string`) is no wrapper: inlined, its callers that
+leave the argument out would change;
 nor is an async function or a generator, whose callers get a promise or
 an iterator, not the call's value; class members are left out,
 as they may implement an interface, which TypeScript checks by shape.
