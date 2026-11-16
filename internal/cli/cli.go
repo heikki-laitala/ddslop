@@ -885,10 +885,12 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		for _, u := range f.Units {
 			if u.Module == "" && !strings.Contains(u.Name, "::") {
 				rootValues[strings.TrimPrefix(u.Name, "r#")] = true
+				rootItems[strings.TrimPrefix(u.Name, "r#")] = true
 			}
 		}
 		for _, k := range f.Decls.Consts {
 			rootValues[strings.TrimPrefix(k.Name, "r#")] = true
+			rootItems[strings.TrimPrefix(k.Name, "r#")] = true
 		}
 		// a name the root imports (pub use values::foo) beside its mod foo
 		// cannot be a module too: it is a value
@@ -897,11 +899,6 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		}
 		for name, path := range f.TopImports {
 			rootImports[strings.TrimPrefix(name, "r#")] = path
-		}
-		for name := range rootValues {
-			if _, imported := f.Imports[name]; !imported {
-				rootItems[name] = true
-			}
 		}
 		for _, n := range append(slices.Clone(f.Decls.TypeNames), f.Traits...) {
 			rootItems[strings.TrimPrefix(n, "r#")] = true
