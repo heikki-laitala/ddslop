@@ -3,8 +3,6 @@ package cli
 import (
 	"strings"
 	"testing"
-
-	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 type sarifLog struct {
@@ -84,12 +82,7 @@ func TestCheckSARIF(t *testing.T) {
 }
 
 func TestCheckSARIFPutsTheChangedCopyFirst(t *testing.T) {
-	root := committedRepo(t, map[string]string{"a.rs": syncUsers})
-	testutil.WriteFiles(t, root, map[string]string{"z.rs": syncPeople})
-
-	_, stdout, _ := run("check", "--format", "sarif", "--min-nodes", "20", "--diff", "HEAD", root)
-
-	res := decodeJSON[sarifLog](t, stdout).Runs[0].Results
+	res := decodeJSON[sarifLog](t, checkCopyAdded(t, "a.rs", "z.rs", "sarif")).Runs[0].Results
 	if len(res) != 1 || res[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != "z.rs" {
 		t.Errorf("primary location should be the changed copy z.rs: %+v", res)
 	}

@@ -732,10 +732,7 @@ func named(ctx context.Context, a, b string) (n, m int, err error) { return 0, 0
 
 func variadic(a int, rest ...string) {}
 `
-	units, _ := testutil.Parse(t, Parse, "store/store.go", src)
-	got := testutil.Format(units, func(u unit.Unit) string {
-		return u.Name + " " + u.Types
-	})
+	got := unitLines(t, "store/store.go", src, func(u unit.Unit) string { return u.Name + " " + u.Types })
 	if want := "[none () () one () (error) named (context.Context, string, string) (int, int, error) variadic (int, ...string) ()]"; fmt.Sprint(got) != want {
 		t.Errorf("signatures = %v, want %s", got, want)
 	}
@@ -835,6 +832,13 @@ func (s *Server) kind(v any) {
 	testutil.Lines(t, "calls", got, want)
 }
 
+// unitLines parses src as path and lists its units, each as line makes it.
+func unitLines(t *testing.T, path, src string, line func(unit.Unit) string) []string {
+	t.Helper()
+	units, _ := testutil.Parse(t, Parse, path, src)
+	return testutil.Format(units, line)
+}
+
 func TestUnitsRecordTheirResultTypes(t *testing.T) {
 	src := `package api
 
@@ -846,10 +850,7 @@ func named() (db *st.DB, n int) { return }
 func generic[T any]() (T, Cache) { var t T; return t, Cache{} }
 func none() {}
 `
-	units, _ := testutil.Parse(t, Parse, "api/open.go", src)
-	got := testutil.Format(units, func(u unit.Unit) string {
-		return fmt.Sprintf("%s %q", u.Name, u.Results)
-	})
+	got := unitLines(t, "api/open.go", src, func(u unit.Unit) string { return fmt.Sprintf("%s %q", u.Name, u.Results) })
 	want := []string{
 		`open ["example.com/app/internal/store.DB" ""]`,
 		`one ["Cache"]`,
@@ -909,10 +910,7 @@ func fixture() *Store { return nil }
 func Testify() {}
 func Testé() {}
 `
-	units, _ := testutil.Parse(t, Parse, "store/store_test.go", src)
-	got := testutil.Format(units, func(u unit.Unit) string {
-		return fmt.Sprintf("%s case=%v", u.Name, u.TestCase)
-	})
+	got := unitLines(t, "store/store_test.go", src, func(u unit.Unit) string { return fmt.Sprintf("%s case=%v", u.Name, u.TestCase) })
 	testutil.Lines(t, "units", got, []string{
 		"TestSave case=true",
 		"BenchmarkSave case=true",

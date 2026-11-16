@@ -797,6 +797,27 @@ func TestStructFieldTypesRecordWhatUnwrappingLeaves(t *testing.T) {
 	testutil.Lines(t, "field types", got, want)
 }
 
+// runCallTypes lists the calls of src's function run as line, name and
+// the type of the value each is made on.
+func runCallTypes(t *testing.T, src string) []string {
+	t.Helper()
+	return testutil.Format(byName(t, mustUnits(t, src), "run").Calls, func(c unit.Call) string {
+		return fmt.Sprintf("%d %s %q", c.Line, c.Name, c.Type)
+	})
+}
+
+// allCalls lists the calls of every function in src, each as line makes it.
+func allCalls(t *testing.T, src string, line func(unit.Unit, unit.Call) string) []string {
+	t.Helper()
+	var out []string
+	for _, u := range mustUnits(t, src) {
+		for _, c := range u.Calls {
+			out = append(out, line(u, c))
+		}
+	}
+	return out
+}
+
 func TestRustBindingsTakeEffectWhereTheyAreInScope(t *testing.T) {
 	src := `fn run(store: &Store, items: Vec<Item>) {
     for store in store.items() {
@@ -814,9 +835,7 @@ func TestRustBindingsTakeEffectWhereTheyAreInScope(t *testing.T) {
     cache.fill();
 }
 `
-	got := testutil.Format(byName(t, mustUnits(t, src), "run").Calls, func(c unit.Call) string {
-		return fmt.Sprintf("%d %s %q", c.Line, c.Name, c.Type)
-	})
+	got := runCallTypes(t, src)
 	want := []string{
 		`2 items "Store"`, `3 save ""`,
 		`5 load "Store"`, `6 save ""`, `8 save "Store"`,
@@ -867,9 +886,7 @@ func TestLetChainBindingsApplyToLaterConditions(t *testing.T) {
     }
 }
 `
-	got := testutil.Format(byName(t, mustUnits(t, src), "run").Calls, func(c unit.Call) string {
-		return fmt.Sprintf("%d %s %q", c.Line, c.Name, c.Type)
-	})
+	got := runCallTypes(t, src)
 	want := []string{`2 load ""`, `2 ready ""`, `3 save ""`, `5 save "Store"`}
 	testutil.Lines(t, "calls", got, want)
 }
@@ -897,12 +914,7 @@ mod inner {
     }
 }
 `
-	var got []string
-	for _, u := range mustUnits(t, src) {
-		for _, c := range u.Calls {
-			got = append(got, fmt.Sprintf("%s %s %s", u.Name, c.Name, c.Type))
-		}
-	}
+	got := allCalls(t, src, func(u unit.Unit, c unit.Call) string { return fmt.Sprintf("%s %s %s", u.Name, c.Name, c.Type) })
 	// A use in a function's body is not in scope in its signature: the
 	// parameter is the module's Client, the let's reqwest's.
 	want := []string{
@@ -1255,12 +1267,7 @@ fn b() {
     helpers::log();
 }
 `
-	var got []string
-	for _, u := range mustUnits(t, src) {
-		for _, c := range u.Calls {
-			got = append(got, fmt.Sprintf("%s %s::%s", u.Name, c.Qualifier, c.Name))
-		}
-	}
+	got := allCalls(t, src, func(u unit.Unit, c unit.Call) string { return fmt.Sprintf("%s %s::%s", u.Name, c.Qualifier, c.Name) })
 	testutil.Lines(t, "calls", got, []string{
 		"a tokio::fs::read",
 		"a crate::util::log",

@@ -562,12 +562,18 @@ func TestRustTypedCallsTellOutsideCratesByThePath(t *testing.T) {
 		fn("b/src/ledger.rs", "Ledger::post"),
 		fn("a/src/queue.rs", "Queue::push"),
 	}
-	in := Inputs{
-		Imports: map[string]map[string]string{"a/src/server.rs": {"Ledger": "b::Ledger"}},
-		Crates:  map[string]string{"a": "a", "b": "b"},
-	}
+	in := crateAImports("a/src/server.rs", "Ledger")
 	g := Build(in, units)
 	wantCallees(t, g, "a/src/server.rs Server::run", "[a/src/store.rs Store::save b/src/ledger.rs Ledger::post a/src/queue.rs Queue::push]")
+}
+
+// crateAImports is a workspace of crates a and b, where a file of a
+// imports b's type of that name.
+func crateAImports(file, name string) Inputs {
+	return Inputs{
+		Imports: map[string]map[string]string{file: {name: "b::" + name}},
+		Crates:  map[string]string{"a": "a", "b": "b"},
+	}
 }
 
 // A path naming a workspace crate stays in that crate, even when the
@@ -580,10 +586,7 @@ func TestRustQualifiedTypesStayInTheirCrate(t *testing.T) {
 		fn("b/src/client.rs", "Client::send"),
 		fn("b/src/client.rs", "Client::close"),
 	}
-	in := Inputs{
-		Imports: map[string]map[string]string{"a/src/server.rs": {"Client": "b::Client"}},
-		Crates:  map[string]string{"a": "a", "b": "b"},
-	}
+	in := crateAImports("a/src/server.rs", "Client")
 	wantCallees(t, Build(in, units), "a/src/server.rs Server::run", "[b/src/client.rs Client::send a/src/client.rs Client::close]")
 }
 
@@ -617,10 +620,7 @@ func TestRustBareTypesStayInTheCallersCrate(t *testing.T) {
 		fn("a/src/client.rs", "Client::close"),
 		fn("b/src/client.rs", "Client::send"),
 	}
-	in := Inputs{
-		Imports: map[string]map[string]string{"a/src/other.rs": {"Thing": "b::Thing"}}, // a depends on b
-		Crates:  map[string]string{"a": "a", "b": "b"},
-	}
+	in := crateAImports("a/src/other.rs", "Thing") // a depends on b
 	wantCallees(t, Build(in, units), "a/src/server.rs Server::run", "[]")
 }
 
@@ -638,10 +638,7 @@ func TestRustCallsOnACallsResultResolveInTheProducersCrate(t *testing.T) {
 		fn("a/src/store.rs", "Store::save"), // a's own Store
 		fn("a/src/store.rs", "Store::flush"),
 	}
-	in := Inputs{
-		Imports: map[string]map[string]string{"a/src/server.rs": {"Store": "b::Store"}},
-		Crates:  map[string]string{"a": "a", "b": "b"},
-	}
+	in := crateAImports("a/src/server.rs", "Store")
 	wantCallees(t, Build(in, units), "a/src/server.rs Server::run", "[b/src/store.rs Store::new b/src/store.rs Store::save b/src/store.rs Store::flush]")
 }
 

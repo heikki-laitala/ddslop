@@ -529,6 +529,16 @@ const syncUsers = `fn sync_users(client: &Client, users: &[User]) -> Result<(), 
 // syncPeople is a renamed copy of syncUsers.
 var syncPeople = strings.ReplaceAll(syncUsers, "sync_users", "sync_people")
 
+// checkCopyAdded commits syncUsers as committed, adds its copy syncPeople
+// as added, and returns the output, in format, of a check of that change.
+func checkCopyAdded(t *testing.T, committed, added, format string) string {
+	t.Helper()
+	root := committedRepo(t, map[string]string{committed: syncUsers})
+	testutil.WriteFiles(t, root, map[string]string{added: syncPeople})
+	_, stdout, _ := run("check", "--format", format, "--min-nodes", "20", "--diff", "HEAD", root)
+	return stdout
+}
+
 const syncOrders = `fn sync_orders(client: &Client, orders: &[Order], extra: u32) -> Result<(), Error> {
     if orders.is_empty() {
         return Ok(());

@@ -68,11 +68,7 @@ func TestCheckDiffWithoutNewDuplicationExitsZero(t *testing.T) {
 }
 
 func TestCheckDiffTextMarksChangedOccurrences(t *testing.T) {
-	root := committedRepo(t, map[string]string{"c.rs": syncUsers})
-	testutil.WriteFiles(t, root, map[string]string{"d.rs": syncPeople})
-
-	_, stdout, _ := run("check", "--format", "text", "--min-nodes", "20", "--diff", "HEAD", root)
-
+	stdout := checkCopyAdded(t, "c.rs", "d.rs", "text")
 	if !strings.Contains(stdout, "d.rs:1-14 sync_people (changed)") || strings.Contains(stdout, "sync_users (changed)") {
 		t.Errorf("text output should mark only d.rs as changed:\n%s", stdout)
 	}

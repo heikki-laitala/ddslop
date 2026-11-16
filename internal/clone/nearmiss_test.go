@@ -60,6 +60,13 @@ func body(at int, extra, changed string) []string {
 	return append(lines, "} }")
 }
 
+// withoutStatement5 builds file as body with literal 'changed', missing
+// statement 5 (line 6).
+func withoutStatement5(file, changed string) unit.Unit {
+	lines := body(0, "", changed)
+	return build(file, 1, append(lines[:5], lines[6:]...)...)
+}
+
 func TestNearMissFindsCopyWithExtraStatementAndChangedValue(t *testing.T) {
 	a := build("a.rs", 10, body(0, "", "")...)
 	b := build("b.rs", 100, body(6, "call i=log l=\"debug\" }", "42")...)
@@ -176,9 +183,7 @@ func TestNearMissesDropLookalikes(t *testing.T) {
 func TestNearMissFamilyAroundAnchor(t *testing.T) {
 	a := build("a.rs", 1, body(0, "", "")...)
 	b := build("b.rs", 1, body(6, "call i=log l=\"debug\" }", "")...)
-	cLines := body(0, "", "42")
-	cLines = append(cLines[:5], cLines[6:]...) // drop statement 5 (line 6)
-	c := build("c.rs", 1, cLines...)
+	c := withoutStatement5("c.rs", "42")
 
 	got := NearMisses([]unit.Unit{c, b, a}, 20, 0.8, 1)
 
@@ -220,9 +225,7 @@ func TestAlignmentKeepsValuesTogetherAcrossRepeatedStatements(t *testing.T) {
 	// may pair statement 5 of a.rs with statement 6 of c.rs and so on,
 	// misaligning every value after the deletion.
 	a := build("a.rs", 1, body(0, "", "")...)
-	cLines := body(0, "", "")
-	cLines = append(cLines[:5], cLines[6:]...) // drop statement 5 (line 6)
-	c := build("c.rs", 1, cLines...)
+	c := withoutStatement5("c.rs", "")
 
 	nm := pairOf(t, a, c)
 
