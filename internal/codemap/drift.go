@@ -5,7 +5,6 @@ import (
 	"slices"
 
 	"github.com/heikki-laitala/ddslop/internal/flow"
-	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
 // minDriftShare is the least share of a concern's occurrences the
@@ -37,9 +36,9 @@ type occurrence struct {
 }
 
 // concernOccurrences collects the forms the non-ignored units in the
-// grouping use, but those on a marked line, by concern, in unit order. Whether test code counts is
-// the caller's choice of units: the map's call graph has none, and check
-// has it only with --tests.
+// grouping use, but those on a marked line, by concern, in unit order.
+// Whether test code counts is the caller's choice of units: the map's call
+// graph has none, and check measures it on its own, with --tests.
 func concernOccurrences(g *flow.Graph, group Grouping) map[string][]occurrence {
 	out := map[string][]occurrence{}
 	for i, u := range g.Units {
@@ -65,20 +64,12 @@ type Convention struct {
 	Holds bool
 }
 
-// Conventions measures the convention of each concern the production
-// units in group use. Test code is held to production code's conventions
-// but sets none: a suite free to check errors by message would otherwise
-// move the share production code is judged by, and with it whether a
-// convention holds at all.
+// Conventions measures the convention of each concern the units in group
+// use. Which units share a convention is the caller's choice: check
+// measures production code and test code apart.
 func Conventions(g *flow.Graph, group Grouping) map[string]Convention {
-	production := Grouping(func(u unit.Unit) string {
-		if u.Test {
-			return ""
-		}
-		return group(u)
-	})
 	out := map[string]Convention{}
-	for concern, occs := range concernOccurrences(g, production) {
+	for concern, occs := range concernOccurrences(g, group) {
 		counts := map[string]int{}
 		for _, o := range occs {
 			counts[o.form]++

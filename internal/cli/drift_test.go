@@ -109,8 +109,8 @@ func TestDriftReadsTheCodeCheckAnalyses(t *testing.T) {
 	if got := driftCandidates(t, root); strings.Join(got, ", ") != "store/s.go:40-40 ByMessage" {
 		t.Errorf("drifts = %v, want only ByMessage: generated code and tests are not analysed", got)
 	}
-	if got := driftCandidates(t, "--tests", root); len(got) != 2 {
-		t.Errorf("drifts with --tests = %v, want ByMessage and the test helper", got)
+	if got := driftCandidates(t, "--tests", root); strings.Join(got, ", ") != "store/s.go:40-40 ByMessage" {
+		t.Errorf("drifts with --tests = %v, want only ByMessage: one test check is too few for a convention of test code's own", got)
 	}
 }
 
@@ -125,23 +125,23 @@ func TestDriftsOfOneFormInOneFunctionAreOneCandidate(t *testing.T) {
 	wantContains(t, text, "convention-drift: 2 place(s) using message (convention at 91%), follow-convention")
 }
 
-// Test code is held to production code's conventions without setting
-// them: ten test helpers checking errors by message, enough to bring the
-// share below the drift share were tests counted, leave production's
-// convention whole, and --tests reports them beside ByMessage.
-func TestTestCodeDoesNotDecideTheConvention(t *testing.T) {
+// Test code has conventions of its own: ten test helpers checking errors
+// by message neither move production's convention nor drift from it, and
+// --tests reports a test that checks otherwise among them.
+func TestTestCodeHasConventionsOfItsOwn(t *testing.T) {
 	var b strings.Builder
-	b.WriteString("package store\n\nimport \"strings\"\n\n")
+	b.WriteString("package store\n\nimport (\n\t\"errors\"\n\t\"strings\"\n)\n\n")
 	for i := range 10 {
 		fmt.Fprintf(&b, "func helper%d(err error) bool { return strings.Contains(err.Error(), \"x\") }\n", i)
 	}
+	b.WriteString("func helperIs(err error) bool { return errors.Is(err, ErrMissing) }\n")
 	root := driftRepo(t, "store/s_test.go", b.String())
 
 	if got := driftCandidates(t, root); strings.Join(got, ", ") != "store/s.go:40-40 ByMessage" {
 		t.Errorf("drifts = %v, want only ByMessage without --tests", got)
 	}
-	if got := driftCandidates(t, "--tests", root); len(got) != 11 {
-		t.Errorf("drifts with --tests = %v, want ByMessage and the ten test helpers", got)
+	if got := driftCandidates(t, "--tests", root); strings.Join(got, ", ") != "store/s.go:40-40 ByMessage, store/s_test.go:18-18 helperIs" {
+		t.Errorf("drifts with --tests = %v, want ByMessage and the test checking by variant among tests checking by message", got)
 	}
 }
 

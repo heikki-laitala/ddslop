@@ -710,29 +710,51 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 
 // drifts finds the convention drifts in the units check analyses (no
 // generated code, test code only with --tests), each language on its own
-// (see codemap.Drifts): Go's and Rust's forms are never compared. A
-// concern judged has the convention judged gives it, else the one
-// measured here; the conventions measured here come back, by language.
+// (see codemap.Drifts): Go's and Rust's forms are never compared. Test
+// code has conventions of its own: it asserts an error's message and
+// fails with a string where production code would not, so it is measured
+// and judged apart from production code, which it neither sets
+// conventions for nor is held to. A concern judged has the convention
+// judged gives it, else the one measured here; the conventions measured
+// here come back, by side (see side).
 func drifts(units []unit.Unit, crates *codemap.Packages, judged map[string]map[string]codemap.Convention) ([]report.Drift, map[string]map[string]codemap.Convention) {
 	g := &flow.Graph{Units: units}
 	var out []report.Drift
 	measured := map[string]map[string]codemap.Convention{}
 	for _, lang := range []string{"go", "rust"} {
-		inLang := codemap.Grouping(func(u unit.Unit) string {
-			if languageOf(u.File) != lang {
-				return ""
-			}
-			return lang
-		})
-		measured[lang] = codemap.Conventions(g, inLang)
-		conventions := maps.Clone(measured[lang])
-		maps.Copy(conventions, judged[lang])
-		for _, d := range codemap.Drifts(g, inLang, codemap.ByModule(crates), conventions) {
-			out = append(out, report.Drift{Concern: d.Concern, Form: d.Form, Convention: d.Convention, Share: d.Share,
-				Unit: g.Units[d.Unit], Lines: d.Lines, Target: g.Units[d.Target], TargetLine: d.TargetLine})
+		for _, test := range []bool{false, true} {
+			key := side(lang, test)
+			in := codemap.Grouping(func(u unit.Unit) string {
+				if languageOf(u.File) != lang || u.Test != test {
+					return ""
+				}
+				return key
+			})
+			measured[key] = codemap.Conventions(g, in)
+			conventions := maps.Clone(measured[key])
+			maps.Copy(conventions, judged[key])
+			out = appendDrifts(out, g, codemap.Drifts(g, in, codemap.ByModule(crates), conventions))
 		}
 	}
 	return out, measured
+}
+
+// side names the code a convention is measured on: a language's
+// production code ("rust") or its test code ("rust tests").
+func side(lang string, test bool) string {
+	if test {
+		return lang + " tests"
+	}
+	return lang
+}
+
+// appendDrifts appends codemap's drifts as the report's.
+func appendDrifts(out []report.Drift, g *flow.Graph, found []codemap.Drift) []report.Drift {
+	for _, d := range found {
+		out = append(out, report.Drift{Concern: d.Concern, Form: d.Form, Convention: d.Convention, Share: d.Share,
+			Unit: g.Units[d.Unit], Lines: d.Lines, Target: g.Units[d.Target], TargetLine: d.TargetLine})
+	}
+	return out
 }
 
 // dependencyCycles finds the modules of each Rust crate depending on each

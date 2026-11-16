@@ -66,11 +66,11 @@ func TestDriftsOnOneLineComeInConcernOrder(t *testing.T) {
 	}
 }
 
-// Test code is held to production code's conventions but sets none: as
-// many test functions checking errors by message as production functions
-// checking them by variant leave the convention whole, and each test
-// function is a drift from it.
-func TestTestCodeIsHeldToProductionConventionsButSetsNone(t *testing.T) {
+// Conventions measure the units in the group they are given: production
+// functions checking errors by variant and test functions checking them
+// by message are two conventions, each whole, and neither drifts from the
+// other.
+func TestConventionsMeasureTheGroupGiven(t *testing.T) {
 	var units []unit.Unit
 	for i := range 20 {
 		units = append(units, formUnit("store/s.go", i+1, "error-checks", "variant"))
@@ -81,13 +81,26 @@ func TestTestCodeIsHeldToProductionConventionsButSetsNone(t *testing.T) {
 		units = append(units, test)
 	}
 	g := &flow.Graph{Units: units}
-
-	conventions := Conventions(g, ByModule(nil))
-	if c := conventions["error-checks"]; c != (Convention{Form: "variant", Share: 1, Holds: true}) {
-		t.Errorf("convention = %+v, want variant at the whole of production code", c)
+	side := func(test bool) Grouping {
+		return func(u unit.Unit) string {
+			if u.Test != test {
+				return ""
+			}
+			return "side"
+		}
 	}
-	if got := Drifts(g, ByModule(nil), ByModule(nil), conventions); len(got) != 20 || got[0].Unit != 20 {
-		t.Errorf("Drifts = %+v, want each of the 20 test functions", got)
+
+	for _, tc := range []struct {
+		test bool
+		want Convention
+	}{{false, Convention{Form: "variant", Share: 1, Holds: true}}, {true, Convention{Form: "message", Share: 1, Holds: true}}} {
+		conventions := Conventions(g, side(tc.test))
+		if c := conventions["error-checks"]; c != tc.want {
+			t.Errorf("test %v: convention = %+v, want %+v", tc.test, c, tc.want)
+		}
+		if got := Drifts(g, side(tc.test), ByModule(nil), conventions); len(got) != 0 {
+			t.Errorf("test %v: Drifts = %+v, want none", tc.test, got)
+		}
 	}
 }
 
