@@ -77,10 +77,10 @@ These are requirements, not suggestions.
   code: extract on the third occurrence, and only when the copies change for
   the same reason; a wrong abstraction is worse than two copies. As a
   duplication linter, ddslop must stay clean under its own analysis: CI
-  runs it on its own code with no baseline and fails on any candidate. Fix
-  each one; when the copies share a shape rather than logic, mark one with
-  `// ddslop:ignore <reason>` saying why instead. `dupl` in `make lint`
-  stays as a second check.
+  runs it on its own code, test code included (`--tests`), with no baseline
+  and fails on any candidate. Fix each one; when the copies share a shape
+  rather than logic, mark one with `// ddslop:ignore <reason>` saying why
+  instead. `dupl` in `make lint` stays as a second check.
 
 ## TDD (mandatory for features and behaviour fixes)
 

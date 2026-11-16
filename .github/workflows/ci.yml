@@ -41,8 +41,9 @@ jobs:
         run: make cover
       - name: Build
         run: make build
+      # Test code included: a copy in the tests fails the build too.
       - name: ddslop on its own code
-        run: bin/ddslop check --format text .
+        run: bin/ddslop check --format text --tests .
       - name: Smoke test
         run: scripts/smoke-test.sh bin/ddslop
 
