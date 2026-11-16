@@ -366,6 +366,20 @@ func load(path string) error {
 				"19 error-wrapping %v",
 			},
 		},
+		"a string compared is no error": {
+			src: `package store
+
+func load(stderr, lastErr string, err error) bool {
+	if stderr == "" || lastErr != ` + "`none`" + ` {
+		return false
+	}
+	return err == ErrMissing
+}
+`,
+			want: []string{
+				"7 error-checks ==",
+			},
+		},
 		"import paths and format directives": {
 			src: `package store
 

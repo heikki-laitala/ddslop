@@ -490,7 +490,9 @@ func formatVerbs(format string) string {
 
 // errorComparison returns the error check an == or != comparison is: on
 // err.Error() a check of the message, between an error value and anything
-// but nil a check against a sentinel (err == io.EOF).
+// but nil or a string literal a check against a sentinel (err == io.EOF).
+// An error is never compared with a string, so a name that only ends like
+// one (stderr == "") is no error.
 func errorComparison(n *sitter.Node, src []byte) unit.Form {
 	form := unit.Form{Line: syntax.Line(n.StartPosition())}
 	op := n.ChildByFieldName("operator")
@@ -501,10 +503,16 @@ func errorComparison(n *sitter.Node, src []byte) unit.Form {
 	switch {
 	case isErrorMessage(left, src) || isErrorMessage(right, src):
 		form.Concern, form.Form = unit.ErrorChecks, "message"
+	case isStringLiteral(left) || isStringLiteral(right):
 	case (isErrorValue(left, src) && right.Kind() != "nil") || (isErrorValue(right, src) && left.Kind() != "nil"):
 		form.Concern, form.Form = unit.ErrorChecks, "=="
 	}
 	return form
+}
+
+// isStringLiteral reports whether n is a string literal, quoted or raw.
+func isStringLiteral(n *sitter.Node) bool {
+	return n.Kind() == "interpreted_string_literal" || n.Kind() == "raw_string_literal"
 }
 
 // isErrorValue reports whether n names an error by Go's naming habit: err,
