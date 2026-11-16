@@ -1696,11 +1696,14 @@ Section 4 is built for two concerns in Go (`codemap.Idioms`, `idioms`
 in JSON). The Go adapter records each function's error forms with their
 lines (`Unit.Forms`), from syntax alone: a check is `errors.Is` or
 `errors.As`, `==` or `!=` between an error value and anything but `nil`
-or a string literal (a sentinel), or a comparison of `err.Error()`, directly or inside
+(a sentinel), or a comparison of `err.Error()`, directly or inside
 `strings.Contains` and its kin; wrapping is `fmt.Errorf` with `%w`, or
 with `%v` or `%s` and an error among its arguments. An error value is
-told by Go's naming habit: `err`, or a name ending in `err` or `Err`;
-an error is never compared with a string, so `stderr == ""` is no check.
+told by Go's naming habit: `err`, or a name ending in `err` or `Err`.
+An error interface is never compared with a string, so a name that only
+ends like one compared with a string literal (`stderr == ""`) is no
+check; `err` itself so compared can only be a string-backed error type
+(`type Err string`), and is one.
 The map counts each concern's forms over the non-test functions in its
 scope and calls the most used form the convention when it holds a
 majority of at least 5 occurrences; otherwise it names the adapter's

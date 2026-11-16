@@ -490,9 +490,10 @@ func formatVerbs(format string) string {
 
 // errorComparison returns the error check an == or != comparison is: on
 // err.Error() a check of the message, between an error value and anything
-// but nil or a string literal a check against a sentinel (err == io.EOF).
-// An error is never compared with a string, so a name that only ends like
-// one (stderr == "") is no error.
+// but nil a check against a sentinel (err == io.EOF). An error interface
+// is never compared with a string, so a name that only ends like an
+// error's compared with a string literal (stderr == "") is no error; err
+// itself so compared can only be a string-backed error type, and is one.
 func errorComparison(n *sitter.Node, src []byte) unit.Form {
 	form := unit.Form{Line: syntax.Line(n.StartPosition())}
 	op := n.ChildByFieldName("operator")
@@ -503,11 +504,16 @@ func errorComparison(n *sitter.Node, src []byte) unit.Form {
 	switch {
 	case isErrorMessage(left, src) || isErrorMessage(right, src):
 		form.Concern, form.Form = unit.ErrorChecks, "message"
-	case isStringLiteral(left) || isStringLiteral(right):
+	case (isStringLiteral(left) && !isErr(right, src)) || (isStringLiteral(right) && !isErr(left, src)):
 	case (isErrorValue(left, src) && right.Kind() != "nil") || (isErrorValue(right, src) && left.Kind() != "nil"):
 		form.Concern, form.Form = unit.ErrorChecks, "=="
 	}
 	return form
+}
+
+// isErr reports whether n is the identifier err.
+func isErr(n *sitter.Node, src []byte) bool {
+	return n.Kind() == "identifier" && n.Utf8Text(src) == "err"
 }
 
 // isStringLiteral reports whether n is a string literal, quoted or raw.

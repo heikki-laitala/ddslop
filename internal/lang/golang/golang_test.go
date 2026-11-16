@@ -366,17 +366,18 @@ func load(path string) error {
 				"19 error-wrapping %v",
 			},
 		},
-		"a string compared is no error": {
+		"a string compared is no error, but err may be a string-backed error": {
 			src: `package store
 
-func load(stderr, lastErr string, err error) bool {
+func load(stderr, lastErr string, err Err) bool {
 	if stderr == "" || lastErr != ` + "`none`" + ` {
 		return false
 	}
-	return err == ErrMissing
+	return err == ErrMissing || err == "closed"
 }
 `,
 			want: []string{
+				"7 error-checks ==",
 				"7 error-checks ==",
 			},
 		},
