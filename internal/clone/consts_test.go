@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/heikki-laitala/ddslop/internal/testutil"
+
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -23,17 +25,10 @@ func TestConstantsGroupsSameNameAndValue(t *testing.T) {
 		cst("a.rs", "_", "assert!(true)", 1),
 		cst("b.rs", "_", "assert!(true)", 1),
 	}
-	var got []string
-	for _, g := range Constants(consts) {
-		var members []string
-		for _, c := range g.Consts {
-			members = append(members, fmt.Sprintf("%s:%d", c.File, c.Line))
-		}
-		got = append(got, strings.Join(members, " | "))
-	}
-	if want := "ledger/model_grant.rs:5 | router/model_grant.rs:3"; strings.Join(got, "\n") != want {
-		t.Errorf("groups:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
-	}
+	got := groupLines(Constants(consts), func(g ConstGroup) []unit.Const { return g.Consts }, func(c unit.Const) string {
+		return fmt.Sprintf("%s:%d", c.File, c.Line)
+	})
+	testutil.Lines(t, "groups", got, []string{"ledger/model_grant.rs:5 | router/model_grant.rs:3"})
 }
 
 func literalUnit(file, name string, line int, literals ...string) unit.Unit {

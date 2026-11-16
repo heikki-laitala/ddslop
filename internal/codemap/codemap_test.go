@@ -108,40 +108,56 @@ func TestFilesOutsideEveryPackageBelongToNoCrate(t *testing.T) {
 	}
 }
 
-// svc's manifest roots its library at lib/core.rs: the files beside and
-// below it are the library's modules, as src/'s are by default.
-func TestALibraryMovedOutOfSrcNamesItsModules(t *testing.T) {
+// A library moved out of src/ names the files beside and below its root
+// as its modules, as src/'s are by default; a file it rejects, another
+// target's, is no module of the library's crate.
+func TestTheModulesOfALibraryMovedOutOfSrc(t *testing.T) {
+	for name, tc := range map[string]struct {
+		crates  *Packages
+		modules map[string]string
+	}{
+		// svc's manifest roots its library at lib/core.rs.
+		"files beside and below its root": {
+			crates: &Packages{
+				Names:     map[string]string{"svc": "core"},
+				Libraries: flow.Libraries{Roots: map[string]string{"svc/lib/core.rs": "svc"}},
+			},
+			modules: map[string]string{
+				"svc/lib/core.rs":         "core",
+				"svc/lib/config.rs":       "core::config",
+				"svc/lib/store/client.rs": "core::store",
+				"svc/src/main.rs":         "core",
+			},
+		},
+		"files it rejects": {
+			crates: &Packages{
+				Names:     map[string]string{"svc": "core"},
+				Libraries: flow.Libraries{Roots: map[string]string{"svc/core.rs": "svc"}, Packages: map[string]bool{"svc": true}},
+			},
+			modules: map[string]string{
+				"svc/src/cli.rs":       "",
+				"svc/src/main.rs":      "",
+				"svc/examples/demo.rs": "",
+				"svc/store.rs":         "core::store",
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for file, want := range tc.modules {
+				if got := Module(file, tc.crates); got != want {
+					t.Errorf("Module(%q) = %q, want %q", file, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestAMovedLibrarysRootIsItsCratesRoot(t *testing.T) {
 	crates := &Packages{
 		Names:     map[string]string{"svc": "core"},
 		Libraries: flow.Libraries{Roots: map[string]string{"svc/lib/core.rs": "svc"}},
 	}
-	for file, want := range map[string]string{
-		"svc/lib/core.rs":         "core",
-		"svc/lib/config.rs":       "core::config",
-		"svc/lib/store/client.rs": "core::store",
-		"svc/src/main.rs":         "core",
-	} {
-		if got := Module(file, crates); got != want {
-			t.Errorf("Module(%q) = %q, want %q", file, got, want)
-		}
-	}
 	if name, rel := CratePath("svc/lib/core.rs", crates); name != "core" || rel != "lib.rs" {
 		t.Errorf("CratePath(root) = %q, %q, want the library's root, as src/lib.rs is", name, rel)
-	}
-}
-
-// A file a moved library rejects is no module of the library's crate.
-func TestFilesAMovedLibraryRejectsHaveNoLibraryModule(t *testing.T) {
-	crates := &Packages{
-		Names:     map[string]string{"svc": "core"},
-		Libraries: flow.Libraries{Roots: map[string]string{"svc/core.rs": "svc"}, Packages: map[string]bool{"svc": true}},
-	}
-	for _, file := range []string{"svc/src/cli.rs", "svc/src/main.rs", "svc/examples/demo.rs"} {
-		if got := Module(file, crates); got != "" {
-			t.Errorf("Module(%q) = %q, want none: it is another target's", file, got)
-		}
-	}
-	if got := Module("svc/store.rs", crates); got != "core::store" {
-		t.Errorf("Module(store) = %q, want core::store", got)
 	}
 }

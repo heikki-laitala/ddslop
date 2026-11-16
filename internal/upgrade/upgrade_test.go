@@ -67,15 +67,23 @@ func TestLatestReadsTheTagFromTheRedirect(t *testing.T) {
 	}
 }
 
-func TestInstallReplacesTheBinaryWithAVerifiedRelease(t *testing.T) {
+// installOver installs release v1.1.0, whose binary holds content, over
+// an "old binary", returning the binary's path and Install's error. With
+// badChecksum the release's checksum does not match.
+func installOver(t *testing.T, content string, badChecksum bool) (string, error) {
+	t.Helper()
 	asset := "ddslop-linux-x86_64"
-	srv := fakeGitHub(t, "v1.1.0", asset, release(t, asset, "new binary"), false)
+	srv := fakeGitHub(t, "v1.1.0", asset, release(t, asset, content), badChecksum)
 	bin := filepath.Join(t.TempDir(), "ddslop")
 	if err := os.WriteFile(bin, []byte("old binary"), 0o755); err != nil { //nolint:gosec // an executable test file
 		t.Fatal(err)
 	}
+	return bin, Install(srv.Client(), srv.URL, "v1.1.0", asset, bin)
+}
 
-	if err := Install(srv.Client(), srv.URL, "v1.1.0", asset, bin); err != nil {
+func TestInstallReplacesTheBinaryWithAVerifiedRelease(t *testing.T) {
+	bin, err := installOver(t, "new binary", false)
+	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 	got, _ := os.ReadFile(bin) //nolint:gosec // the test's own file
@@ -89,14 +97,7 @@ func TestInstallReplacesTheBinaryWithAVerifiedRelease(t *testing.T) {
 }
 
 func TestInstallRefusesAReleaseWhoseChecksumDoesNotMatch(t *testing.T) {
-	asset := "ddslop-linux-x86_64"
-	srv := fakeGitHub(t, "v1.1.0", asset, release(t, asset, "tampered binary"), true)
-	bin := filepath.Join(t.TempDir(), "ddslop")
-	if err := os.WriteFile(bin, []byte("old binary"), 0o755); err != nil { //nolint:gosec // an executable test file
-		t.Fatal(err)
-	}
-
-	err := Install(srv.Client(), srv.URL, "v1.1.0", asset, bin)
+	bin, err := installOver(t, "tampered binary", true)
 	if err == nil || !strings.Contains(err.Error(), "checksum") {
 		t.Errorf("Install with a bad checksum: %v, want a checksum error", err)
 	}

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/heikki-laitala/ddslop/internal/testutil"
+
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -16,7 +18,9 @@ func decl(text string, line int) unit.Leaf {
 }
 
 func lit(text string, line int) unit.Leaf {
-	return unit.Leaf{Kind: unit.Literal, Text: text, Line: line}
+	l := id(text, line)
+	l.Kind = unit.Literal
+	return l
 }
 
 func groupOf(leaves ...[]unit.Leaf) Group {
@@ -55,49 +59,45 @@ func TestDifferencesCollapseRepeatedValues(t *testing.T) {
 	}
 }
 
-func TestDifferencesMarkConsistentLocalRenames(t *testing.T) {
-	a := []unit.Leaf{decl("load_user", 1), decl("user_id", 1), id("user_id", 2)}
-	b := []unit.Leaf{decl("load_order", 5), decl("order_id", 5), id("order_id", 6)}
-
-	diffs := Differences(groupOf(a, b))
-
-	if len(diffs) != 2 {
-		t.Fatalf("got %d differences, want 2: %+v", len(diffs), diffs)
-	}
-	for _, d := range diffs {
-		if !d.Local {
-			t.Errorf("difference %v should be local: both copies declare their own name", d.Values)
-		}
-	}
-}
-
-func TestDifferencesInUsedNamesAreNotLocal(t *testing.T) {
-	// db.get_user(id) vs db.get_order(id): the called method differs.
-	a := []unit.Leaf{id("db", 1), id("get_user", 1)}
-	b := []unit.Leaf{id("db", 5), id("get_order", 5)}
-
-	diffs := Differences(groupOf(a, b))
-
-	if len(diffs) != 1 || diffs[0].Local {
-		t.Errorf("differences = %+v, want one non-local difference", diffs)
-	}
-}
-
-func TestDifferencesDeclaredInOnlySomeUnitsAreNotLocal(t *testing.T) {
-	a := []unit.Leaf{decl("v", 1), id("v", 2)}
-	b := []unit.Leaf{decl("w", 5), id("limit", 6)} // limit comes from outside
-	c := []unit.Leaf{decl("q", 9), id("q", 10)}
-
-	diffs := Differences(groupOf(a, b, c))
-
-	if len(diffs) != 2 {
-		t.Fatalf("got %d differences, want 2: %+v", len(diffs), diffs)
-	}
-	if !diffs[0].Local {
-		t.Errorf("first difference %v should be local", diffs[0].Values)
-	}
-	if diffs[1].Local {
-		t.Errorf("second difference %v uses an outside name in one unit, should not be local", diffs[1].Values)
+// A difference is local when every copy declares its own name for it; a
+// name used but not declared, or declared in only some copies, comes from
+// outside and is a parameter.
+func TestDifferencesAreLocalOnlyWhereEveryCopyDeclaresTheName(t *testing.T) {
+	for name, tc := range map[string]struct {
+		copies [][]unit.Leaf
+		want   []string
+	}{
+		"consistent renames": {
+			copies: [][]unit.Leaf{
+				{decl("load_user", 1), decl("user_id", 1), id("user_id", 2)},
+				{decl("load_order", 5), decl("order_id", 5), id("order_id", 6)},
+			},
+			want: []string{"[load_user load_order] local=true", "[user_id order_id] local=true"},
+		},
+		// db.get_user(id) vs db.get_order(id): the called method differs.
+		"used names": {
+			copies: [][]unit.Leaf{
+				{id("db", 1), id("get_user", 1)},
+				{id("db", 5), id("get_order", 5)},
+			},
+			want: []string{"[get_user get_order] local=false"},
+		},
+		// limit comes from outside.
+		"names declared in only some copies": {
+			copies: [][]unit.Leaf{
+				{decl("v", 1), id("v", 2)},
+				{decl("w", 5), id("limit", 6)},
+				{decl("q", 9), id("q", 10)},
+			},
+			want: []string{"[v w q] local=true", "[v limit q] local=false"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := testutil.Format(Differences(groupOf(tc.copies...)), func(d Difference) string {
+				return fmt.Sprintf("%v local=%v", d.Values, d.Local)
+			})
+			testutil.Lines(t, "differences", got, tc.want)
+		})
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -150,35 +151,73 @@ func TestFirstSyncParsesEveryFileAndStoresUnits(t *testing.T) {
 	}
 }
 
-func TestSecondSyncSkipsUnchangedFiles(t *testing.T) {
-	f := newFixture(t, map[string]string{"a.rs": "alpha", "b.rs": "beta"})
-	f.sync("v1")
-
-	stats := f.sync("v1")
-
-	if stats.Parsed != 0 || stats.Unchanged != 2 {
-		t.Errorf("stats = %+v, want 0 parsed, 2 unchanged", stats)
-	}
-	if len(f.fake.parsed) != 0 {
-		t.Errorf("parsed %v, want nothing", f.fake.parsed)
-	}
-	if files := f.files(); len(files) != 2 || files[0].Units[0].Name != "alpha" {
-		t.Errorf("files after second sync = %+v", files)
-	}
-}
-
-func TestModifiedFileIsParsedAgain(t *testing.T) {
-	f := newFixture(t, map[string]string{"a.rs": "alpha", "b.rs": "beta"})
-	f.sync("v1")
-	f.write("b.rs", "gamma")
-
-	stats := f.sync("v1")
-
-	if stats.Parsed != 1 || stats.Unchanged != 1 || len(f.fake.parsed) != 1 || f.fake.parsed[0] != "b.rs" {
-		t.Errorf("stats = %+v, parsed %v; want only b.rs parsed", stats, f.fake.parsed)
-	}
-	if files := f.files(); files[1].Units[0].Name != "gamma" {
-		t.Errorf("b.rs units = %+v, want the new content", files[1].Units)
+// A second sync parses only the files that changed since the first, or
+// everything when the parser's version changed; a third sync after it
+// parses nothing.
+func TestASyncParsesOnlyWhatChanged(t *testing.T) {
+	for name, tc := range map[string]struct {
+		change  func(f *fixture)
+		version string
+		stats   string
+		parsed  []string
+		files   []string
+	}{
+		"nothing changed": {
+			version: "v1",
+			stats:   "0 parsed, 2 unchanged, 0 deleted",
+			files:   []string{"a.rs alpha", "b.rs beta"},
+		},
+		"a modified file": {
+			change:  func(f *fixture) { f.write("b.rs", "gamma") },
+			version: "v1",
+			stats:   "1 parsed, 1 unchanged, 0 deleted",
+			parsed:  []string{"b.rs"},
+			files:   []string{"a.rs alpha", "b.rs gamma"},
+		},
+		"a deleted file": {
+			change:  func(f *fixture) { f.paths = []string{"a.rs"} },
+			version: "v1",
+			stats:   "0 parsed, 1 unchanged, 1 deleted",
+			files:   []string{"a.rs alpha"},
+		},
+		"a new version": {
+			version: "v2",
+			stats:   "2 parsed, 0 unchanged, 0 deleted",
+			parsed:  []string{"a.rs", "b.rs"},
+			files:   []string{"a.rs alpha", "b.rs beta"},
+		},
+		"a reopened index": {
+			change: func(f *fixture) {
+				if err := f.db.Close(); err != nil {
+					f.t.Fatal(err)
+				}
+				f.db = f.open()
+			},
+			version: "v1",
+			stats:   "0 parsed, 2 unchanged, 0 deleted",
+			files:   []string{"a.rs alpha", "b.rs beta"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t, map[string]string{"a.rs": "alpha", "b.rs": "beta"})
+			f.sync("v1")
+			if tc.change != nil {
+				tc.change(f)
+			}
+			s := f.sync(tc.version)
+			if got := fmt.Sprintf("%d parsed, %d unchanged, %d deleted", s.Parsed, s.Unchanged, s.Deleted); got != tc.stats {
+				t.Errorf("stats = %s, want %s", got, tc.stats)
+			}
+			parsed := slices.Sorted(slices.Values(f.fake.parsed))
+			testutil.Lines(t, "parsed", parsed, tc.parsed)
+			files := testutil.Format(f.files(), func(file File) string {
+				return file.Path + " " + file.Units[0].Name
+			})
+			testutil.Lines(t, "files", files, tc.files)
+			if again := f.sync(tc.version); again.Parsed != 0 {
+				t.Errorf("stats after re-sync = %+v, want nothing parsed", again)
+			}
+		})
 	}
 }
 
@@ -199,48 +238,6 @@ func TestSameMtimeButDifferentSizeIsParsedAgain(t *testing.T) {
 
 	if stats := f.sync("v1"); stats.Parsed != 1 {
 		t.Errorf("stats = %+v, want the resized file parsed", stats)
-	}
-}
-
-func TestDeletedFileIsRemoved(t *testing.T) {
-	f := newFixture(t, map[string]string{"a.rs": "alpha", "b.rs": "beta"})
-	f.sync("v1")
-	f.paths = []string{"a.rs"}
-
-	stats := f.sync("v1")
-
-	if stats.Deleted != 1 || stats.Unchanged != 1 || stats.Parsed != 0 {
-		t.Errorf("stats = %+v, want 1 deleted, 1 unchanged", stats)
-	}
-	if files := f.files(); len(files) != 1 || files[0].Path != "a.rs" {
-		t.Errorf("files = %+v, want only a.rs", files)
-	}
-}
-
-func TestVersionChangeParsesEverythingAgain(t *testing.T) {
-	f := newFixture(t, map[string]string{"a.rs": "alpha", "b.rs": "beta"})
-	f.sync("v1")
-
-	stats := f.sync("v2")
-
-	if stats.Parsed != 2 || stats.Unchanged != 0 {
-		t.Errorf("stats = %+v, want everything parsed after a version change", stats)
-	}
-	if again := f.sync("v2"); again.Parsed != 0 {
-		t.Errorf("stats after re-sync = %+v, want the new version remembered", again)
-	}
-}
-
-func TestIndexPersistsAcrossReopen(t *testing.T) {
-	f := newFixture(t, map[string]string{"a.rs": "alpha"})
-	f.sync("v1")
-	if err := f.db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	f.db = f.open()
-
-	if stats := f.sync("v1"); stats.Parsed != 0 || stats.Unchanged != 1 {
-		t.Errorf("stats after reopen = %+v, want the file unchanged", stats)
 	}
 }
 

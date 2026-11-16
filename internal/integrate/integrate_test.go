@@ -125,50 +125,41 @@ func TestInstallIsIdempotentAndUpdatesTheSectionInPlace(t *testing.T) {
 	}
 }
 
-func TestInstallWritesTheSectionOnceWhenClaudeMDLinksToAgentsMD(t *testing.T) {
-	root := t.TempDir()
-	write(t, root, "AGENTS.md", "# Rules\n")
-	if err := os.Symlink("AGENTS.md", filepath.Join(root, "CLAUDE.md")); err != nil {
-		t.Fatal(err)
-	}
+// With one instructions file a symlink to the other, either way round
+// (the other way is common too), the section goes into the real file
+// once, the link stays a link, and uninstall restores the real file.
+func TestInstallWritesTheSectionIntoTheRealFileBehindALink(t *testing.T) {
+	for _, tc := range []struct{ real, link string }{
+		{real: "AGENTS.md", link: "CLAUDE.md"},
+		{real: "CLAUDE.md", link: "AGENTS.md"},
+	} {
+		t.Run(tc.link+" links to "+tc.real, func(t *testing.T) {
+			root := t.TempDir()
+			write(t, root, tc.real, "# Rules\n")
+			if err := os.Symlink(tc.real, filepath.Join(root, tc.link)); err != nil {
+				t.Fatal(err)
+			}
+			isLink := func(when string) {
+				t.Helper()
+				if info, err := os.Lstat(filepath.Join(root, tc.link)); err != nil || info.Mode()&os.ModeSymlink == 0 {
+					t.Errorf("%s is no longer a symlink %s", tc.link, when)
+				}
+			}
 
-	install(t, root, Claude, Codex)
+			install(t, root, Claude, Codex)
+			if got := strings.Count(read(t, root, tc.real), sectionTitle); got != 1 {
+				t.Errorf("%s has %d ddslop sections, want 1", tc.real, got)
+			}
+			isLink("after install")
 
-	if got := strings.Count(read(t, root, "AGENTS.md"), sectionTitle); got != 1 {
-		t.Errorf("AGENTS.md has %d ddslop sections, want 1", got)
-	}
-	info, err := os.Lstat(filepath.Join(root, "CLAUDE.md"))
-	if err != nil || info.Mode()&os.ModeSymlink == 0 {
-		t.Error("CLAUDE.md is no longer a symlink")
-	}
-}
-
-// lens-hub style: AGENTS.md links to CLAUDE.md, the other way round.
-func TestInstallWritesTheSectionIntoTheRealFileWhenAgentsMDLinksToClaudeMD(t *testing.T) {
-	root := t.TempDir()
-	write(t, root, "CLAUDE.md", "# Rules\n")
-	if err := os.Symlink("CLAUDE.md", filepath.Join(root, "AGENTS.md")); err != nil {
-		t.Fatal(err)
-	}
-
-	install(t, root, Claude, Codex)
-
-	if got := strings.Count(read(t, root, "CLAUDE.md"), sectionTitle); got != 1 {
-		t.Errorf("CLAUDE.md has %d ddslop sections, want 1", got)
-	}
-	info, err := os.Lstat(filepath.Join(root, "AGENTS.md"))
-	if err != nil || info.Mode()&os.ModeSymlink == 0 {
-		t.Error("AGENTS.md is no longer a symlink")
-	}
-
-	if _, err := Uninstall(root, false); err != nil {
-		t.Fatal(err)
-	}
-	if got := read(t, root, "CLAUDE.md"); got != "# Rules\n" {
-		t.Errorf("CLAUDE.md after uninstall = %q, want it as before", got)
-	}
-	if info, err := os.Lstat(filepath.Join(root, "AGENTS.md")); err != nil || info.Mode()&os.ModeSymlink == 0 {
-		t.Error("uninstall replaced the AGENTS.md symlink")
+			if _, err := Uninstall(root, false); err != nil {
+				t.Fatal(err)
+			}
+			if got := read(t, root, tc.real); got != "# Rules\n" {
+				t.Errorf("%s after uninstall = %q, want it as before", tc.real, got)
+			}
+			isLink("after uninstall")
+		})
 	}
 }
 

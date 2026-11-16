@@ -5,19 +5,17 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 func write(t *testing.T, root string, files ...string) {
 	t.Helper()
+	contents := map[string]string{}
 	for _, f := range files {
-		p := filepath.Join(root, f)
-		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		contents[f] = "x"
 	}
+	testutil.WriteFiles(t, root, contents)
 }
 
 func mustGit(t *testing.T, dir string, args ...string) {

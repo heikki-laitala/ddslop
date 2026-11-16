@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/heikki-laitala/ddslop/internal/testutil"
+
 	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
@@ -35,13 +37,52 @@ func graphOf(calls ...call) *flow.Graph {
 }
 
 func TestLayersFollowTheCallDirection(t *testing.T) {
-	m := Layers(graphOf(call{"handlers", "service", 40}, call{"service", "store", 40}), ByModule(nil))
-	want := [][]string{{"handlers"}, {"service"}, {"store"}}
-	if !reflect.DeepEqual(m.Layers, want) {
-		t.Errorf("layers = %v, want %v", m.Layers, want)
-	}
-	if len(m.Breaks) != 0 {
-		t.Errorf("breaks = %+v, want none", m.Breaks)
+	for name, tc := range map[string]struct {
+		calls  []call
+		layers [][]string
+		breaks []string
+	}{
+		"calls go down": {
+			calls:  []call{{"handlers", "service", 40}, {"service", "store", 40}},
+			layers: [][]string{{"handlers"}, {"service"}, {"store"}},
+		},
+		"a weak call closing a cycle is an upward call": {
+			calls:  []call{{"a", "b", 40}, {"b", "c", 40}, {"c", "a", 1}},
+			layers: [][]string{{"a"}, {"b"}, {"c"}},
+			breaks: []string{"upward c->a 1"},
+		},
+		"the lighter direction between two modules is an upward call": {
+			calls:  []call{{"api", "db", 30}, {"db", "api", 2}},
+			layers: [][]string{{"api"}, {"db"}},
+			breaks: []string{"upward db->api 2"},
+		},
+		// No direction dominates: no break.
+		"a balanced cycle is one layer of peers": {
+			calls:  []call{{"a", "b", 5}, {"b", "c", 5}, {"c", "a", 5}, {"c", "z", 5}},
+			layers: [][]string{{"a", "b", "c"}, {"z"}},
+		},
+		"every part of the graph gets layers": {
+			calls:  []call{{"handlers", "store", 10}, {"worker", "jobs", 10}, {"jobs", "queue", 10}},
+			layers: [][]string{{"handlers", "worker"}, {"jobs", "store"}, {"queue"}},
+		},
+		// a->b is weak on a->b->c->a and b->c on b->c->d->b; with both set
+		// aside c is on top, so a (layer 1) calling b (layer 2) goes down.
+		"a set-aside call that ends up going down is no break": {
+			calls:  []call{{"a", "b", 1}, {"b", "c", 10}, {"c", "a", 40}, {"c", "d", 100}, {"d", "b", 100}},
+			layers: [][]string{{"c"}, {"a", "d"}, {"b"}},
+			breaks: []string{"upward b->c 10"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := Layers(graphOf(tc.calls...), ByModule(nil))
+			if !reflect.DeepEqual(m.Layers, tc.layers) {
+				t.Errorf("layers = %v, want %v", m.Layers, tc.layers)
+			}
+			got := testutil.Format(m.Breaks, func(b Break) string {
+				return fmt.Sprintf("%s %s->%s %d", b.Kind, b.From, b.To, b.Calls)
+			})
+			testutil.Lines(t, "breaks", got, tc.breaks)
+		})
 	}
 }
 
@@ -60,63 +101,10 @@ func TestADirectCallPastAMiddleLayerIsABypass(t *testing.T) {
 	}
 }
 
-func TestAWeakCallClosingACycleIsAnUpwardCall(t *testing.T) {
-	m := Layers(graphOf(call{"a", "b", 40}, call{"b", "c", 40}, call{"c", "a", 1}), ByModule(nil))
-	want := [][]string{{"a"}, {"b"}, {"c"}}
-	if !reflect.DeepEqual(m.Layers, want) {
-		t.Errorf("layers = %v, want %v", m.Layers, want)
-	}
-	if len(m.Breaks) != 1 || m.Breaks[0].Kind != Upward || m.Breaks[0].From != "c" || m.Breaks[0].To != "a" || m.Breaks[0].Calls != 1 {
-		t.Errorf("breaks = %+v, want the call from c up to a", m.Breaks)
-	}
-}
-
-func TestTheLighterDirectionBetweenTwoModulesIsAnUpwardCall(t *testing.T) {
-	m := Layers(graphOf(call{"api", "db", 30}, call{"db", "api", 2}), ByModule(nil))
-	if want := [][]string{{"api"}, {"db"}}; !reflect.DeepEqual(m.Layers, want) {
-		t.Errorf("layers = %v, want %v", m.Layers, want)
-	}
-	if len(m.Breaks) != 1 || m.Breaks[0].Kind != Upward || m.Breaks[0].From != "db" {
-		t.Errorf("breaks = %+v, want db's call up to api", m.Breaks)
-	}
-}
-
-func TestABalancedCycleIsOneLayerOfPeers(t *testing.T) {
-	m := Layers(graphOf(call{"a", "b", 5}, call{"b", "c", 5}, call{"c", "a", 5}, call{"c", "z", 5}), ByModule(nil))
-	want := [][]string{{"a", "b", "c"}, {"z"}}
-	if !reflect.DeepEqual(m.Layers, want) {
-		t.Errorf("layers = %v, want %v", m.Layers, want)
-	}
-	if len(m.Breaks) != 0 {
-		t.Errorf("breaks = %+v, want none: no direction dominates", m.Breaks)
-	}
-}
-
-func TestEveryPartOfTheGraphGetsLayers(t *testing.T) {
-	m := Layers(graphOf(call{"handlers", "store", 10}, call{"worker", "jobs", 10}, call{"jobs", "queue", 10}), ByModule(nil))
-	want := [][]string{{"handlers", "worker"}, {"jobs", "store"}, {"queue"}}
-	if !reflect.DeepEqual(m.Layers, want) {
-		t.Errorf("layers = %v, want %v", m.Layers, want)
-	}
-}
-
 func TestCallsInsideAModuleShapeNoLayers(t *testing.T) {
 	m := Layers(graphOf(call{"solo", "solo", 10}), ByModule(nil))
 	if len(m.Layers) != 0 || !reflect.DeepEqual(m.Unplaced, []string{"solo"}) {
 		t.Errorf("layers = %v, unplaced = %v; want no layers and solo unplaced", m.Layers, m.Unplaced)
-	}
-}
-
-func TestASetAsideCallThatEndsUpGoingDownIsNoBreak(t *testing.T) {
-	// a->b is weak on a->b->c->a and b->c on b->c->d->b; with both set
-	// aside c is on top, so a (layer 1) calling b (layer 2) goes down.
-	m := Layers(graphOf(call{"a", "b", 1}, call{"b", "c", 10}, call{"c", "a", 40}, call{"c", "d", 100}, call{"d", "b", 100}), ByModule(nil))
-	want := [][]string{{"c"}, {"a", "d"}, {"b"}}
-	if !reflect.DeepEqual(m.Layers, want) {
-		t.Errorf("layers = %v, want %v", m.Layers, want)
-	}
-	if len(m.Breaks) != 1 || m.Breaks[0].Kind != Upward || m.Breaks[0].From != "b" || m.Breaks[0].To != "c" {
-		t.Errorf("breaks = %+v, want only b's call up to c", m.Breaks)
 	}
 }
 

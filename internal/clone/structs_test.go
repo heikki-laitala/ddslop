@@ -20,16 +20,18 @@ func st(file, name string, start int, fields ...string) unit.Struct {
 	return s
 }
 
+// groupLines writes each group as a line of its members, separated by
+// " | ", each written by member.
+func groupLines[G, M any](groups []G, members func(G) []M, member func(M) string) []string {
+	return testutil.Format(groups, func(g G) string {
+		return strings.Join(testutil.Format(members(g), member), " | ")
+	})
+}
+
 func structGroupStrings(groups []StructGroup) string {
-	var out []string
-	for _, g := range groups {
-		var members []string
-		for _, s := range g.Structs {
-			members = append(members, fmt.Sprintf("%s:%d %s", s.File, s.StartLine, s.Name))
-		}
-		out = append(out, strings.Join(members, " | "))
-	}
-	return strings.Join(out, "\n")
+	return strings.Join(groupLines(groups, func(g StructGroup) []unit.Struct { return g.Structs }, func(s unit.Struct) string {
+		return fmt.Sprintf("%s:%d %s", s.File, s.StartLine, s.Name)
+	}), "\n")
 }
 
 func TestStructsGroupsSameFieldNamesInAnyOrder(t *testing.T) {
