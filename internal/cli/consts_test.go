@@ -30,6 +30,19 @@ type targetReport struct {
 	} `json:"candidates"`
 }
 
+func (r targetReport) count() int { return len(r.Candidates) }
+
+// first describes the report's first candidate as its kind, action and
+// occurrences, each as file:start-end name.
+func (r targetReport) first() string {
+	c := r.Candidates[0]
+	parts := []string{c.Kind, c.Suggestion.Action}
+	for _, o := range c.Occurrences {
+		parts = append(parts, fmt.Sprintf("%s:%d-%d %s", filepath.ToSlash(o.File), o.StartLine, o.EndLine, o.Name))
+	}
+	return strings.Join(parts, " ")
+}
+
 func decodeTargets(t *testing.T, stdout string) targetReport {
 	t.Helper()
 	return decodeJSON[targetReport](t, stdout)
@@ -41,19 +54,9 @@ func TestCheckReportsConstantsDeclaredTwice(t *testing.T) {
 		"ledger/src/model_grant.rs": "// Limits.\n\npub const MAX_GRANTED_MODELS: usize = 64;\n",
 	})
 
-	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
-	r := decodeTargets(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("got %d candidates, want 1: %s", len(r.Candidates), stdout)
-	}
-	c := r.Candidates[0]
-	var occs []string
-	for _, o := range c.Occurrences {
-		occs = append(occs, fmt.Sprintf("%s:%d-%d %s", filepath.ToSlash(o.File), o.StartLine, o.EndLine, o.Name))
-	}
-	want := "ledger/src/model_grant.rs:3-3 MAX_GRANTED_MODELS router/src/model_grant.rs:1-1 MAX_GRANTED_MODELS"
-	if c.Kind != "duplicate-constant" || c.Suggestion.Action != "reuse-existing" || strings.Join(occs, " ") != want {
-		t.Errorf("candidate = %s %s %s, want duplicate-constant reuse-existing %s", c.Kind, c.Suggestion.Action, strings.Join(occs, " "), want)
+	got := oneCandidate[targetReport](t, root).first()
+	if want := "duplicate-constant reuse-existing ledger/src/model_grant.rs:3-3 MAX_GRANTED_MODELS router/src/model_grant.rs:1-1 MAX_GRANTED_MODELS"; got != want {
+		t.Errorf("candidate = %s, want %s", got, want)
 	}
 }
 
@@ -66,18 +69,11 @@ func TestCheckReportsConstantValuesWrittenInline(t *testing.T) {
 `,
 	})
 
-	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
-	r := decodeTargets(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("got %d candidates, want 1: %s", len(r.Candidates), stdout)
-	}
+	r := oneCandidate[targetReport](t, root)
 	c := r.Candidates[0]
-	var occs []string
-	for _, o := range c.Occurrences {
-		occs = append(occs, fmt.Sprintf("%s:%d %s", filepath.ToSlash(o.File), o.StartLine, o.Name))
-	}
-	if c.Kind != "inlined-constant" || c.Suggestion.Action != "reuse-existing" || strings.Join(occs, " ") != "src/gate.rs:1 LEDGER_UNAVAILABLE src/api.rs:2 refuse" {
-		t.Errorf("candidate = %s %s %v, want inlined-constant reuse-existing at the constant then its inline use", c.Kind, c.Suggestion.Action, occs)
+	// The constant, then its inline use.
+	if got, want := r.first(), "inlined-constant reuse-existing src/gate.rs:1-1 LEDGER_UNAVAILABLE src/api.rs:2-2 refuse"; got != want {
+		t.Errorf("candidate = %s, want %s", got, want)
 	}
 	if c.Target == nil || filepath.ToSlash(c.Target.File) != "src/gate.rs" || c.Target.Name != "LEDGER_UNAVAILABLE" || c.Target.StartLine != 1 {
 		t.Errorf("target = %+v, want the constant src/gate.rs:1 LEDGER_UNAVAILABLE", c.Target)

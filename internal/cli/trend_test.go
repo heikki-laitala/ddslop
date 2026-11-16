@@ -1,10 +1,10 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 func TestStatsShowsTheHealthTrendOfCheckRuns(t *testing.T) {
@@ -14,9 +14,7 @@ func TestStatsShowsTheHealthTrendOfCheckRuns(t *testing.T) {
 	run("check", "--format", "json", "--min-nodes", "20", root) // nothing changed: no new entry
 
 	// A cleanup: the copy goes.
-	if err := os.WriteFile(filepath.Join(root, "src", "orders.rs"), []byte(unrelated), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFiles(t, root, map[string]string{"src/orders.rs": unrelated})
 	gitIn(t, root, "commit", "-qam", "remove the copy")
 	run("check", "--format", "json", "--min-nodes", "20", root)
 

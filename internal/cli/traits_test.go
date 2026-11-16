@@ -1,9 +1,6 @@
 package cli
 
 import (
-	"fmt"
-	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -25,19 +22,9 @@ impl DirectoryStore for DirectorySession {
 func TestCheckReportsTraitsWithASingleImplementation(t *testing.T) {
 	root := repo(t, map[string]string{"src/exporter.rs": directoryStore})
 
-	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
-	r := decodeTargets(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("got %d candidates, want 1: %s", len(r.Candidates), stdout)
-	}
-	c := r.Candidates[0]
-	var occs []string
-	for _, o := range c.Occurrences {
-		occs = append(occs, fmt.Sprintf("%s:%d-%d %s", filepath.ToSlash(o.File), o.StartLine, o.EndLine, o.Name))
-	}
-	want := "src/exporter.rs:5-7 DirectoryStore src/exporter.rs:9-13 DirectoryStore for DirectorySession"
-	if c.Kind != "single-impl-trait" || c.Suggestion.Action != "remove-trait" || strings.Join(occs, " ") != want {
-		t.Errorf("candidate = %s %s %s, want single-impl-trait remove-trait %s", c.Kind, c.Suggestion.Action, strings.Join(occs, " "), want)
+	got := oneCandidate[targetReport](t, root).first()
+	if want := "single-impl-trait remove-trait src/exporter.rs:5-7 DirectoryStore src/exporter.rs:9-13 DirectoryStore for DirectorySession"; got != want {
+		t.Errorf("candidate = %s, want %s", got, want)
 	}
 }
 

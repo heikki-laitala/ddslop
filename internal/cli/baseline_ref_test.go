@@ -22,15 +22,8 @@ func TestBaselineRefReportsOnlyWhatTheChangeAdded(t *testing.T) {
 
 	runCode(t, 0, "check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD~1", svc)
 
-	people := strings.ReplaceAll(syncUsers, "sync_users", "sync_people")
-	if err := os.WriteFile(filepath.Join(svc, "d.rs"), []byte(people), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	stdout, _ := runCode(t, 1, "check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD~1", svc)
-	r := decode(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("got %d candidates, want only the new copy: %s", len(r.Candidates), stdout)
-	}
+	testutil.WriteFiles(t, svc, map[string]string{"d.rs": syncPeople})
+	r := oneCandidate[jsonReport](t, "--min-nodes", "20", "--baseline-ref", "HEAD~1", svc)
 	var files []string
 	for _, o := range r.Candidates[0].Occurrences {
 		files = append(files, filepath.ToSlash(o.File))
@@ -71,9 +64,7 @@ func TestBaselineRefOfAPathTheRefLacksKnowsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, content := range map[string]string{"a.rs": users, "b.rs": orders} {
-		if err := os.WriteFile(filepath.Join(svc, name), []byte(content), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		testutil.WriteFiles(t, svc, map[string]string{name: content})
 	}
 
 	stdout, _ := runCode(t, 1, "check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD", svc)

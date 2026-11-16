@@ -1,10 +1,10 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 type sarifLog struct {
@@ -90,10 +90,7 @@ func TestCheckSARIF(t *testing.T) {
 
 func TestCheckSARIFPutsTheChangedCopyFirst(t *testing.T) {
 	root := committedRepo(t, map[string]string{"a.rs": syncUsers})
-	people := strings.ReplaceAll(syncUsers, "sync_users", "sync_people")
-	if err := os.WriteFile(filepath.Join(root, "z.rs"), []byte(people), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFiles(t, root, map[string]string{"z.rs": syncPeople})
 
 	_, stdout, _ := run("check", "--format", "sarif", "--min-nodes", "20", "--diff", "HEAD", root)
 

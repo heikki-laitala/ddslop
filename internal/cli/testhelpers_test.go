@@ -38,11 +38,7 @@ func testHelperCrate() map[string]string {
 }
 
 func TestCheckReportsCopiedTestHelpers(t *testing.T) {
-	stdout, _ := runCode(t, 1, "check", "--format", "json", repo(t, testHelperCrate()))
-	r := decode(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("candidates = %+v, want the copied helper alone", r.Candidates)
-	}
+	r := oneCandidate[jsonReport](t, repo(t, testHelperCrate()))
 	var names []string
 	for _, o := range r.Candidates[0].Occurrences {
 		names = append(names, o.Name)
@@ -128,11 +124,7 @@ func TestHelperCopiesHaveTheirOwnFingerprint(t *testing.T) {
 	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
 	r := decode(t, stdout)
 	if len(r.Candidates) != 2 || r.Candidates[0].Fingerprint == r.Candidates[1].Fingerprint {
-		var fps []string
-		for _, c := range r.Candidates {
-			fps = append(fps, c.Fingerprint)
-		}
-		t.Errorf("fingerprints = %v, want two candidates with different fingerprints", fps)
+		t.Errorf("candidates = %+v, want two with different fingerprints", r.Candidates)
 	}
 }
 

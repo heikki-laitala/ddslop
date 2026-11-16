@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -19,15 +17,9 @@ fn in_namespace(principal: &str, token_id: u64) -> bool {
 `,
 	})
 
-	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
-	r := decodeTargets(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("got %d candidates, want 1: %s", len(r.Candidates), stdout)
-	}
+	r := oneCandidate[targetReport](t, root)
 	c := r.Candidates[0]
-	o := c.Occurrences[0]
-	got := fmt.Sprintf("%s %s %s:%d-%d %s", c.Kind, c.Suggestion.Action, filepath.ToSlash(o.File), o.StartLine, o.EndLine, o.Name)
-	if want := "pass-through inline-wrapper src/namespace.rs:1-3 visible"; got != want {
+	if got, want := r.first(), "pass-through inline-wrapper src/namespace.rs:1-3 visible"; got != want {
 		t.Errorf("candidate = %s, want %s", got, want)
 	}
 	if c.Target == nil || c.Target.Name != "in_namespace" || c.Target.StartLine != 5 {

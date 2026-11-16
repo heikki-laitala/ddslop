@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 func TestBaselineSuppressesKnownAndReportsNewDuplication(t *testing.T) {
@@ -29,9 +31,7 @@ func TestBaselineSuppressesKnownAndReportsNewDuplication(t *testing.T) {
 
 	// A third copy is new duplication even though the pair is known.
 	people := strings.ReplaceAll(users, "load_user", "load_person")
-	if err := os.WriteFile(filepath.Join(root, "c.rs"), []byte(people), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFiles(t, root, map[string]string{"c.rs": people})
 	code, stdout, _ = run("check", "--format", "json", "--min-nodes", "20", "--baseline", path, root)
 	if r := decode(t, stdout); code != 1 || len(r.Candidates) != 1 || len(r.Candidates[0].Occurrences) != 3 {
 		t.Errorf("after adding a copy: exit %d, %d candidates; want 1 candidate with all 3 copies", code, len(r.Candidates))

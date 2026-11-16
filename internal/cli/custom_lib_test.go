@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -65,19 +66,34 @@ func TestALibraryRootedUnderTestsIsNoTestCode(t *testing.T) {
 }
 
 // A binary the manifest roots beside a moved library keeps the modules it
-// declares: tool.rs's mod cli is the binary's, not the library's.
+// declares, also one it declares with #[path] where the attribute puts it:
+// they are the binary's, not the library's.
 func TestAPlacedBinaryKeepsItsModulesFromAMovedLibrary(t *testing.T) {
-	files := map[string]string{
-		"Cargo.toml": "[package]\nname = \"app\"\n\n[lib]\npath = \"core.rs\"\n\n[[bin]]\nname = \"tool\"\npath = \"tool.rs\"\n",
-		"core.rs":    "pub mod config;\npub mod store;\n",
-		"config.rs":  "pub fn load() -> u16 { crate::store::open() }\n",
-		"store.rs":   "pub fn open() -> u16 { 1 }\n",
-		"tool.rs":    "mod cli;\nfn main() { cli::run(); }\n",
-		"cli.rs":     "pub fn run() { app::config::load(); }\n",
-	}
-	modules := mapModules(t, files)
-	if slices.Contains(modules, "cli") || slices.Contains(modules, "tool") {
-		t.Errorf("modules = %v, want none of the binary's", modules)
+	manifest := "[package]\nname = \"app\"\n\n[lib]\npath = \"core.rs\"\n\n[[bin]]\nname = \"tool\"\npath = \"tool.rs\"\n"
+	for name, binary := range map[string]map[string]string{
+		"mod cli": {
+			"tool.rs": "mod cli;\nfn main() { cli::run(); }\n",
+			"cli.rs":  "pub fn run() { app::config::load(); }\n",
+		},
+		"#[path] mod cli": {
+			"tool.rs":         "#[path = \"commands/cli.rs\"]\nmod cli;\nfn main() { cli::run(); }\n",
+			"commands/cli.rs": "pub fn run() { app::config::load(); }\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			files := map[string]string{
+				"Cargo.toml": manifest,
+				"core.rs":    "pub mod config;\npub mod store;\n",
+				"config.rs":  "pub fn load() -> u16 { crate::store::open() }\n",
+				"store.rs":   "pub fn open() -> u16 { 1 }\n",
+			}
+			maps.Copy(files, binary)
+			modules := mapModules(t, files)
+			slices.Sort(modules)
+			if want := "config store"; strings.Join(modules, " ") != want {
+				t.Errorf("modules = %v, want the library's only: %s", modules, want)
+			}
+		})
 	}
 }
 
@@ -99,23 +115,6 @@ func TestAPlacedTargetReadsItsPackagesPublishSetting(t *testing.T) {
 	}
 	if strings.Join(dead, " ") != "never_called_anywhere" {
 		t.Errorf("dead code = %v, want the binary's unused public function", dead)
-	}
-}
-
-// A module a placed binary declares with #[path] is the binary's where
-// the attribute puts it.
-func TestAPlacedBinarysPathModuleIsNotTheLibrarys(t *testing.T) {
-	files := map[string]string{
-		"Cargo.toml":      "[package]\nname = \"app\"\n\n[lib]\npath = \"core.rs\"\n\n[[bin]]\nname = \"tool\"\npath = \"tool.rs\"\n",
-		"core.rs":         "pub mod config;\npub mod store;\n",
-		"config.rs":       "pub fn load() -> u16 { crate::store::open() }\n",
-		"store.rs":        "pub fn open() -> u16 { 1 }\n",
-		"tool.rs":         "#[path = \"commands/cli.rs\"]\nmod cli;\nfn main() { cli::run(); }\n",
-		"commands/cli.rs": "pub fn run() { app::config::load(); }\n",
-	}
-	modules := mapModules(t, files)
-	if slices.Contains(modules, "commands") || slices.Contains(modules, "cli") {
-		t.Errorf("modules = %v, want none of the binary's", modules)
 	}
 }
 

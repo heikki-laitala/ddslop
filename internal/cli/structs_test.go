@@ -39,11 +39,7 @@ func TestCheckReportsStructsWithTheSameFields(t *testing.T) {
 		"insights/src/principal.rs": verifierInsights,
 	})
 
-	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
-	r := decode(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("got %d candidates, want 1 (the test module's copy is test code): %+v", len(r.Candidates), r.Candidates)
-	}
+	r := oneCandidate[jsonReport](t, root)
 	c := r.Candidates[0]
 	if c.Kind != "duplicate-type" || !strings.HasPrefix(c.Fingerprint, "rust:type:") {
 		t.Errorf("kind = %s, fingerprint = %s; want duplicate-type, rust:type:<hash>", c.Kind, c.Fingerprint)
@@ -65,7 +61,7 @@ func TestCheckReportsStructsWithTheSameFields(t *testing.T) {
 		t.Errorf("score = %+v", c.Score)
 	}
 
-	_, stdout, _ = run("check", "--format", "json", "--tests", root)
+	_, stdout, _ := run("check", "--format", "json", "--tests", root)
 	if r := decode(t, stdout); len(r.Candidates) != 1 || len(r.Candidates[0].Occurrences) != 3 {
 		t.Errorf("with --tests, want one candidate with 3 occurrences: %+v", r.Candidates)
 	}

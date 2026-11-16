@@ -146,6 +146,23 @@ func decodeJSON[T any](t *testing.T, stdout string) T {
 	return v
 }
 
+func (r jsonReport) count() int { return len(r.Candidates) }
+
+// counted is a report that counts its candidates.
+type counted interface{ count() int }
+
+// oneCandidate runs check --format json with args and stops the test
+// unless it exits 1 reporting exactly one candidate, decoded as an R.
+func oneCandidate[R counted](t *testing.T, args ...string) R {
+	t.Helper()
+	stdout, _ := runCode(t, 1, append([]string{"check", "--format", "json"}, args...)...)
+	r := decodeJSON[R](t, stdout)
+	if r.count() != 1 {
+		t.Fatalf("got %d candidates, want 1:\n%s", r.count(), stdout)
+	}
+	return r
+}
+
 func decode(t *testing.T, stdout string) jsonReport {
 	t.Helper()
 	return decodeJSON[jsonReport](t, stdout)
@@ -386,11 +403,7 @@ const usersLogged = `pub fn load_logged(db: &Db, user_id: u64) -> Result<User, E
 func TestCheckReportsNearMissCopies(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users, "b.rs": usersLogged})
 
-	stdout, _ := runCode(t, 1, "check", "--format", "json", "--min-nodes", "20", "--min-near-nodes", "20", root)
-	r := decode(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("got %d candidates, want 1", len(r.Candidates))
-	}
+	r := oneCandidate[jsonReport](t, "--min-nodes", "20", "--min-near-nodes", "20", root)
 	c := r.Candidates[0]
 	if c.Kind != "near-miss" || c.Similarity < 0.8 || c.Similarity >= 1 {
 		t.Errorf("candidate = %s with similarity %v, want a near-miss in [0.8, 1)", c.Kind, c.Similarity)
@@ -476,11 +489,7 @@ const usersChecked = `pub fn load_checked(db: &Db, user_id: u64) -> Result<User,
 func TestCheckReportsNearMissFamilyAsOneCandidate(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users, "b.rs": usersLogged, "c.rs": usersChecked})
 
-	stdout, _ := runCode(t, 1, "check", "--format", "json", "--min-nodes", "20", "--min-near-nodes", "20", root)
-	r := decode(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("got %d candidates, want one family", len(r.Candidates))
-	}
+	r := oneCandidate[jsonReport](t, "--min-nodes", "20", "--min-near-nodes", "20", root)
 	c := r.Candidates[0]
 	var files []string
 	for _, o := range c.Occurrences {
@@ -517,6 +526,9 @@ const syncUsers = `fn sync_users(client: &Client, users: &[User]) -> Result<(), 
 }
 `
 
+// syncPeople is a renamed copy of syncUsers.
+var syncPeople = strings.ReplaceAll(syncUsers, "sync_users", "sync_people")
+
 const syncOrders = `fn sync_orders(client: &Client, orders: &[Order], extra: u32) -> Result<(), Error> {
     if orders.is_empty() {
         return Ok(());
@@ -535,11 +547,7 @@ const syncOrders = `fn sync_orders(client: &Client, orders: &[Order], extra: u32
 func TestCheckReportsCopiedBlocksInsideFunctions(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": syncUsers, "b.rs": syncOrders})
 
-	stdout, _ := runCode(t, 1, "check", "--format", "json", "--min-nodes", "20", "--min-block-nodes", "20", root)
-	r := decode(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("got %d candidates, want 1", len(r.Candidates))
-	}
+	r := oneCandidate[jsonReport](t, "--min-nodes", "20", "--min-block-nodes", "20", root)
 	c := r.Candidates[0]
 	if c.Kind != "block-clone" || c.Similarity != 1 {
 		t.Errorf("candidate = %s, similarity %v; want block-clone, 1", c.Kind, c.Similarity)
@@ -625,14 +633,8 @@ func TestCheckDropsCandidatesThatAreMostlyParameters(t *testing.T) {
 		"c.rs": users, "d.rs": orders,
 	})
 
-	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
-
-	r := decode(t, stdout)
-	if len(r.Candidates) != 1 || r.Candidates[0].Occurrences[0].File != "c.rs" {
-		var found []string
-		for _, c := range r.Candidates {
-			found = append(found, c.Occurrences[0].File)
-		}
-		t.Errorf("candidates start at %v, want only the users/orders pair", found)
+	r := oneCandidate[jsonReport](t, "--min-nodes", "20", root)
+	if f := r.Candidates[0].Occurrences[0].File; f != "c.rs" {
+		t.Errorf("the candidate starts at %s, want the users/orders pair", f)
 	}
 }

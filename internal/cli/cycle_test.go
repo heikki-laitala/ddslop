@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 type cycleReport struct {
@@ -95,9 +97,7 @@ func TestDiffReportsTheChangeClosingACycle(t *testing.T) {
 	files := maps.Clone(cyclicCrate)
 	files["src/store.rs"] = "pub fn open() {}\npub fn endpoint() {}\n" // no call back yet
 	root := committedRepo(t, files)
-	if err := os.WriteFile(filepath.Join(root, "src/store.rs"), []byte(cyclicCrate["src/store.rs"]), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFiles(t, root, map[string]string{"src/store.rs": cyclicCrate["src/store.rs"]})
 	wantCycles(t, 1, "the cycle the change closed", "--diff", "HEAD", root)
 	gitIn(t, root, "commit", "-qam", "close")
 	if err := os.WriteFile(filepath.Join(root, "src/api.rs"), []byte("pub fn serve() {}\n"), 0o600); err != nil {

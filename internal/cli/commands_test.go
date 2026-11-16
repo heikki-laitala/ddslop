@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 func TestVersionPrintsTheVersion(t *testing.T) {
@@ -108,9 +110,7 @@ func TestStatsDescribesTheIndexWithoutSyncing(t *testing.T) {
 	wantError(t, "ddslop index", "stats", root)
 
 	run("index", root)
-	if err := os.WriteFile(filepath.Join(root, "new.rs"), []byte(orders), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFiles(t, root, map[string]string{"new.rs": orders})
 	stdout, _ := runCode(t, 0, "stats", root)
 	wantContains(t, stdout, "files: 3 (1 generated)", "functions: 2 (1 test)", indexPath)
 }

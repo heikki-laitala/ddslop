@@ -172,6 +172,26 @@ func mapOf(t *testing.T, args ...string) scopedMap {
 	return r
 }
 
+// crateMap runs map with args and stops the test unless it maps one
+// crate's modules, crate's.
+func crateMap(t *testing.T, crate string, args ...string) scopedMap {
+	t.Helper()
+	r := mapOf(t, args...)
+	if len(r.Maps) != 1 || r.Maps[0].Scope != "crate" || r.Maps[0].Crate != crate {
+		t.Fatalf("maps = %+v, want one map of crate %s's modules", r.Maps, crate)
+	}
+	return r
+}
+
+// wantLayers fails the test unless the first map's layers hold the
+// modules in want, top layer first.
+func wantLayers(t *testing.T, r scopedMap, want ...[]string) {
+	t.Helper()
+	if got := layerNames(r.Maps[0].Layers); !reflect.DeepEqual(got, want) {
+		t.Errorf("layers = %v, want %v", got, want)
+	}
+}
+
 func layerNames(layers []struct {
 	Modules []string `json:"modules"`
 }) [][]string {
@@ -202,13 +222,8 @@ func TestMapOfAWorkspaceLayersItsCrates(t *testing.T) {
 }
 
 func TestMapOfOneCrateLayersItsModules(t *testing.T) {
-	r := mapOf(t, "--crate", "service", repo(t, workspace))
-	if len(r.Maps) != 1 || r.Maps[0].Scope != "crate" || r.Maps[0].Crate != "service" {
-		t.Fatalf("maps = %+v, want one map of crate service", r.Maps)
-	}
-	if want := [][]string{{"service"}, {"service::validate"}}; !reflect.DeepEqual(layerNames(r.Maps[0].Layers), want) {
-		t.Errorf("layers = %v, want %v", layerNames(r.Maps[0].Layers), want)
-	}
+	r := crateMap(t, "service", "--crate", "service", repo(t, workspace))
+	wantLayers(t, r, []string{"service"}, []string{"service::validate"})
 	// service makes 3 calls, all resolved; api's call is not service's.
 	if m := r.Maps[0]; m.Calls != 3 || m.ResolvedCalls != 3 {
 		t.Errorf("calls = %d resolved of %d, want 3 of 3: the crate's own calls", m.ResolvedCalls, m.Calls)
@@ -216,16 +231,11 @@ func TestMapOfOneCrateLayersItsModules(t *testing.T) {
 }
 
 func TestMapOfASingleCrateShowsItsModules(t *testing.T) {
-	r := mapOf(t, repo(t, map[string]string{
+	r := crateMap(t, ".", repo(t, map[string]string{
 		"src/lib.rs":   "pub fn run() { store::save(); }\n",
 		"src/store.rs": "pub fn save() {}\n",
 	}))
-	if len(r.Maps) != 1 || r.Maps[0].Scope != "crate" || r.Maps[0].Crate != "." {
-		t.Fatalf("maps = %+v, want the root crate's modules", r.Maps)
-	}
-	if want := [][]string{{"."}, {"store"}}; !reflect.DeepEqual(layerNames(r.Maps[0].Layers), want) {
-		t.Errorf("layers = %v, want %v", layerNames(r.Maps[0].Layers), want)
-	}
+	wantLayers(t, r, []string{"."}, []string{"store"})
 }
 
 func TestMapOfGoKeepsPackages(t *testing.T) {
@@ -323,28 +333,22 @@ func TestMapCountsCratesWithoutFunctions(t *testing.T) {
 }
 
 func TestMapOfOnePackageWithExamplesIsOneCrate(t *testing.T) {
-	r := mapOf(t, repo(t, map[string]string{
+	crateMap(t, ".", repo(t, map[string]string{
 		"Cargo.toml":       "[package]\nname = \"acme\"\n",
 		"src/lib.rs":       "pub fn run() { store::save(); }\n",
 		"src/store.rs":     "pub fn save() {}\n",
 		"examples/demo.rs": "fn main() { acme::run(); }\n",
 	}))
-	if len(r.Maps) != 1 || r.Maps[0].Scope != "crate" || r.Maps[0].Crate != "." {
-		t.Errorf("maps = %+v, want one crate: examples/ belongs to the package", r.Maps)
-	}
 }
 
 func TestMapLeavesOutRustFilesInNoPackage(t *testing.T) {
-	r := mapOf(t, repo(t, map[string]string{
+	crateMap(t, "app", repo(t, map[string]string{
 		"Cargo.toml":              "[workspace]\nmembers = [\"crates/app\"]\n",
 		"crates/app/Cargo.toml":   "[package]\nname = \"app\"\n",
 		"crates/app/src/lib.rs":   "pub fn run() { store::save(); }\n",
 		"crates/app/src/store.rs": "pub fn save() {}\n",
 		"scripts/release.rs":      "fn main() { bump(); }\nfn bump() {}\n",
 	}))
-	if len(r.Maps) != 1 || r.Maps[0].Scope != "crate" || r.Maps[0].Crate != "app" {
-		t.Errorf("maps = %+v, want app's modules: scripts/ is in no package", r.Maps)
-	}
 }
 
 type featureOutput struct {
@@ -400,19 +404,30 @@ func TestMapFlagsEachParallelFlowFamilyAsATypicalFeature(t *testing.T) {
 	wantContains(t, text, "Typical features", "Service::create", "parallel-flow", "extract")
 }
 
-func TestMapLimitCapsAFeaturesSteps(t *testing.T) {
-	root := featureMapRepo(t)
+// limitedMap is what a map's --limit caps: a feature's steps and an
+// idiom's forms, each with the count of those left out.
+type limitedMap struct {
+	Maps []struct {
+		Features []struct {
+			Steps     []any `json:"steps"`
+			StepsMore int   `json:"steps_more"`
+		} `json:"features"`
+		Idioms []struct {
+			Forms     []any `json:"forms"`
+			FormsMore int   `json:"forms_more"`
+		} `json:"idioms"`
+	} `json:"maps"`
+}
 
-	_, stdout, _ := run("map", "--format", "json", "--limit", "1", root)
-	var r struct {
-		Maps []struct {
-			Features []struct {
-				Steps     []any `json:"steps"`
-				StepsMore int   `json:"steps_more"`
-			} `json:"features"`
-		} `json:"maps"`
-	}
-	decodeInto(t, stdout, &r)
+// limitOne maps root with --limit 1, as JSON.
+func limitOne(t *testing.T, root string) limitedMap {
+	t.Helper()
+	stdout, _ := runCode(t, 0, "map", "--format", "json", "--limit", "1", root)
+	return decodeJSON[limitedMap](t, stdout)
+}
+
+func TestMapLimitCapsAFeaturesSteps(t *testing.T) {
+	r := limitOne(t, featureMapRepo(t))
 	if len(r.Maps) != 1 || len(r.Maps[0].Features) != 1 {
 		t.Fatalf("maps = %+v, want one feature", r.Maps)
 	}
@@ -485,27 +500,15 @@ func TestMapNamesTheCodebasesFormForEachErrorConcern(t *testing.T) {
 
 func TestMapLimitCountsTheFormsItLeavesOut(t *testing.T) {
 	root := repo(t, errorsService)
-
-	_, stdout, _ := run("map", "--format", "json", "--limit", "1", root)
-	var r struct {
-		Maps []struct {
-			Idioms []struct {
-				Forms     []any `json:"forms"`
-				FormsMore int   `json:"forms_more"`
-			} `json:"idioms"`
-		} `json:"maps"`
-	}
-	decodeInto(t, stdout, &r)
+	r := limitOne(t, root)
 	if len(r.Maps) != 1 || len(r.Maps[0].Idioms) == 0 {
 		t.Fatalf("maps = %+v, want idioms", r.Maps)
 	}
 	if checks := r.Maps[0].Idioms[0]; len(checks.Forms) != 1 || checks.FormsMore != 1 {
 		t.Errorf("forms = %d, forms_more = %d; want 1 listed and the message check counted", len(checks.Forms), checks.FormsMore)
 	}
-	_, text, _ := run("map", "--format", "text", "--limit", "1", root)
-	if !strings.Contains(text, "and 1 more form(s)") {
-		t.Errorf("text map does not count the left-out form:\n%s", text)
-	}
+	text, _ := runCode(t, 0, "map", "--format", "text", "--limit", "1", root)
+	wantContains(t, text, "and 1 more form(s)")
 }
 
 func TestMapNamesRustErrorIdioms(t *testing.T) {
@@ -576,28 +579,14 @@ func (d *DB) Delete() {}
 }
 
 func TestMapLayersGoCallsThroughFieldsAndParameters(t *testing.T) {
-	m := mapOf(t, repo(t, fieldService)).Maps[0]
-	var layers [][]string
-	for _, l := range m.Layers {
-		layers = append(layers, l.Modules)
-	}
-	if want := [][]string{{"api"}, {"internal/service"}, {"internal/store"}}; !reflect.DeepEqual(layers, want) {
-		t.Errorf("layers = %v, want api over service over store", layers)
-	}
+	wantLayers(t, mapOf(t, repo(t, fieldService)), []string{"api"}, []string{"internal/service"}, []string{"internal/store"})
 }
 
 // Mapping a subdirectory of a Go module still reads the module's go.mod
 // above it, so typed calls between its packages resolve.
 func TestMapOfASubdirectoryUsesTheModuleAboveIt(t *testing.T) {
 	root := repo(t, fieldService)
-	m := mapOf(t, filepath.Join(root, "internal")).Maps[0]
-	var layers [][]string
-	for _, l := range m.Layers {
-		layers = append(layers, l.Modules)
-	}
-	if want := [][]string{{"service"}, {"store"}}; !reflect.DeepEqual(layers, want) {
-		t.Errorf("layers = %v, want service over store", layers)
-	}
+	wantLayers(t, mapOf(t, filepath.Join(root, "internal")), []string{"service"}, []string{"store"})
 }
 
 // A Go service whose handlers get their service from a constructor and

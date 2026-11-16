@@ -1,10 +1,10 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 func TestCheckReadsThresholdsFromTheConfigFile(t *testing.T) {
@@ -33,9 +33,7 @@ func TestCheckLeavesOutExcludedFiles(t *testing.T) {
 		t.Fatalf("exit code = %d before excluding, want 1", code)
 	}
 	// Excluding files indexed by an earlier run drops them from the index.
-	if err := os.WriteFile(filepath.Join(root, ".ddslop.yaml"), []byte("exclude:\n  - src/orders.rs\n  - \"crates/fake-*/**\"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFiles(t, root, map[string]string{".ddslop.yaml": "exclude:\n  - src/orders.rs\n  - \"crates/fake-*/**\"\n"})
 
 	stdout, _ := runCode(t, 0, "check", "--format", "json", root)
 	if r := decode(t, stdout); r.Summary.Files != 1 {
@@ -48,12 +46,6 @@ func TestCheckFailsOnABadConfigFile(t *testing.T) {
 		"min-node: 60\n":        ".ddslop.yaml: yaml: unmarshal errors",
 		"min-similarity: 1.5\n": "min-similarity 1.5 in .ddslop.yaml is not above 0 and at most 1",
 	} {
-		root := repo(t, map[string]string{"src/users.rs": users, ".ddslop.yaml": content})
-
-		code, _, stderr := run("check", "--format", "json", root)
-
-		if code != 2 || !strings.Contains(stderr, want) {
-			t.Errorf("%q: exit code = %d, stderr = %q; want 2 and %q", content, code, stderr, want)
-		}
+		wantError(t, want, "check", "--format", "json", repo(t, map[string]string{"src/users.rs": users, ".ddslop.yaml": content}))
 	}
 }
