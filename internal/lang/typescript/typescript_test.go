@@ -7,23 +7,14 @@ import (
 	"testing"
 
 	"github.com/heikki-laitala/ddslop/internal/lang/syntax"
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
-
-// ddslop:ignore shape, not logic: each adapter's tests call its own Parse
-func mustUnits(t *testing.T, path, src string) []unit.Unit {
-	t.Helper()
-	units, _, err := Parse(path, []byte(src))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	return units
-}
 
 // unitNamed parses src and returns its unit of that name.
 func unitNamed(t *testing.T, path, src, name string) unit.Unit {
 	t.Helper()
-	units := mustUnits(t, path, src)
+	units, _ := testutil.Parse(t, Parse, path, src)
 	i := slices.IndexFunc(units, func(u unit.Unit) bool { return u.Name == name })
 	if i < 0 {
 		t.Fatalf("no unit %q in %s", name, path)
@@ -73,7 +64,8 @@ function broken( {
 
 func TestParseExtractsFunctionsMethodsAndFunctionConstants(t *testing.T) {
 	var got []string
-	for _, u := range mustUnits(t, "src/store.ts", store) {
+	units, _ := testutil.Parse(t, Parse, "src/store.ts", store)
+	for _, u := range units {
 		got = append(got, fmt.Sprintf("%s %d-%d public=%v", u.Name, u.StartLine, u.EndLine, u.Public))
 	}
 	// Methods and function-valued fields are named after their class;
@@ -102,7 +94,7 @@ func TestTestFilesAreTestCode(t *testing.T) {
 		"__tests__/helpers/render.ts": true,
 		"src/latest.ts":               false,
 	} {
-		units := mustUnits(t, path, "function f() {}\n")
+		units, _ := testutil.Parse(t, Parse, path, "function f() {}\n")
 		if len(units) != 1 || units[0].Test != want {
 			t.Errorf("%s: units %+v, want one with test = %v", path, units, want)
 		}
@@ -113,46 +105,34 @@ func TestRenamedCopiesHaveTheSameShape(t *testing.T) {
 	a := unitNamed(t, "a.ts", store, "loadRow")
 	renamed := strings.NewReplacer("loadRow", "fetchItem", "Row", "Item", `"SELECT * FROM rows WHERE id = $1"`, `"SELECT 1"`, "name", "title").Replace(store)
 	b := unitNamed(t, "b.ts", renamed, "fetchItem")
-	if a.Shape != b.Shape || len(a.Leaves) != len(b.Leaves) {
-		t.Errorf("shapes differ (%x, %x) or leaves do not line up (%d, %d)", a.Shape, b.Shape, len(a.Leaves), len(b.Leaves))
+	describe := func(u unit.Unit) []string {
+		return []string{fmt.Sprintf("shape %x", u.Shape), fmt.Sprintf("%d leaves", len(u.Leaves))}
 	}
+	testutil.Lines(t, "renamed copy", describe(b), describe(a))
+	// The signature is computed when indexing.
 	if a.Nodes == 0 || len(a.Seq) == 0 || a.Signature != nil {
-		t.Errorf("nodes %d, seq %d; want both set (the signature is computed when indexing)", a.Nodes, len(a.Seq))
+		t.Errorf("nodes %d, seq %d, signature %v; want nodes and seq set, no signature", a.Nodes, len(a.Seq), a.Signature)
 	}
 }
 
 func TestDeclaringNamesAreMarked(t *testing.T) {
-	u := unitNamed(t, "a.ts", store, "loadRow")
-	declared := map[string]bool{}
-	for _, l := range u.Leaves {
+	// A pattern's keys (email), callees and types declare nothing.
+	declared := testutil.Format(unitNamed(t, "a.ts", store, "loadRow").Leaves, func(l unit.Leaf) string {
 		if l.Declares {
-			declared[l.Text] = true
+			return l.Text
 		}
-	}
-	for _, name := range []string{"loadRow", "db", "id", "name", "mail", "rest", "k", "v", "done", "row"} {
-		if !declared[name] {
-			t.Errorf("%s is not marked as declared (declared: %v)", name, declared)
-		}
-	}
-	for _, name := range []string{"query", "use", "email", "Object", "entries", "Row"} {
-		if declared[name] {
-			t.Errorf("%s is marked as declared, but is only used", name)
-		}
-	}
+		return ""
+	})
+	testutil.Lines(t, "declared names", declared, []string{"loadRow", "db", "id", "name", "mail", "rest", "k", "v", "done", "row"})
 }
 
 func TestBlocksListStatementsAndEarlyReturns(t *testing.T) {
-	u := unitNamed(t, "a.ts", store, "loadRow")
-	var got []string
-	for _, st := range u.Blocks[0] {
-		got = append(got, fmt.Sprintf("%d-%d exits=%v", st.StartLine, st.EndLine, st.Exits))
-	}
+	body := unitNamed(t, "a.ts", store, "loadRow").Blocks[0]
 	// The if returns early; the arrow function's return leaves the arrow
 	// function only; the final return is a return too.
-	want := "4-4 exits=false 5-7 exits=true 8-10 exits=false 11-11 exits=false 12-12 exits=true"
-	if strings.Join(got, " ") != want {
-		t.Errorf("body statements = %s\nwant %s", strings.Join(got, " "), want)
-	}
+	testutil.Lines(t, "body statements", testutil.Format(body, func(st unit.Statement) string {
+		return fmt.Sprintf("%d-%d exits=%v", st.StartLine, st.EndLine, st.Exits)
+	}), []string{"4-4 exits=false", "5-7 exits=true", "8-10 exits=false", "11-11 exits=false", "12-12 exits=true"})
 }
 
 func TestAnArrowFunctionUnitCountsItsOwnReturns(t *testing.T) {
@@ -177,17 +157,13 @@ func TestTSXFilesParseJSX(t *testing.T) {
 // call_expression); their structure symbols must still differ, so a
 // TypeScript function is never a near miss of a Rust or Go one.
 func TestTypeScriptSymbolsAreApartFromOtherLanguages(t *testing.T) {
-	u := unitNamed(t, "a.ts", store, "loadRow")
-	shared := map[uint32]string{}
+	others := map[uint32]string{}
 	for _, kind := range []string{"identifier", "call_expression", "if_statement", "return_statement"} {
-		shared[syntax.KindSymbol(kind)] = kind
-		shared[syntax.KindSymbol("go:"+kind)] = "go:" + kind
+		others[syntax.KindSymbol(kind)] = kind
+		others[syntax.KindSymbol("go:"+kind)] = "go:" + kind
 	}
-	for _, sym := range u.Seq {
-		if kind, ok := shared[sym]; ok {
-			t.Fatalf("a TypeScript node has the same symbol as %s", kind)
-		}
-	}
+	shared := testutil.Format(unitNamed(t, "a.ts", store, "loadRow").Seq, func(sym uint32) string { return others[sym] })
+	testutil.Lines(t, "symbols of other languages", shared, nil)
 }
 
 func TestParseListsTypesEnumsAndModuleConstants(t *testing.T) {
@@ -436,28 +412,21 @@ const small = (kind: string) => {
   return 0;
 };
 `
-	units, _, err := Parse("src/store.ts", []byte(src))
-	if err != nil {
-		t.Fatal(err)
+	units, _ := testutil.Parse(t, Parse, "src/store.ts", src)
+	if len(units) != 2 {
+		t.Fatalf("got %d units, want interpret and small", len(units))
 	}
-	var params []string
-	for _, p := range units[0].Params { // interpret
-		params = append(params, p.Name+": "+p.Type)
-	}
+	interpret, small := units[0], units[1]
 	// this is no parameter; a type is taken as written, "" when the
 	// parameter has none; destructured and rest parameters bind no one
 	// name.
-	if want := "[a: number b: number status:  tags: string[]]"; fmt.Sprint(params) != want {
-		t.Errorf("params = %v, want %s", params, want)
-	}
-	var matches []string
-	for _, x := range units {
-		for _, m := range x.StringMatches {
-			matches = append(matches, fmt.Sprintf("%s %v %d-%d", x.Name, m.Values, m.StartLine, m.EndLine))
-		}
-	}
+	testutil.Lines(t, "params", testutil.Format(interpret.Params, func(p unit.Param) string { return p.Name + ": " + p.Type }),
+		[]string{"a: number", "b: number", "status: ", "tags: string[]"})
 	// Quote style is formatting: 'replayed' is "replayed".
-	if want := `interpret ["committed" "refused" "replayed"] 2-10`; strings.Join(matches, "\n") != want {
-		t.Errorf("string switches:\n%s\nwant:\n%s", strings.Join(matches, "\n"), want)
+	testutil.Lines(t, "string switches", testutil.Format(interpret.StringMatches, func(m unit.StringMatch) string {
+		return fmt.Sprintf("%v %d-%d", m.Values, m.StartLine, m.EndLine)
+	}), []string{`["committed" "refused" "replayed"] 2-10`})
+	if len(small.StringMatches) != 0 {
+		t.Errorf("small: string switches %v, want none (two strings are too few)", small.StringMatches)
 	}
 }

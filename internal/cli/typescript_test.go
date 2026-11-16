@@ -1,10 +1,10 @@
 package cli
 
 import (
-	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 const tsUsers = `import { Db } from "./db";
@@ -40,21 +40,10 @@ func TestCheckReportsCopiesInTypeScriptCode(t *testing.T) {
 		t.Fatalf("exit code = %d, want 1; stderr: %s", code, stderr)
 	}
 	r := decode(t, stdout)
-	var got []string
-	for _, c := range r.Candidates {
-		var occs []string
-		for _, o := range c.Occurrences {
-			occs = append(occs, filepath.ToSlash(o.File)+" "+o.Name)
-		}
-		got = append(got, fmt.Sprintf("%s %s [%s]", c.Language, c.Kind, strings.Join(occs, ", ")))
-	}
-	want := []string{
+	testutil.Lines(t, "candidates", candidateLines(r), []string{
 		"go renamed-clone [store/orders.go LoadOrder, store/users.go LoadUser]",
 		"typescript renamed-clone [src/users.ts loadUser, web/orders.tsx loadOrder]",
-	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("candidates:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	})
 	// The declaration file is not analysed.
 	if r.Summary.GeneratedFiles != 1 || r.Summary.Files != 5 {
 		t.Errorf("summary = %+v, want 5 files, 1 of them generated", r.Summary)
@@ -114,27 +103,16 @@ export type Phase = "queued" | "running" | "done";
 `
 	root := repo(t, map[string]string{"src/billing/billing.ts": billing, "src/reports/reports.ts": reports})
 
-	_, stdout, stderr := run("check", "--format", "json", root)
+	_, stdout, _ := run("check", "--format", "json", root)
 
-	var got []string
-	for _, c := range decode(t, stdout).Candidates {
-		var occs []string
-		for _, o := range c.Occurrences {
-			occs = append(occs, filepath.ToSlash(o.File)+" "+o.Name)
-		}
-		got = append(got, fmt.Sprintf("%s %s [%s]", c.Language, c.Kind, strings.Join(occs, ", ")))
-	}
 	// An enum with values is not the union of those values: its variants
 	// have names.
-	want := []string{
+	testutil.Lines(t, "candidates", candidateLines(decode(t, stdout)), []string{
 		"typescript duplicate-type [src/billing/billing.ts Budget, src/reports/reports.ts Budget]",
 		"typescript duplicate-type [src/billing/billing.ts RunState, src/reports/reports.ts Phase]",
 		"typescript duplicate-constant [src/billing/billing.ts MAX_GRANTED_MODELS, src/reports/reports.ts MAX_GRANTED_MODELS]",
 		"typescript inlined-constant [src/billing/billing.ts CODE_UNAVAILABLE, src/billing/billing.ts refuse]",
-	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("candidates:\n%s\nwant:\n%s\nstderr: %s", strings.Join(got, "\n"), strings.Join(want, "\n"), stderr)
-	}
+	})
 }
 
 const (
@@ -179,26 +157,15 @@ function loadRow(id: string, raw: string) {
 func TestCheckReportsTypeScriptWrappers(t *testing.T) {
 	root := repo(t, map[string]string{"src/store/load.ts": tsLoad, "src/codec/parse.ts": tsParse})
 
-	_, stdout, stderr := run("check", "--format", "json", root)
+	_, stdout, _ := run("check", "--format", "json", root)
 
-	var got []string
-	for _, c := range decode(t, stdout).Candidates {
-		var occs []string
-		for _, o := range c.Occurrences {
-			occs = append(occs, filepath.ToSlash(o.File)+" "+o.Name)
-		}
-		got = append(got, fmt.Sprintf("%s %s [%s]", c.Language, c.Kind, strings.Join(occs, ", ")))
-	}
 	// save wraps encode; fetchRow wraps the file's own loadRow, not the
 	// other file's, which it does not import. A class method may be what
 	// an interface asks for: no wrapper.
-	want := []string{
+	testutil.Lines(t, "candidates", candidateLines(decode(t, stdout)), []string{
 		"typescript pass-through [src/codec/parse.ts fetchRow]",
 		"typescript pass-through [src/codec/parse.ts save]",
-	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("candidates:\n%s\nwant:\n%s\nstderr: %s", strings.Join(got, "\n"), strings.Join(want, "\n"), stderr)
-	}
+	})
 }
 
 // Module cycles are found among a Rust crate's modules; TypeScript calls
@@ -273,26 +240,12 @@ export function canCancel(state: string): boolean {
 `,
 	})
 
-	_, stdout, stderr := run("check", "--format", "json", root)
+	_, stdout, _ := run("check", "--format", "json", root)
 
-	var got []string
-	for _, c := range decode(t, stdout).Candidates {
-		if c.Kind != "parameter-group" && c.Kind != "string-kinds" {
-			continue
-		}
-		var occs []string
-		for _, o := range c.Occurrences {
-			occs = append(occs, o.Name)
-		}
-		got = append(got, fmt.Sprintf("%s %s [%s]", c.Language, c.Kind, strings.Join(occs, ", ")))
-	}
 	// A class method may be what an interface asks for: its parameters
 	// are dictated. Quote style is formatting.
-	want := []string{
-		"typescript parameter-group [charge, refund, quote, invoice]",
-		"typescript string-kinds [label, icon, canCancel]",
-	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("candidates:\n%s\nwant:\n%s\nstderr: %s", strings.Join(got, "\n"), strings.Join(want, "\n"), stderr)
-	}
+	testutil.Lines(t, "candidates", candidateLines(decode(t, stdout), "parameter-group", "string-kinds"), []string{
+		"typescript parameter-group [src/billing.ts charge, src/billing.ts refund, src/billing.ts quote, src/billing.ts invoice]",
+		"typescript string-kinds [src/state.ts label, src/state.ts icon, src/state.ts canCancel]",
+	})
 }

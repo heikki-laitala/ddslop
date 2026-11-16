@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -166,6 +167,24 @@ func oneCandidate[R counted](t *testing.T, args ...string) R {
 func decode(t *testing.T, stdout string) jsonReport {
 	t.Helper()
 	return decodeJSON[jsonReport](t, stdout)
+}
+
+// candidateLines returns a report's candidates of the given kinds (all
+// when none is given), one line each: language, kind and occurrences, as
+// "go duplicate-type [a/a.go Budget, b/b.go Budget]".
+func candidateLines(r jsonReport, kinds ...string) []string {
+	var out []string
+	for _, c := range r.Candidates {
+		if len(kinds) > 0 && !slices.Contains(kinds, c.Kind) {
+			continue
+		}
+		occs := make([]string, len(c.Occurrences))
+		for i, o := range c.Occurrences {
+			occs[i] = filepath.ToSlash(o.File) + " " + o.Name
+		}
+		out = append(out, fmt.Sprintf("%s %s [%s]", c.Language, c.Kind, strings.Join(occs, ", ")))
+	}
+	return out
 }
 
 func TestCheckReportsRenamedCloneAsJSON(t *testing.T) {
