@@ -22,7 +22,7 @@ mod inner {
     use x::y;
 }
 `
-	got := Imports([]byte(src))
+	got, _ := Imports([]byte(src))
 
 	want := map[string]string{ //nolint:gosec // crate and function names, not credentials
 		"NonZeroU64":          "std::num::NonZeroU64",
@@ -56,7 +56,7 @@ mod tests {
     use acme_ledger::Settles;
 }
 `
-	if got := Imports([]byte(src)); len(got) != 1 || got["Store"] != "crate::store::Store" {
+	if got, _ := Imports([]byte(src)); len(got) != 1 || got["Store"] != "crate::store::Store" {
 		t.Errorf("Imports = %v, want only Store: test modules' imports are not dependencies of the code", got)
 	}
 }

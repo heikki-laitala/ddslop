@@ -400,3 +400,33 @@ func TestARootReexportIsADependencyOnItsModule(t *testing.T) {
 	external["src/lib.rs"] = "mod refusal;\nmod request;\npub use other::Refusal;\npub fn encode() -> u8 { request::encode() }\n"
 	wantCycles(t, 0, "the root re-exports another crate's type; request uses it", repo(t, external))
 }
+
+// Root imports, as Rust scopes them: an inline module's use is its own,
+// not the root's; an alias of the root's own item is the root's; and a
+// macro the root imports is its module's.
+func TestRootImportsAreTheRootsOwn(t *testing.T) {
+	crate := func(lib, child string, more ...string) map[string]string {
+		files := map[string]string{"Cargo.toml": "[package]\nname = \"app\"\n", "src/lib.rs": lib, "src/child.rs": child}
+		for i := 0; i+1 < len(more); i += 2 {
+			files[more[i]] = more[i+1]
+		}
+		return files
+	}
+	t.Run("an inline module's use is its own", func(t *testing.T) {
+		wantCycleBetween(t, ". -> child, child -> .", repo(t, crate(
+			"mod child;\nmod foo;\npub struct Thing;\nmod nested {\n    use crate::foo::Thing;\n    pub fn n(_: Thing) {}\n}\npub fn run() -> u8 { child::f() }\n",
+			"pub fn f() -> u8 { let _t: Option<crate::Thing> = None; 1 }\n",
+			"src/foo.rs", "pub struct Thing;\n")))
+	})
+	t.Run("an alias of the root's own item is the root's", func(t *testing.T) {
+		wantCycleBetween(t, ". -> child, child -> .", repo(t, crate(
+			"mod child;\npub struct Error;\npub use crate::Error as PublicError;\npub fn run() -> u8 { child::f() }\n",
+			"pub fn f() -> u8 { let _e: Option<crate::PublicError> = None; 1 }\n")))
+	})
+	t.Run("a macro the root imports is its module's", func(t *testing.T) {
+		wantCycles(t, 0, "child invokes the macro the root imports from macros", repo(t, crate(
+			"#[macro_use]\nmod macros;\nmod child;\npub(crate) use macros::one;\npub fn run() -> u8 { child::f() }\n",
+			"pub fn f() -> u8 { crate::one!() }\n",
+			"src/macros.rs", "macro_rules! one_ { () => { 1 } }\npub(crate) use one_ as one;\n")))
+	})
+}

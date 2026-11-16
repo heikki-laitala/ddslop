@@ -875,7 +875,7 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 			modules[codemap.Module(f.Path, crates)] = true
 		}
 	}
-	rootValues, selfAliases, rootImports := map[string]bool{}, map[string]bool{}, map[string]string{}
+	rootValues, selfAliases, rootImports, rootItems := map[string]bool{}, map[string]bool{}, map[string]string{}, map[string]bool{}
 	for _, f := range files {
 		crate, rel := codemap.CratePath(f.Path, crates)
 		root := rel == "lib.rs" || rel == "main.rs" && !libraries[crate]
@@ -892,9 +892,19 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		}
 		// a name the root imports (pub use values::foo) beside its mod foo
 		// cannot be a module too: it is a value
-		for name, path := range f.Imports {
+		for name := range f.Imports {
 			rootValues[strings.TrimPrefix(name, "r#")] = true
+		}
+		for name, path := range f.TopImports {
 			rootImports[strings.TrimPrefix(name, "r#")] = path
+		}
+		for name := range rootValues {
+			if _, imported := f.Imports[name]; !imported {
+				rootItems[name] = true
+			}
+		}
+		for _, n := range append(slices.Clone(f.Decls.TypeNames), f.Traits...) {
+			rootItems[strings.TrimPrefix(n, "r#")] = true
 		}
 		for _, r := range f.References {
 			if r.Alias != "" && (tests || !r.Test) {
@@ -902,7 +912,7 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 			}
 		}
 	}
-	facts := codemap.CrateFacts{Modules: modules, RootValues: rootValues, SelfAliases: selfAliases, RootImports: rootImports}
+	facts := codemap.CrateFacts{Modules: modules, RootValues: rootValues, SelfAliases: selfAliases, RootImports: rootImports, RootItems: rootItems}
 	var deps []codemap.Dependency
 	for _, f := range files {
 		if generated[f.Path] || codemap.Crate(f.Path, crates) != name || !inLibrary(f.Path, crates, libraries) {
@@ -1192,7 +1202,7 @@ func loadFiles(root string, db *index.DB) ([]index.File, error) {
 		if !test {
 			continue
 		}
-		files[i].Imports = nil
+		files[i].Imports, files[i].TopImports = nil, nil
 		markTest(&files[i])
 	}
 	return files, nil
@@ -1329,7 +1339,7 @@ func parseRust(file syntax.Source) (index.Parsed, error) {
 	}
 	if !file.Test {
 		// Test files' imports are not dependencies of the code.
-		parsed.Imports = rust.Imports(file.Src)
+		parsed.Imports, parsed.TopImports = rust.Imports(file.Src)
 	}
 	return parsed, err
 }

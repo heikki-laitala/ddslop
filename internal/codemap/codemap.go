@@ -219,10 +219,14 @@ func CratePath(file string, crates *Packages) (name, rel string) {
 // root module, and the names extern crate self gives the crate.
 type CrateFacts struct {
 	Modules, RootValues, SelfAliases map[string]bool
-	// RootImports are the names the root module imports, each with the
-	// path its use declaration names (pub use refusal::Refusal): a path
-	// through the root to one of them reaches that path's module.
+	// RootImports are the names the root module imports in its own scope,
+	// each with the path its use declaration names (pub use
+	// refusal::Refusal): a path through the root to one of them reaches
+	// that path's module.
 	RootImports map[string]string
+	// RootItems are the items the root module defines itself: functions,
+	// constants, types and traits.
+	RootItems map[string]bool
 }
 
 // ReferencedModule returns the module of its crate a reference written in
@@ -263,7 +267,7 @@ func ReferencedModule(file string, crates *Packages, ref unit.Reference, crate C
 	// A name the root imports (crate::Refusal for its pub use
 	// refusal::Refusal) is the imported module's, not the root's: the root
 	// only passes it on.
-	if len(at) > 0 && !ref.Macro {
+	if len(at) > 0 {
 		if target, ok := crate.RootImports[at[0]]; ok {
 			return importedModule(name, target, crate)
 		}
@@ -277,16 +281,25 @@ func ReferencedModule(file string, crates *Packages, ref unit.Reference, crate C
 	return moduleName(name, "")
 }
 
-// importedModule returns the module of crate a root import's path names
-// (refusal::Refusal or crate::refusal::Refusal names refusal), or "" when
-// the path leads out of the crate.
+// importedModule returns the module of crate a root import's path names:
+// refusal::Refusal or crate::refusal::Refusal names refusal, and
+// crate::Error, or a bare name the root defines, names the root itself.
+// Any other path leads out of the crate, to no module of it ("").
 func importedModule(crate, path string, facts CrateFacts) string {
 	segments := strings.Split(path, "::")
+	inCrate := false
 	for len(segments) > 0 && (segments[0] == "crate" || segments[0] == "self") {
-		segments = segments[1:]
+		segments, inCrate = segments[1:], true
 	}
-	if len(segments) > 0 && facts.Modules[moduleName(crate, strings.TrimPrefix(segments[0], "r#"))] {
-		return moduleName(crate, strings.TrimPrefix(segments[0], "r#"))
+	if len(segments) == 0 {
+		return ""
+	}
+	first := strings.TrimPrefix(segments[0], "r#")
+	switch {
+	case facts.Modules[moduleName(crate, first)]:
+		return moduleName(crate, first)
+	case inCrate || facts.RootItems[first]:
+		return moduleName(crate, "")
 	}
 	return ""
 }
