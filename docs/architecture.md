@@ -1746,7 +1746,12 @@ whose `crate::` names its own modules). A site is a call where one makes the edg
 naming the module, under the item it is written in; test code counts only
 with `--tests`, and a `ddslop:ignore` on the line leaves the cycle out.
 A `pub use` re-export is no dependency: a crate root re-exporting its
-children while they use its items is Rust's facade, not a cycle.
+children while they use its items is Rust's facade, not a cycle. Nor is
+a path through it: a child naming `crate::Refusal`, which the root
+imports from `refusal`, depends on `refusal`, not on the root, and one
+naming a name the root imports from another crate depends on no module
+of its own. Otherwise every crate whose root both re-exports a type and
+calls the module using it showed a cycle with its root.
 The map's cycles stay those of calls, as its layers are. Measured on
 that workspace: 139 candidates where calls alone gave 31, the constants
 pair among them.

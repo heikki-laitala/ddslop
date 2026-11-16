@@ -369,3 +369,29 @@ func TestABlockLocalCrateAliasIsNotCrateWide(t *testing.T) {
 	}
 	wantCycles(t, 0, "none: a's root is not this crate", repo(t, files))
 }
+
+// reexportingCrate's root re-exports refusal's type and calls request,
+// which names the type through the root: crate::Refusal.
+func reexportingCrate(refusal string) map[string]string {
+	return map[string]string{
+		"Cargo.toml": "[package]\nname = \"app\"\n",
+		"src/lib.rs": "mod refusal;\nmod request;\npub use refusal::Refusal;\npub fn encode() -> u8 { request::encode() }\n",
+		"src/request.rs": `use crate::Refusal;
+pub fn encode() -> u8 { refuse(Refusal::Empty) }
+pub fn refuse(_: Refusal) -> u8 { 1 }
+`,
+		"src/refusal.rs": refusal,
+	}
+}
+
+// A name the root re-exports is its module's, not the root's: request,
+// naming crate::Refusal, depends on refusal, so the root calling request
+// closes no loop. Where refusal depends on request in turn, that is the
+// loop, between the two modules.
+func TestARootReexportIsADependencyOnItsModule(t *testing.T) {
+	wantCycles(t, 0, "the root re-exports refusal's type; request uses it",
+		repo(t, reexportingCrate("pub enum Refusal { Empty }\n")))
+
+	wantCycleBetween(t, "refusal -> request, request -> refusal",
+		repo(t, reexportingCrate("pub enum Refusal { Empty }\npub fn code() -> u8 { crate::request::refuse(Refusal::Empty) }\n")))
+}
