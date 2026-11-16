@@ -5,12 +5,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/flow"
 	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/lang/golang"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
+	"github.com/heikki-laitala/ddslop/internal/lang/tsfile"
 )
 
 const flowsUsage = `usage: ddslop flows [flags] [path]
@@ -162,31 +164,45 @@ func treeOrder(steps []flow.Step) []flow.Step {
 	return out
 }
 
-// graphInputs collects what call resolution needs: each file's imports,
-// each crate's name from its Cargo.toml under root, the types of Go
-// struct fields, the module path of each go.mod above a Go file, and the
-// Rust files, whose paths name their crates' modules, and the Rust trait
-// implementations, of the test code too when the graph includes it.
-func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
-	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{},
-		Fields: map[string]map[string]flow.FieldType{}, Modules: map[string]string{},
-		Libraries: packages(root, files).Libraries}
-	seen := map[string]bool{}
+// manifests reads the manifest file (go.mod, package.json) of every
+// directory holding one of the files keep accepts, or above one, up to
+// the analysed root ("."), and maps each directory to what read finds in
+// it, when that is not "".
+func manifests(root string, files []index.File, keep func(file string) bool, manifest string, read func([]byte) string) map[string]string {
+	found, seen := map[string]string{}, map[string]bool{}
 	for _, f := range files {
-		if strings.HasSuffix(f.Path, ".go") {
-			for dir := filepath.Dir(f.Path); !seen[dir]; dir = filepath.Dir(dir) {
-				seen[dir] = true
-				gomod, err := os.ReadFile(filepath.Join(root, dir, "go.mod")) //nolint:gosec // a go.mod under the analysed root
-				if path := golang.ModulePath(gomod); err == nil && path != "" {
-					in.Modules[filepath.ToSlash(dir)] = path
-				}
-				if dir == "." || dir == string(filepath.Separator) {
-					break
-				}
+		if !keep(f.Path) {
+			continue
+		}
+		for dir := filepath.Dir(f.Path); !seen[dir]; dir = filepath.Dir(dir) {
+			seen[dir] = true
+			data, err := os.ReadFile(filepath.Join(root, dir, manifest)) //nolint:gosec // a manifest under the analysed root
+			if value := read(data); err == nil && value != "" {
+				found[filepath.ToSlash(dir)] = value
+			}
+			if dir == "." || dir == string(filepath.Separator) {
+				break
 			}
 		}
 	}
-	if _, ok := in.Modules["."]; len(seen) > 0 && !ok {
+	return found
+}
+
+// graphInputs collects what call resolution needs: each file's imports,
+// each crate's name from its Cargo.toml under root, the types of Go
+// struct fields, the module path of each go.mod above a Go file, the
+// name of each package.json above a TypeScript file, and the Rust
+// files, whose paths name their crates' modules, and the Rust trait
+// implementations, of the test code too when the graph includes it.
+func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
+	isGo := func(file string) bool { return strings.HasSuffix(file, ".go") }
+	modules := manifests(root, files, isGo, "go.mod", golang.ModulePath)
+	tsPackages := manifests(root, files, tsfile.IsSource, "package.json", tsfile.PackageName)
+	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{},
+		Fields: map[string]map[string]flow.FieldType{}, Modules: modules, TSPackages: tsPackages,
+		Libraries: packages(root, files).Libraries}
+	goFiles := slices.ContainsFunc(files, func(f index.File) bool { return isGo(f.Path) })
+	if _, ok := in.Modules["."]; goFiles && !ok {
 		if path := moduleAbove(root); path != "" {
 			in.Modules["."] = path
 		}

@@ -1326,3 +1326,43 @@ func TestBuildResolvesTypeScriptCalls(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildResolvesTypeScriptCallsThroughWorkspacePackages(t *testing.T) {
+	units := []unit.Unit{
+		fn("packages/api/src/handler.ts", "handle", unit.Call{Kind: unit.PathCall, Qualifier: "@acme/db", Name: "query"}),
+		fn("packages/api/src/handler.ts", "sub", unit.Call{Kind: unit.PathCall, Qualifier: "@acme/db/query", Name: "query"}),
+		exported(fn("packages/db/src/query.ts", "query")),
+		exported(fn("packages/other/src/query.ts", "query")),
+		// an outside package's function is none of ours, whatever its name
+		fn("packages/api/src/handler.ts", "chunked", unit.Call{Kind: unit.PathCall, Qualifier: "lodash", Name: "chunk"}),
+		exported(fn("packages/db/src/chunk.ts", "chunk")),
+		// a package's private function is not what it exports
+		fn("packages/api/src/handler.ts", "peek", unit.Call{Kind: unit.PathCall, Qualifier: "@acme/db", Name: "secret"}),
+		fn("packages/db/src/secret.ts", "secret"),
+		// two exported functions of the name: which one is not known
+		fn("packages/api/src/handler.ts", "either", unit.Call{Kind: unit.PathCall, Qualifier: "@acme/db", Name: "open"}),
+		exported(fn("packages/db/src/a.ts", "open")),
+		exported(fn("packages/db/src/b.ts", "open")),
+		// a package nested in another is a package of its own, and so is
+		// the root's
+		fn("packages/api/src/handler.ts", "nested", unit.Call{Kind: unit.PathCall, Qualifier: "@acme/db", Name: "demo"}),
+		exported(fn("packages/db/examples/demo/src/demo.ts", "demo")),
+		fn("packages/api/src/handler.ts", "rooted", unit.Call{Kind: unit.PathCall, Qualifier: "acme", Name: "query"}),
+		exported(fn("src/query.ts", "query")),
+	}
+	g := Build(Inputs{TSPackages: map[string]string{".": "acme", "packages/db": "@acme/db", "packages/other": "@acme/other",
+		"packages/db/examples/demo": "demo"}}, units)
+	for caller, want := range map[string]string{
+		"packages/api/src/handler.ts handle":  "[packages/db/src/query.ts query]",
+		"packages/api/src/handler.ts sub":     "[packages/db/src/query.ts query]",
+		"packages/api/src/handler.ts chunked": "[]",
+		"packages/api/src/handler.ts peek":    "[]",
+		"packages/api/src/handler.ts either":  "[]",
+		"packages/api/src/handler.ts nested":  "[]",
+		"packages/api/src/handler.ts rooted":  "[src/query.ts query]",
+	} {
+		if got := callees(g, caller); got != want {
+			t.Errorf("%s calls %s, want %s", caller, got, want)
+		}
+	}
+}

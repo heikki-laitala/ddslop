@@ -4,6 +4,7 @@
 package tsfile
 
 import (
+	"encoding/json"
 	"path"
 	"path/filepath"
 	"slices"
@@ -43,4 +44,16 @@ func IsDeclarationFile(file string) bool {
 		}
 	}
 	return false
+}
+
+// PackageName returns the name a package.json gives its package
+// (@acme/db), or "".
+func PackageName(manifest []byte) string {
+	var p struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(manifest, &p) != nil {
+		return ""
+	}
+	return p.Name
 }

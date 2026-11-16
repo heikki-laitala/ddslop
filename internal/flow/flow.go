@@ -58,6 +58,7 @@ type index struct {
 	deps        map[string]map[string]bool      // crate directory -> workspace crates it imports from
 	fields      map[string]map[string]FieldType // package or crate directory -> "Struct.field" -> its type
 	modules     map[string]string               // go.mod directory -> module path
+	tsPackages  map[string]string               // TypeScript package.json directory -> package name
 	libraries   Libraries                       // Rust libraries moved out of src/lib.rs
 }
 
@@ -82,6 +83,9 @@ type Inputs struct {
 	Fields map[string]map[string]FieldType
 	// Modules maps the directory of each go.mod to its module path.
 	Modules map[string]string
+	// TSPackages maps the directory of each TypeScript package.json to
+	// the package's name (@acme/db).
+	TSPackages map[string]string
 	// RustFiles are the Rust files analysed, functions or not: their
 	// paths name their crates' modules.
 	RustFiles []string
@@ -106,7 +110,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 			langs[ext] = &index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{}, owners: map[string]bool{},
 				impls: map[string][]string{}, rustModules: map[string]map[string]bool{},
 				crates: map[string]string{}, imports: in.Imports, deps: map[string]map[string]bool{},
-				fields: in.Fields, modules: in.Modules, libraries: in.Libraries}
+				fields: in.Fields, modules: in.Modules, tsPackages: in.TSPackages, libraries: in.Libraries}
 		}
 		return langs[ext]
 	}
@@ -747,7 +751,9 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 // it (a parameter), its own name aside (a recursive call); an imported
 // one (a path call qualified by its module) is the exported function of
 // that name in the module a relative path names (see tsfile.ModuleIs),
-// never a package's; a call on this is the caller's class's method.
+// or anywhere in the workspace package a package path names (@acme/db,
+// @acme/db/query) outside the packages nested in it, never an outside
+// package's; a call on this is the caller's class's method.
 // Without types, the name of any other method says nothing: it is not
 // resolved.
 func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) int {
@@ -759,13 +765,40 @@ func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner str
 		}
 		return only(units, ix.free[c.Name], sameFile)
 	case c.Kind == unit.PathCall:
-		return only(units, ix.free[c.Name], func(u unit.Unit) bool {
-			return u.Public && tsfile.ModuleIs(caller.File, c.Qualifier, u.File)
-		})
+		inModule := func(u unit.Unit) bool { return tsfile.ModuleIs(caller.File, c.Qualifier, u.File) }
+		if dir, ok := ix.tsPackageOf(c.Qualifier); ok {
+			inModule = func(u unit.Unit) bool { return ix.tsPackageDir(u.File) == dir }
+		}
+		return only(units, ix.free[c.Name], func(u unit.Unit) bool { return u.Public && inModule(u) })
 	case c.Qualifier == "self" && owner != "":
 		return only(units, ix.owned[owner+"::"+c.Name], sameFile)
 	}
 	return -1
+}
+
+// tsPackageOf returns the directory of the workspace package a module
+// path names, itself or a subpath of it (@acme/db/query), when exactly one
+// package of the repository has that name.
+func (ix index) tsPackageOf(module string) (string, bool) {
+	found, n := "", 0
+	for dir, name := range ix.tsPackages {
+		if module == name || strings.HasPrefix(module, name+"/") {
+			found, n = dir, n+1
+		}
+	}
+	return found, n == 1
+}
+
+// tsPackageDir returns the directory of the nearest package.json above a
+// file that names its package, "." when none does.
+func (ix index) tsPackageDir(file string) string {
+	dir := filepath.ToSlash(filepath.Dir(file))
+	for {
+		if _, ok := ix.tsPackages[dir]; ok || dir == "." || dir == "/" {
+			return dir
+		}
+		dir = filepath.ToSlash(filepath.Dir(dir))
+	}
 }
 
 // pick chooses among candidates the one in the caller's file, else the

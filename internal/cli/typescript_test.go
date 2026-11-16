@@ -301,3 +301,22 @@ export function canCancel(state: string): boolean {
 
 	testutil.Lines(t, "candidates", candidateLines(decode(t, stdout), "duplicate-constant", "string-kinds", "inlined-constant"), nil)
 }
+
+// A call through a workspace package's name (@acme/db) finds the
+// function that package exports, so a wrapper around it is one.
+func TestCheckFollowsTypeScriptWorkspacePackages(t *testing.T) {
+	root := repo(t, map[string]string{
+		"package.json":                `{"name": "acme", "private": true, "workspaces": ["packages/*"]}`,
+		"packages/db/package.json":    `{"name": "@acme/db", "main": "dist/index.js"}`,
+		"packages/db/src/index.ts":    `export * from "./query";` + "\n",
+		"packages/db/src/query.ts":    "export function query(sql: string) {\n  const trimmed = sql.trim();\n  return trimmed.length;\n}\n",
+		"packages/api/package.json":   `{"name": "@acme/api"}`,
+		"packages/api/src/handler.ts": "import { query } from \"@acme/db\";\n\nexport function select(sql: string) {\n  return query(sql);\n}\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "wrappers", candidateLines(decode(t, stdout), "pass-through"), []string{
+		"typescript pass-through [packages/api/src/handler.ts select]",
+	})
+}
