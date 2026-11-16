@@ -1045,12 +1045,16 @@ func wordCounts(root string, files []index.File) (map[string]int, error) {
 func singleImpls(traitDecls map[string]unit.Decls, files []index.File, internal func(file string) bool) []simplify.SingleImplTrait {
 	var out []simplify.SingleImplTrait
 	for _, lang := range languages {
-		out = append(out, simplify.SingleImpl(withoutTestDoubles(traitDecls[lang], files), internal)...)
+		decls := traitDecls[lang]
+		if lang == "typescript" {
+			decls = withoutTestDoubles(decls, files)
+		}
+		out = append(out, simplify.SingleImpl(decls, internal)...)
 	}
 	return out
 }
 
-// withoutTestDoubles leaves out the TypeScript interfaces a test file
+// withoutTestDoubles leaves out the interfaces a TypeScript test file
 // names: a test's fake of one is its second implementation, which an
 // object literal (const fake: IClock = {...}) gives without a class.
 func withoutTestDoubles(decls unit.Decls, files []index.File) unit.Decls {
@@ -1063,7 +1067,7 @@ func withoutTestDoubles(decls unit.Decls, files []index.File) unit.Decls {
 		}
 	}
 	decls.Traits = slices.DeleteFunc(slices.Clone(decls.Traits), func(t unit.Trait) bool {
-		return tsfile.IsSource(t.File) && named[t.Name]
+		return named[t.Name]
 	})
 	return decls
 }

@@ -560,7 +560,7 @@ class Cache<T> {}
 // typed parameter, or a constant typed or made with new. A name bound
 // again (a constant of no stated type, a nested function's parameter, a
 // for-of loop, a catch clause, a destructuring) is no longer the typed
-// outer one.
+// outer one; one a nested closure or block binds is that scope's.
 func TestMethodCallsRecordTheTypeTheCodeStates(t *testing.T) {
 	for _, tc := range []struct {
 		name, src string
@@ -581,6 +581,16 @@ export async function handle(repo: UserRepo, id: string) {
   }
 }
 `, []string{"find ../store/users.UserRepo", "get Map", "send Mailer", "run ", "find "}},
+		{"inner scopes", `export function f(repo: Repo, flag: boolean) {
+  items.forEach(() => {
+    const repo: Cache = new Cache();
+  });
+  if (flag) {
+    const repo = new Cache();
+  }
+  repo.find();
+}
+`, []string{"forEach ", "find Repo"}},
 		{"bound again", `export function main(item: Item, store: Store, repo: Repo, cache: Cache, svc: Service) {
   others.map((item) => item.save());
   for (const store of stores) {
@@ -663,4 +673,81 @@ interface ICachedRepo extends IRepo {
 		return fmt.Sprintf("%s %s %s %d-%d", im.Type, im.Trait, im.TraitPath, im.StartLine, im.EndLine)
 	}), []string{"Repo IRepo IRepo 11-13", "Repo Other ./other.Other 11-13", "ICachedRepo IRepo IRepo 17-19"})
 	testutil.Lines(t, "type names", decls.TypeNames, []string{"Repo", "Plain"})
+}
+
+// this is the class's instance in its methods and their arrow functions,
+// but not in a nested function, which has a this of its own.
+func TestThisInANestedFunctionIsNoSelf(t *testing.T) {
+	units, _ := testutil.Parse(t, Parse, "src/repo.ts", `export class Repo {
+  load() {
+    const handler = { run: function () { return this.save(); } };
+    return () => this.save();
+  }
+  save() {}
+}
+`)
+	testutil.Lines(t, "calls", testutil.Format(units[0].Calls, func(c unit.Call) string { return c.Name + " " + c.Qualifier }),
+		[]string{"save ", "save self"})
+}
+
+// A parameter or local of an imported name shadows the import.
+func TestAShadowedImportIsNoPathCall(t *testing.T) {
+	units, _ := testutil.Parse(t, Parse, "src/run.ts", `import { log } from "./log";
+
+export function run(log: Write) {
+  log("x");
+}
+
+export function other() {
+  log("y");
+}
+
+export function destructured({ log }: Deps) {
+  log("z");
+}
+
+export function afterLoop(names: string[]) {
+  for (const log in names) {}
+  log("w");
+}
+`)
+	testutil.Lines(t, "calls", testutil.Format(units, func(u unit.Unit) string {
+		last := u.Calls[len(u.Calls)-1]
+		return fmt.Sprintf("%s: %d %s", u.Name, last.Kind, last.Qualifier)
+	}), []string{
+		fmt.Sprintf("run: %d ", unit.FreeCall),
+		fmt.Sprintf("other: %d ./log", unit.PathCall),
+		fmt.Sprintf("destructured: %d ", unit.FreeCall),
+		fmt.Sprintf("afterLoop: %d ./log", unit.PathCall),
+	})
+}
+
+// An object typed as an interface, or one a function typed to return it
+// makes, implements it as a class does; a function returning another
+// value of the type does not.
+func TestObjectsTypedAsAnInterfaceImplementIt(t *testing.T) {
+	_, decls := testutil.Parse(t, Parse, "src/memory.ts", `import type { IRepo } from "./repo";
+
+export const memoryRepo: IRepo = { find() { return 1; } };
+
+export function createRepo(db: Db): IRepo {
+  return { find() { return db.get(); } };
+}
+
+export function createPg(db: Db): IRepo {
+  ({ find: db.get });
+  return new PgRepo(db);
+}
+
+export function createCached(db: Db): IRepo {
+  if (db.cached) {
+    return { find() { return 2; } };
+  }
+  throw new Error("no cache");
+}
+
+export const getRepo = (): IRepo => memoryRepo;
+`)
+	testutil.Lines(t, "impls", testutil.Format(decls.Impls, func(im unit.Impl) string { return im.Type + " " + im.TraitPath }),
+		[]string{"memoryRepo ./repo.IRepo", "createRepo ./repo.IRepo", "createCached ./repo.IRepo"})
 }

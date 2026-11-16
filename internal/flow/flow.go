@@ -822,8 +822,7 @@ func (ix index) resolveTSMethod(units []unit.Unit, home, typ, method string) int
 		return -1
 	}
 	name := typ[strings.LastIndex(typ, ".")+1:]
-	cands := ix.owned[name+"::"+method]
-	if decl, ok := ix.tsInterfaceFile(home, typ); ok && len(cands) == 0 {
+	if decl, ok := ix.tsInterfaceFile(home, typ); ok {
 		// an interface of ours one class implements: that class's method runs
 		if impls := ix.tsImpls[decl+"#"+name]; len(impls) == 1 {
 			im := impls[0]
@@ -832,7 +831,7 @@ func (ix index) resolveTSMethod(units []unit.Unit, home, typ, method string) int
 		return -1
 	}
 	declares := ix.tsDeclares(home, typ)
-	return only(units, cands, func(u unit.Unit) bool { return declares(u.File) })
+	return only(units, ix.owned[name+"::"+method], func(u unit.Unit) bool { return declares(u.File) })
 }
 
 // tsDeclares reports, for a file, whether it is where the TypeScript type

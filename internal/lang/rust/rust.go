@@ -27,7 +27,9 @@ type grammar struct {
 	self    string
 	generic map[string]string
 	imports map[string]string
-	vars    map[string]syntax.Operand
+	// vars holds the variables in scope; Rust assignments keep a variable's
+	// type, so a scope restores them exactly as they were.
+	vars map[string]syntax.Operand
 	// entries holds the variables as each open if found them, by the if's
 	// span, for its else.
 	entries *map[[2]uint]map[string]syntax.Operand
@@ -77,13 +79,13 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		return func() { g.let(n, s.Src) }
 	case "closure_expression":
 		s.Closures++
-		restore := g.scope()
+		restore := syntax.Scope(g.vars)
 		if params := n.ChildByFieldName("parameters"); params != nil {
 			g.forget(params, s.Src)
 		}
 		return func() { s.Closures--; restore() }
 	case "match_arm":
-		restore := g.scope()
+		restore := syntax.Scope(g.vars)
 		if pattern := n.ChildByFieldName("pattern"); pattern != nil {
 			var value *sitter.Node
 			if block := n.Parent(); block != nil && block.Parent() != nil {
@@ -95,7 +97,7 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	case "block":
 		// A for's pattern is in scope in its body alone, after the
 		// iterator. A block's use declarations hold throughout it.
-		restore := g.scope()
+		restore := syntax.Scope(g.vars)
 		if p := n.Parent(); p != nil && p.Kind() == "for_expression" && sameNode(p.ChildByFieldName("body"), n) {
 			if pattern := p.ChildByFieldName("pattern"); pattern != nil {
 				g.forget(pattern, s.Src)
@@ -118,7 +120,7 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		// the if or while ends; an else starts from the variables as the
 		// if found them.
 		(*g.entries)[span(n)] = maps.Clone(g.vars)
-		restore := g.scope()
+		restore := syntax.Scope(g.vars)
 		return func() { delete(*g.entries, span(n)); restore() }
 	case "let_condition":
 		return func() {
@@ -146,17 +148,6 @@ func span(n *sitter.Node) [2]uint {
 // sameNode reports whether a and b are the same syntax node.
 func sameNode(a, b *sitter.Node) bool {
 	return a != nil && b != nil && span(a) == span(b)
-}
-
-// scope opens a lexical scope: the bindings made in it are undone by the
-// function it returns. Rust assignments keep a variable's type, so the
-// variables as they were are exactly what holds after it.
-func (g grammar) scope() func() {
-	outer := maps.Clone(g.vars)
-	return func() {
-		clear(g.vars)
-		maps.Copy(g.vars, outer)
-	}
 }
 
 // produced is a call's result: the call's syntax node and the result's

@@ -512,14 +512,17 @@ through path aliases (`@/lib/x`) are not followed, nor method calls on a
 value of no stated type or of an interface several classes implement. A
 name bound again inside a function (a nested function's parameter, a
 `for`-`of` loop's, a `catch` clause's, a destructuring) loses the outer
-one's type. And as module cycles are found among a Rust crate's modules,
-TypeScript files in a crate's directory (a Tauri app's frontend) are
-none of its modules. On Hono, Excalidraw and tRPC, 6 wrappers, all
-passing their parameters on unchanged; most narrow the types
-(`createHTTPHandler` calling `createHandler`). Following workspace
-packages found 3 more on Excalidraw, each calling into another of its
-packages (`cloneLibraryItems` passing on to `@excalidraw/common`'s
-`cloneJSON`).
+one's type, and a name a nested function or block binds is that scope's:
+the outer name has its own type again after it. A parameter or local
+named like an import shadows the import, and `this` in a nested
+`function` (not an arrow function) is no class instance. And as module
+cycles are found among a Rust crate's modules, TypeScript files in a
+crate's directory (a Tauri app's frontend) are none of its modules. On
+Hono, Excalidraw and tRPC, 6 wrappers, all passing their parameters on
+unchanged; most narrow the types (`createHTTPHandler` calling
+`createHandler`). Following workspace packages found 3 more on
+Excalidraw, each calling into another of its packages
+(`cloneLibraryItems` passing on to `@excalidraw/common`'s `cloneJSON`).
 
 An interface declaring methods is a trait, the contract classes
 implement (`class Repo implements IRepo`); one of properties only is a
@@ -527,9 +530,14 @@ data shape. A method call on a value of an interface's type resolves to
 the method of the one class implementing an interface of that name; with
 several, which runs is not known; an interface another extends
 (`interface CachedStore extends Store`) counts that one among its
-implementations, as every class of it implements both. The interface
-must be ours: matched by the file declaring it, as an imported type is,
-so a call on an outside one (`vscode`'s `Disposable`, the DOM's
+implementations, as every class of it implements both, and so does an
+object typed as the interface (`const mem: IRepo = {...}`) or a function
+typed to return it that returns an object literal (a factory): an
+interface with one class and one of these has two. A function returning
+`new PgRepo()` leaves the class the implementation. An unrelated class
+named like an interface of ours does not hide the interface. The
+interface must be ours: matched by the file declaring it, as an imported
+type is, so a call on an outside one (`vscode`'s `Disposable`, the DOM's
 `EventListenerObject`) reaches no class of ours that implements it, and
 each language's traits are matched on their own. Single-implementation
 interfaces are reported as Rust's traits are, except one a test file

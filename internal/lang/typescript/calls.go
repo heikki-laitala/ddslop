@@ -79,7 +79,7 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 		return c, false
 	case fn.Kind() == "identifier":
 		c.Kind, c.Name = unit.FreeCall, fn.Utf8Text(src)
-		if im, ok := g.imports[c.Name]; ok && im.name != "" {
+		if im, ok := g.imports[c.Name]; ok && im.name != "" && !g.bound(c.Name) {
 			c.Kind, c.Qualifier, c.Name = unit.PathCall, im.module, im.name
 		}
 	case fn.Kind() == "member_expression":
@@ -90,9 +90,11 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 		c.Kind, c.Name = unit.MethodCall, property.Utf8Text(src)
 		switch object.Kind() {
 		case "this":
-			c.Qualifier = "self"
+			if *g.otherThis == 0 {
+				c.Qualifier = "self"
+			}
 		case "identifier":
-			if im, ok := g.imports[object.Utf8Text(src)]; ok && im.name == "" {
+			if im, ok := g.imports[object.Utf8Text(src)]; ok && im.name == "" && !g.bound(object.Utf8Text(src)) {
 				c.Kind, c.Qualifier = unit.PathCall, im.module
 			} else {
 				c.Type = g.vars[object.Utf8Text(src)]
@@ -101,7 +103,7 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 			// this.repo.find(), or deps.repo.find() on a typed variable
 			switch inner, field := object.ChildByFieldName("object"), object.ChildByFieldName("property"); {
 			case inner == nil || field == nil:
-			case inner.Kind() == "this":
+			case inner.Kind() == "this" && *g.otherThis == 0:
 				c.Field = field.Utf8Text(src)
 			case inner.Kind() == "identifier" && g.vars[inner.Utf8Text(src)] != "":
 				c.Type, c.Field = g.vars[inner.Utf8Text(src)], field.Utf8Text(src)
@@ -111,6 +113,13 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 		return c, false // a called call's result, an immediately invoked function
 	}
 	return c, true
+}
+
+// bound reports whether the function binds a name, which then shadows an
+// import of the name.
+func (g grammar) bound(name string) bool {
+	_, ok := g.vars[name]
+	return ok
 }
 
 // forwards returns the callee when a function's whole body is one call,

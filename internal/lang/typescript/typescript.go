@@ -57,10 +57,15 @@ var functionKinds = map[string]bool{
 type grammar struct {
 	fn      [2]uint
 	imports map[string]imported
-	// vars maps the function's variables whose type the code states to
-	// that type, as Call.Type writes it (see parser.typeOf).
+	// vars maps the names the function binds (its parameters and
+	// variables, and its nested functions' and blocks' while they are
+	// open) to the type the code states for them, as Call.Type writes it
+	// (see parser.typeOf), or "" for none: a bound name shadows an import.
 	vars map[string]string
-	p    *parser
+	// otherThis counts the open nested functions, but arrow functions,
+	// that have a this of their own: in them this is no class instance.
+	otherThis *int
+	p         *parser
 }
 
 // Prefix keeps TypeScript's symbols apart from other languages'
@@ -112,12 +117,15 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		if typ := g.p.declaredType(n); name != nil && name.Kind() == "identifier" && typ != "" {
 			g.vars[name.Utf8Text(s.Src)] = typ
 		} else {
-			g.forget(name, s.Src)
+			g.bind(name, s.Src)
 		}
-	case n.Kind() == "for_in_statement":
-		g.forget(n.ChildByFieldName("left"), s.Src)
-	case n.Kind() == "catch_clause":
-		g.forget(n.ChildByFieldName("parameter"), s.Src)
+	case n.Kind() == "for_in_statement" || n.Kind() == "catch_clause":
+		restore := syntax.Scope(g.vars) // the loop's or catch's own variable
+		g.bind(n.ChildByFieldName("left"), s.Src)
+		g.bind(n.ChildByFieldName("parameter"), s.Src)
+		return restore
+	case n.Kind() == "statement_block":
+		return syntax.Scope(g.vars) // a block's variables are its own
 	case n.Kind() == "switch_statement":
 		s.RecordStringMatch(n, caseStrings(n, s.Src))
 	case n.Kind() == "return_statement":
@@ -125,33 +133,44 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 			s.Exits++
 		}
 	case functionKinds[n.Kind()] && syntax.Span(n) != g.fn:
-		// a nested function's parameters shadow the outer names
-		g.forget(n.ChildByFieldName("parameter"), s.Src)
-		eachParam(n, func(p, _, _ *sitter.Node) { g.forget(p.ChildByFieldName("pattern"), s.Src) })
+		// a nested function's parameters shadow the outer names, in it
+		restore := syntax.Scope(g.vars)
+		g.bind(n.ChildByFieldName("parameter"), s.Src)
+		eachParam(n, func(p, _, _ *sitter.Node) { g.bind(p.ChildByFieldName("pattern"), s.Src) })
+		ownThis := n.Kind() != "arrow_function"
+		if ownThis {
+			*g.otherThis++
+		}
 		s.Closures++
-		return func() { s.Closures-- }
+		return func() {
+			s.Closures--
+			if ownThis {
+				*g.otherThis--
+			}
+			restore()
+		}
 	}
 	return nil
 }
 
-// forget drops the stated types of the names a binding (a name, or a
-// destructuring pattern) introduces: they shadow any earlier variable.
-// No type is restored after: a lost type only leaves a call unresolved.
+// bind records the names a binding (a name, or a destructuring pattern)
+// introduces, of no stated type: they shadow any earlier variable or
+// import of the name in the open scope.
 // ddslop:ignore the Rust adapter's forget over TypeScript's node kinds; each changes with its own grammar
-func (g grammar) forget(binding *sitter.Node, src []byte) {
+func (g grammar) bind(binding *sitter.Node, src []byte) {
 	if binding == nil {
 		return
 	}
 	switch binding.Kind() {
 	case "identifier", "shorthand_property_identifier_pattern":
-		delete(g.vars, binding.Utf8Text(src))
+		g.vars[binding.Utf8Text(src)] = ""
 	case "assignment_pattern", "object_assignment_pattern":
-		g.forget(binding.ChildByFieldName("left"), src) // a default value binds nothing
+		g.bind(binding.ChildByFieldName("left"), src) // a default value binds nothing
 	case "pair_pattern":
-		g.forget(binding.ChildByFieldName("value"), src) // nor does a key
+		g.bind(binding.ChildByFieldName("value"), src) // nor does a key
 	default:
 		for i := uint(0); i < binding.NamedChildCount(); i++ {
-			g.forget(binding.NamedChild(i), src)
+			g.bind(binding.NamedChild(i), src)
 		}
 	}
 }
@@ -292,6 +311,9 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 	case "function_declaration", "generator_function_declaration":
 		if name := n.ChildByFieldName("name"); name != nil {
 			p.units = append(p.units, p.unit(name.Utf8Text(p.src), n, n, exported))
+			if makesObject(n.ChildByFieldName("body")) {
+				p.typedAs(n, name.Utf8Text(p.src), n.ChildByFieldName("return_type"))
+			}
 		}
 	case "lexical_declaration", "variable_declaration":
 		kind := n.ChildByFieldName("kind")
@@ -299,10 +321,16 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 		for i := uint(0); i < n.NamedChildCount(); i++ {
 			d := n.NamedChild(i)
 			name, value := d.ChildByFieldName("name"), d.ChildByFieldName("value")
+			if name != nil && value != nil && unwrapped(value).Kind() == "object" {
+				p.typedAs(d, name.Utf8Text(p.src), d.ChildByFieldName("type"))
+			}
 			switch {
 			case d.Kind() != "variable_declarator" || name == nil || name.Kind() != "identifier" || value == nil:
 			case isFunction(unwrapped(value)):
 				p.units = append(p.units, p.unit(name.Utf8Text(p.src), d, unwrapped(value), exported))
+				if fn := unwrapped(value); makesObject(fn.ChildByFieldName("body")) {
+					p.typedAs(d, name.Utf8Text(p.src), fn.ChildByFieldName("return_type"))
+				}
 			case constant && isConstant(value) && (!exported || !p.routeOption(name.Utf8Text(p.src))):
 				p.constant(name, value)
 			}
@@ -354,6 +382,37 @@ func (p *parser) routeOption(name string) bool {
 	switch strings.TrimSuffix(base, path.Ext(base)) {
 	case "page", "layout", "route":
 		return routeOptions[name]
+	}
+	return false
+}
+
+// makesObject reports whether a function body returns an object literal,
+// as a factory implementing an interface does; one returning an instance
+// of a class leaves the class the implementation.
+func makesObject(body *sitter.Node) bool {
+	if body == nil {
+		return false
+	}
+	if body.Kind() != "statement_block" {
+		return unwrapped(body).Kind() == "object" // () => ({ ... })
+	}
+	return returnsObject(body)
+}
+
+// returnsObject reports whether a return in n, outside nested functions,
+// returns an object literal.
+func returnsObject(n *sitter.Node) bool {
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		c := n.NamedChild(i)
+		switch {
+		case isFunction(c):
+		case c.Kind() == "return_statement":
+			if c.NamedChildCount() > 0 && unwrapped(c.NamedChild(0)).Kind() == "object" {
+				return true
+			}
+		case returnsObject(c):
+			return true
+		}
 	}
 	return false
 }
@@ -656,6 +715,16 @@ func (p *parser) implementations(class *sitter.Node) {
 	}
 }
 
+// typedAs records an object typed as an interface (const mem: IRepo =
+// {...}), or a function whose result is typed as one (a factory, (): IRepo
+// => ({...})), as implementing it: the interface has an implementation
+// besides its classes. annotation is the declared type, if any.
+func (p *parser) typedAs(decl *sitter.Node, name string, annotation *sitter.Node) {
+	if annotation != nil {
+		p.implementation(decl, name, annotation.NamedChild(0))
+	}
+}
+
 // bases records each interface an interface extends as implemented by
 // it: every class implementing it implements those too, so they are no
 // single class's.
@@ -711,12 +780,19 @@ func isPrivate(m, name *sitter.Node) bool {
 // unit makes a unit of the declaration n, whose own function is fn.
 func (p *parser) unit(name string, n, fn *sitter.Node, public bool) unit.Unit {
 	vars := map[string]string{}
-	eachParam(fn, func(_, name, typ *sitter.Node) {
-		if t := p.typeOf(typ); name != nil && t != "" {
-			vars[name.Utf8Text(p.src)] = t
+	if param := fn.ChildByFieldName("parameter"); param != nil {
+		vars[param.Utf8Text(p.src)] = "" // x => f(x)
+	}
+	otherThis := 0
+	g := grammar{fn: syntax.Span(fn), imports: p.imports, vars: vars, otherThis: &otherThis, p: p}
+	eachParam(fn, func(param, name, typ *sitter.Node) {
+		if name != nil {
+			vars[name.Utf8Text(p.src)] = p.typeOf(typ)
+		} else {
+			g.bind(param.ChildByFieldName("pattern"), p.src)
 		}
 	})
-	s := syntax.Flatten(n, p.src, grammar{fn: syntax.Span(fn), imports: p.imports, vars: vars, p: p})
+	s := syntax.Flatten(n, p.src, g)
 	ps, _ := params(fn, p.src)
 	return unit.Unit{
 		File:      p.file,

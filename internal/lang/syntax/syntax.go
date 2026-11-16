@@ -7,6 +7,7 @@ package syntax
 import (
 	"errors"
 	"hash/fnv"
+	"maps"
 	"slices"
 	"strings"
 
@@ -270,6 +271,17 @@ func PassesOn(args *sitter.Node, names []string, src []byte, borrow func(n *sitt
 type Operand struct {
 	Type         string
 	From, Result int
+}
+
+// Scope opens a lexical scope over an adapter's variables: the bindings
+// made in it are undone by the function it returns, which restores the
+// variables as they were.
+func Scope[V any](vars map[string]V) func() {
+	outer := maps.Clone(vars)
+	return func() {
+		clear(vars)
+		maps.Copy(vars, outer)
+	}
 }
 
 // Source is a file to parse: its path, its bytes, and whether it is test

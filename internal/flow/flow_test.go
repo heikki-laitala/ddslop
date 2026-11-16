@@ -1443,17 +1443,23 @@ func TestBuildResolvesTypeScriptCallsOnAnInterfaceToItsOnlyClass(t *testing.T) {
 		// whatever class of ours implements it
 		fn("src/controllers/cluster.ts", "close", unit.Call{Kind: unit.MethodCall, Name: "dispose", Type: "vscode.Disposable"}),
 		exported(fn("src/ext.ts", "Foo.dispose")),
+		// an unrelated class named like an interface of ours does not hide it
+		fn("src/controllers/cluster.ts", "read", unit.Call{Kind: unit.MethodCall, Name: "get", Type: "../types.Cache"}),
+		exported(fn("src/mem.ts", "MemCache.get")),
+		exported(fn("src/legacy.ts", "Cache.get")),
 	}
 	g := Build(Inputs{Impls: []unit.Impl{
 		{File: "src/repositories/cluster.ts", Trait: "IClusterRepo", TraitPath: "IClusterRepo", Type: "ClusterRepo"},
 		{File: "src/store/memory.ts", Trait: "IStore", TraitPath: "../store.IStore", Type: "MemoryStore"},
 		{File: "src/store/disk.ts", Trait: "IStore", TraitPath: "../store.IStore", Type: "DiskStore"},
 		{File: "src/ext.ts", Trait: "Disposable", TraitPath: "vscode.Disposable", Type: "Foo"},
-	}, TSInterfaces: map[string][]string{"IClusterRepo": {"src/repositories/cluster.ts"}, "IStore": {"src/store.ts"}}}, units)
+		{File: "src/mem.ts", Trait: "Cache", TraitPath: "./types.Cache", Type: "MemCache"},
+	}, TSInterfaces: map[string][]string{"IClusterRepo": {"src/repositories/cluster.ts"}, "IStore": {"src/store.ts"}, "Cache": {"src/types.ts"}}}, units)
 	for caller, want := range map[string]string{
 		"src/controllers/cluster.ts load":  "[src/repositories/cluster.ts ClusterRepo.findById]",
 		"src/controllers/cluster.ts save":  "[]",
 		"src/controllers/cluster.ts close": "[]",
+		"src/controllers/cluster.ts read":  "[src/mem.ts MemCache.get]",
 	} {
 		if got := callees(g, caller); got != want {
 			t.Errorf("%s calls %s, want %s", caller, got, want)
