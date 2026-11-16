@@ -2366,11 +2366,11 @@ Built, following pruner's release setup:
   tests with the race detector and the coverage gate on Linux and macOS;
   an end-to-end smoke test of the built binary (`scripts/smoke-test.sh`);
   ddslop on its own code with no baseline, both the built binary (with
-  `--tests`, so test code too, and the stricter `--min-nodes 30`) and the
-  latest release through the action (its defaults, as users run it),
-  failing on any candidate; the
-  action uploads its SARIF to code scanning, so pull requests carry the
-  same annotations as users'. Pull requests from forks and Dependabot,
+  `--tests`, so test code too, and the stricter `--min-nodes 30` and
+  `--min-block-nodes 80`) and the latest release through the action (its
+  defaults, as users run it), failing on any candidate; the action uploads
+  its SARIF to code scanning, so pull requests carry the same annotations
+  as users'. Pull requests from forks and Dependabot,
   whose token cannot upload, and `upload-sarif: "false"` get workflow annotations from the
   SARIF instead. The action job also runs the action on a sample with a
   renamed copy, whole and in diff mode on a sample history. The repository has the ddslop skill

@@ -42,9 +42,10 @@ jobs:
       - name: Build
         run: make build
       # Test code included: a copy in the tests fails the build too. Stricter
-      # than the default: functions down to 30 syntax nodes, not 50.
+      # than the default: functions down to 30 syntax nodes, not 50, and
+      # copied blocks down to 80, not 100.
       - name: ddslop on its own code
-        run: bin/ddslop check --format text --tests --min-nodes 30 .
+        run: bin/ddslop check --format text --tests --min-nodes 30 --min-block-nodes 80 .
       - name: Smoke test
         run: scripts/smoke-test.sh bin/ddslop
 
