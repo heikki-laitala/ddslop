@@ -41,6 +41,7 @@ func TestCheckReportsAnErrorCheckDriftingFromTheConvention(t *testing.T) {
 				StartLine int    `json:"start_line"`
 			} `json:"target"`
 			Values     []string `json:"values"`
+			Share      float64  `json:"share"`
 			Suggestion struct {
 				Action  string `json:"action"`
 				Pattern string `json:"pattern"`
@@ -63,6 +64,9 @@ func TestCheckReportsAnErrorCheckDriftingFromTheConvention(t *testing.T) {
 	}
 	if strings.Join(c.Values, " ") != "message" {
 		t.Errorf("values = %v, want the drifting form", c.Values)
+	}
+	if c.Share != 30.0/31 {
+		t.Errorf("share = %v, want 30/31: the share of the checks the convention holds", c.Share)
 	}
 }
 
@@ -116,7 +120,7 @@ func TestDriftsOfOneFormInOneFunctionAreOneCandidate(t *testing.T) {
 		t.Errorf("drifts = %v, want Twice's two checks as one candidate with an occurrence on each line", got)
 	}
 	_, text, _ := run("check", "--format", "text", root)
-	wantContains(t, text, "convention-drift: 2 place(s) using message, follow-convention")
+	wantContains(t, text, "convention-drift: 2 place(s) using message (convention at 91%), follow-convention")
 }
 
 // Test code is held to production code's conventions without setting

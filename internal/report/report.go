@@ -100,6 +100,11 @@ type Candidate struct {
 	// Concern is the job the code does that a convention covers, such as
 	// error-checks, for a convention drift: the map's idioms name it too.
 	Concern string `json:"concern,omitempty"`
+	// Share is the share of the concern's occurrences the convention
+	// holds, for a convention drift: below the drift share a concern has
+	// no convention and no drift, so a share near it says how close the
+	// convention is to lapsing, or a lapse why its drifts went.
+	Share float64 `json:"share,omitempty"`
 }
 
 // Step is one aligned step of a parallel flow: the function playing that
@@ -246,10 +251,13 @@ type CycleSite struct {
 // convention's occurrence to follow, the closest one.
 type Drift struct {
 	Concern, Form, Convention string
-	Unit                      unit.Unit
-	Lines                     []int
-	Target                    unit.Unit
-	TargetLine                int
+	// Share is the share of the concern's occurrences the convention
+	// holds, where it was measured.
+	Share      float64
+	Unit       unit.Unit
+	Lines      []int
+	Target     unit.Unit
+	TargetLine int
 }
 
 // Flow is a family of features running the same pipeline through
@@ -747,6 +755,7 @@ func driftCandidate(language string, d Drift) Candidate {
 	c.Target = &Occurrence{File: d.Target.File, Name: d.Target.Name, StartLine: d.TargetLine, EndLine: d.TargetLine}
 	c.Values = []string{d.Form}
 	c.Concern = d.Concern
+	c.Share = d.Share
 	return c
 }
 
@@ -876,7 +885,7 @@ func Headline(c Candidate) string {
 func size(c Candidate) string {
 	switch c.Kind {
 	case ConventionDrift: // places breaking a convention, not copies
-		return fmt.Sprintf("%d place(s) using %s", c.Score.Occurrences, strings.Join(c.Values, ", "))
+		return fmt.Sprintf("%d place(s) using %s (convention at %.0f%%)", c.Score.Occurrences, strings.Join(c.Values, ", "), 100*c.Share)
 	case DependencyCycle:
 		return fmt.Sprintf("modules calling each other in a loop, %s", strings.Join(c.Values, ", "))
 	}
