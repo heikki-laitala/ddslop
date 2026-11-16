@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/heikki-laitala/ddslop/internal/testutil"
+
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -323,9 +325,7 @@ func TestHealthHistoryRecordsOnlyChanges(t *testing.T) {
 		`10:03 v1 b2 {"duplication_percent":6.9}`,
 		`10:04 v2 b2 {"duplication_percent":6.9}`,
 	}
-	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
-		t.Errorf("history:\n%s\nwant:\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "history", lines, want)
 	if last, _ := db.HealthHistory(2); len(last) != 2 || last[1].Version != "v2" {
 		t.Errorf("HealthHistory(2) = %+v, want the two latest, oldest first", last)
 	}

@@ -138,7 +138,7 @@ func TestStatsDescribesTheIndexWithoutSyncing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("stats: exit %d", code)
 	}
-	for _, want := range []string{"files: 3 (1 generated)", "functions: 2 (1 test)", ".ddslop/index.db"} {
+	for _, want := range []string{"files: 3 (1 generated)", "functions: 2 (1 test)", indexPath} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stats output is missing %q (new.rs must not be indexed by stats):\n%s", want, stdout)
 		}

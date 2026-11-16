@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/heikki-laitala/ddslop/internal/testutil"
+
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -45,9 +47,7 @@ func TestEnumsGroupsEnumsWithTheSameVariants(t *testing.T) {
 		"ports_a.rs PortAccess | ports_b.rs PortAccess", // ties in size: by file
 		"sweep_a.rs NotSwept | sweep_b.rs NotSwept",
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("groups:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "groups", got, want)
 }
 
 // Groups of equal size whose first enums share a file are ordered by line,

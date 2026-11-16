@@ -14,7 +14,7 @@ func TestBaselineSuppressesKnownAndReportsNewDuplication(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("baseline: exit %d, stderr %s", code, stderr)
 	}
-	path := filepath.Join(root, ".ddslop-baseline.json")
+	path := filepath.Join(root, baselineFile)
 	if !strings.Contains(stdout, "1 known candidate") || !strings.Contains(stdout, path) {
 		t.Errorf("baseline output %q, want the count and the file", stdout)
 	}

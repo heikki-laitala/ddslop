@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/heikki-laitala/ddslop/internal/testutil"
+
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -51,9 +53,7 @@ func TestParameterGroupsFindsTheLargestSetPassedTogether(t *testing.T) {
 	want := []string{
 		"(build, environment, now, transaction) in claim held isolate sweep",
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("groups:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "groups", got, want)
 }
 
 func TestParameterGroupsKeepUnrelatedGroupsApart(t *testing.T) {

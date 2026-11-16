@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/heikki-laitala/ddslop/internal/testutil"
+
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -64,9 +66,7 @@ func TestStructsListDifferingNamesAndFieldTypes(t *testing.T) {
 		fmt.Sprintf("%v [Rates AudioRates] [[1] [1]] local=true", unit.Identifier),
 		fmt.Sprintf("%v [u64 Option<u64>] [[4] [4]] local=false", unit.Type),
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("differences:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "differences", got, want)
 }
 
 func TestStructsOrderedByDuplicatedSize(t *testing.T) {

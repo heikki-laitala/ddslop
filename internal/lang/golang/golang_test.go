@@ -7,16 +7,20 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/heikki-laitala/ddslop/internal/testutil"
+
 	"github.com/heikki-laitala/ddslop/internal/lang/syntax"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
+func mustParse(t *testing.T, path, src string) ([]unit.Unit, unit.Decls) {
+	t.Helper()
+	return testutil.Parse(t, Parse, path, src)
+}
+
 func mustUnits(t *testing.T, path, src string) []unit.Unit {
 	t.Helper()
-	units, _, err := Parse(path, []byte(src))
-	if err != nil {
-		t.Fatalf("Units: %v", err)
-	}
+	units, _ := mustParse(t, path, src)
 	return units
 }
 
@@ -55,10 +59,9 @@ func broken( {
 `
 
 func TestUnitsExtractsFunctionsAndMethods(t *testing.T) {
-	var got []string
-	for _, u := range mustUnits(t, "store/store.go", store) {
-		got = append(got, fmt.Sprintf("%s %d-%d test=%v", u.Name, u.StartLine, u.EndLine, u.Test))
-	}
+	got := testutil.Format(mustUnits(t, "store/store.go", store), func(u unit.Unit) string {
+		return fmt.Sprintf("%s %d-%d test=%v", u.Name, u.StartLine, u.EndLine, u.Test)
+	})
 	// Methods are named after their receiver type, without pointer or type
 	// arguments; function literals are part of their function; a function
 	// with a syntax error is skipped.
@@ -176,10 +179,7 @@ func f() {
 	type inner struct{ a int }
 }
 `
-	_, decls, err := Parse("store/store.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, decls := mustParse(t, "store/store.go", src)
 	var consts []string
 	for _, c := range decls.Consts {
 		consts = append(consts, fmt.Sprintf("%s=%s:%d literal=%v", c.Name, c.Value, c.Line, c.Literal))
@@ -191,9 +191,7 @@ func f() {
 		`first="a":8 literal=true`,
 		`second="b":8 literal=true`,
 	}
-	if strings.Join(consts, "\n") != strings.Join(wantConsts, "\n") {
-		t.Errorf("constants:\n%s\nwant:\n%s", strings.Join(consts, "\n"), strings.Join(wantConsts, "\n"))
-	}
+	testutil.Lines(t, "constants", consts, wantConsts)
 	var structs []string
 	for _, s := range decls.Structs {
 		var fields []string
@@ -246,10 +244,7 @@ func logged(x int) int {
 	return add(x)
 }
 `
-	units, _, err := Parse("store/store.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
+	units, _ := mustParse(t, "store/store.go", src)
 	var forwards, calls []string
 	for _, u := range units {
 		if u.Forwards != "" {
@@ -300,10 +295,7 @@ func small(kind string) int {
 	return 0
 }
 `
-	units, _, err := Parse("store/store.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
+	units, _ := mustParse(t, "store/store.go", src)
 	u := byName(t, units, "Store.interpret")
 	var params []string
 	for _, p := range u.Params {
@@ -370,10 +362,9 @@ func load(path string) error {
 	return nil
 }
 `
-	var got []string
-	for _, f := range byName(t, mustUnits(t, "store/s.go", src), "load").Forms {
-		got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
-	}
+	got := testutil.Format(byName(t, mustUnits(t, "store/s.go", src), "load").Forms, func(f unit.Form) string {
+		return fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form)
+	})
 	want := []string{
 		"12 error-checks errors.Is/As",
 		"15 error-checks ==",
@@ -408,10 +399,9 @@ func load(err error) error {
 	return format.Errorf("load: %+v", err)
 }
 `
-	var got []string
-	for _, f := range byName(t, mustUnits(t, "store/s.go", src), "load").Forms {
-		got = append(got, fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form))
-	}
+	got := testutil.Format(byName(t, mustUnits(t, "store/s.go", src), "load").Forms, func(f unit.Form) string {
+		return fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form)
+	})
 	want := []string{
 		"9 error-checks errors.Is/As",
 		"13 error-wrapping %v",
@@ -435,10 +425,7 @@ type (
 
 type visit = func(path string)
 `
-	_, decls, err := Parse("cli/cli.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, decls := mustParse(t, "cli/cli.go", src)
 	// Named or not, each parameter and result counts by its type, a
 	// Context too; an alias declares a function type as well.
 	if want := "[{cli/cli.go ([]string, io.Writer, io.Writer) (int) false} {cli/cli.go (context.Context, *Request) (error) false} {cli/cli.go (string) () false}]"; fmt.Sprint(decls.FuncTypes) != want {
@@ -457,14 +444,10 @@ func named(ctx context.Context, a, b string) (n, m int, err error) { return 0, 0
 
 func variadic(a int, rest ...string) {}
 `
-	units, _, err := Parse("store/store.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, u := range units {
-		got = append(got, u.Name+" "+u.Types)
-	}
+	units, _ := mustParse(t, "store/store.go", src)
+	got := testutil.Format(units, func(u unit.Unit) string {
+		return u.Name + " " + u.Types
+	})
 	if want := "[none () () one () (error) named (context.Context, string, string) (int, int, error) variadic (int, ...string) ()]"; fmt.Sprint(got) != want {
 		t.Errorf("signatures = %v, want %s", got, want)
 	}
@@ -497,16 +480,13 @@ func (s *Server) Get(db *st.DB, q Query, names []string, n int) {
 	unknown.Do()
 }
 `
-	units, _, err := Parse("api/server.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, c := range units[0].Calls {
+	units, _ := mustParse(t, "api/server.go", src)
+	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
 		if c.Kind == unit.MethodCall {
-			got = append(got, fmt.Sprintf("%s type=%q field=%q", c.Name, c.Type, c.Field))
+			return fmt.Sprintf("%s type=%q field=%q", c.Name, c.Type, c.Field)
 		}
-	}
+		return ""
+	})
 	want := []string{
 		`Load type="example.com/app/internal/store.DB" field=""`,
 		`Run type="Query" field=""`,
@@ -520,9 +500,7 @@ func (s *Server) Get(db *st.DB, q Query, names []string, n int) {
 		`Fill type="" field=""`,
 		`Do type="" field=""`,
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("method calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "method calls", got, want)
 }
 
 func TestStructFieldTypesAreQualifiedByTheFileImports(t *testing.T) {
@@ -537,22 +515,16 @@ type Server struct {
 	st.Logger
 }
 `
-	_, decls, err := Parse("api/server.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, f := range decls.FieldTypes {
-		got = append(got, fmt.Sprintf("%s.%s %s", f.Struct, f.Field, f.Type))
-	}
+	_, decls := mustParse(t, "api/server.go", src)
+	got := testutil.Format(decls.FieldTypes, func(f unit.FieldType) string {
+		return fmt.Sprintf("%s.%s %s", f.Struct, f.Field, f.Type)
+	})
 	want := []string{
 		"Server.store example.com/app/internal/store.Store",
 		"Server.cache Cache",
 		"Server.Logger example.com/app/internal/store.Logger",
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("field types:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "field types", got, want)
 }
 
 func TestOperandTypesKeepToTheirScope(t *testing.T) {
@@ -578,27 +550,19 @@ func run(db *DB, items []Item) {
 	db.Save()
 }
 `
-	units, _, err := Parse("api/run.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, c := range units[0].Calls {
+	units, _ := mustParse(t, "api/run.go", src)
+	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
 		if c.Kind == unit.MethodCall {
-			got = append(got, fmt.Sprintf("%d %s", c.Line, c.Type))
+			return fmt.Sprintf("%d %s", c.Line, c.Type)
 		}
-	}
+		return ""
+	})
 	want := []string{"6 Other", "8 DB", "10 ", "12 DB", "14 Remote", "16 DB", "18 ", "20 DB"}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("types:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "types", got, want)
 }
 
 func TestFieldTypesOfTestFilesAreMarked(t *testing.T) {
-	_, decls, err := Parse("api/server_test.go", []byte("package api_test\n\ntype Server struct{ store Fake }\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, decls := mustParse(t, "api/server_test.go", "package api_test\n\ntype Server struct{ store Fake }\n")
 	if len(decls.FieldTypes) != 1 || !decls.FieldTypes[0].Test {
 		t.Errorf("field types = %+v, want one marked as test code", decls.FieldTypes)
 	}
@@ -627,18 +591,12 @@ func run(x *DB) {
 	y.Fill()
 }
 `
-	units, _, err := Parse("api/run.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, c := range units[0].Calls {
-		got = append(got, fmt.Sprintf("%d %s %q", c.Line, c.Name, c.Type))
-	}
+	units, _ := mustParse(t, "api/run.go", src)
+	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
+		return fmt.Sprintf("%d %s %q", c.Line, c.Name, c.Type)
+	})
 	want := []string{`4 Reset "DB"`, `5 Close ""`, `7 Clone "Cache"`, `8 Fill ""`}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "calls", got, want)
 }
 
 func TestAssignmentsInANestedScopeLeaveTheOuterTypeUnknown(t *testing.T) {
@@ -667,18 +625,12 @@ func run(ok bool, items []*Other) {
 	w.Save()
 }
 `
-	units, _, err := Parse("api/run.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, c := range units[0].Calls {
-		got = append(got, fmt.Sprintf("%d %q", c.Line, c.Type))
-	}
+	units, _ := mustParse(t, "api/run.go", src)
+	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
+		return fmt.Sprintf("%d %q", c.Line, c.Type)
+	})
 	want := []string{`8 ""`, `13 ""`, `17 ""`, `21 "Other"`, `23 "DB"`}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "calls", got, want)
 }
 
 func TestEachBranchStartsFromTheTypesBeforeIt(t *testing.T) {
@@ -711,18 +663,12 @@ func run(ok bool, n int) {
 	}
 }
 `
-	units, _, err := Parse("api/run.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, c := range units[0].Calls {
-		got = append(got, fmt.Sprintf("%d %q", c.Line, c.Type))
-	}
+	units, _ := mustParse(t, "api/run.go", src)
+	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
+		return fmt.Sprintf("%d %q", c.Line, c.Type)
+	})
 	want := []string{`8 "DB"`, `10 ""`, `16 "DB"`, `18 ""`, `24 ""`, `26 "DB"`}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "calls", got, want)
 }
 
 func TestAShadowedReceiverIsAnOrdinaryVariable(t *testing.T) {
@@ -744,16 +690,13 @@ func (s *Server) Run() {
 	db.Load()
 }
 `
-	units, _, err := Parse("api/run.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, c := range units[0].Calls {
+	units, _ := mustParse(t, "api/run.go", src)
+	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
 		if c.Kind == unit.MethodCall {
-			got = append(got, fmt.Sprintf("%d %s qualifier=%q type=%q field=%q", c.Line, c.Name, c.Qualifier, c.Type, c.Field))
+			return fmt.Sprintf("%d %s qualifier=%q type=%q field=%q", c.Line, c.Name, c.Qualifier, c.Type, c.Field)
 		}
-	}
+		return ""
+	})
 	want := []string{
 		`4 Save qualifier="" type="" field="store"`,
 		`5 Flush qualifier="self" type="" field=""`,
@@ -763,9 +706,7 @@ func (s *Server) Run() {
 		`14 Flush qualifier="self" type="" field=""`,
 		`16 Load qualifier="" type="DB" field=""`,
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("method calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "method calls", got, want)
 }
 
 func TestVariablesShadowImportsAndNamedResultsAreTyped(t *testing.T) {
@@ -787,10 +728,7 @@ func plain() {
 	}
 }
 `
-	units, _, err := Parse("api/run.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
+	units, _ := mustParse(t, "api/run.go", src)
 	var got []string
 	for _, u := range units {
 		for _, c := range u.Calls {
@@ -803,9 +741,7 @@ func plain() {
 		fmt.Sprintf(`12 kind=%d qualifier="json" type=""`, unit.PathCall),
 		fmt.Sprintf(`15 kind=%d qualifier="" type="Codec"`, unit.MethodCall),
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "calls", got, want)
 }
 
 func TestSelectReceivesAndLiteralResultsDeclareVariables(t *testing.T) {
@@ -826,22 +762,16 @@ func (s *Server) run(ch chan *Codec) {
 	}
 }
 `
-	units, _, err := Parse("api/run.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, c := range units[0].Calls {
-		got = append(got, fmt.Sprintf("%d kind=%d qualifier=%q type=%q", c.Line, c.Kind, c.Qualifier, c.Type))
-	}
+	units, _ := mustParse(t, "api/run.go", src)
+	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
+		return fmt.Sprintf("%d kind=%d qualifier=%q type=%q", c.Line, c.Kind, c.Qualifier, c.Type)
+	})
 	want := []string{
 		fmt.Sprintf(`8 kind=%d qualifier="" type=""`, unit.MethodCall),
 		fmt.Sprintf(`10 kind=%d qualifier="" type=""`, unit.MethodCall),
 		fmt.Sprintf(`13 kind=%d qualifier="" type="DB"`, unit.MethodCall),
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "calls", got, want)
 }
 
 func TestTypeParametersAndTypeSwitchAliasesAreNotConcreteTypes(t *testing.T) {
@@ -874,10 +804,7 @@ func (s *Server) kind(v any) {
 	}
 }
 `
-	units, decls, err := Parse("api/run.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
+	units, decls := mustParse(t, "api/run.go", src)
 	var got []string
 	for _, u := range units {
 		for _, c := range u.Calls {
@@ -895,9 +822,7 @@ func (s *Server) kind(v any) {
 		fmt.Sprintf(`26 kind=%d qualifier="" type=""`, unit.MethodCall),
 		"field Box.c Cache",
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "calls", got, want)
 }
 
 func TestUnitsRecordTheirResultTypes(t *testing.T) {
@@ -911,14 +836,10 @@ func named() (db *st.DB, n int) { return }
 func generic[T any]() (T, Cache) { var t T; return t, Cache{} }
 func none() {}
 `
-	units, _, err := Parse("api/open.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, u := range units {
-		got = append(got, fmt.Sprintf("%s %q", u.Name, u.Results))
-	}
+	units, _ := mustParse(t, "api/open.go", src)
+	got := testutil.Format(units, func(u unit.Unit) string {
+		return fmt.Sprintf("%s %q", u.Name, u.Results)
+	})
 	want := []string{
 		`open ["example.com/app/internal/store.DB" ""]`,
 		`one ["Cache"]`,
@@ -926,9 +847,7 @@ func none() {}
 		`generic ["" "Cache"]`,
 		`none []`,
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("results:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "results", got, want)
 }
 
 func TestMethodCallsRecordTheCallProducingTheirOperand(t *testing.T) {
@@ -947,10 +866,7 @@ func run(s *Server) {
 	d.Fill()
 }
 `
-	units, _, err := Parse("api/run.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
+	units, _ := mustParse(t, "api/run.go", src)
 	calls := units[0].Calls
 	var got []string
 	for _, c := range calls {
@@ -972,9 +888,7 @@ func run(s *Server) {
 		"12 one from=-",
 		"13 Fill from=one#0",
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
+	testutil.Lines(t, "calls", got, want)
 }
 
 // In Go, a test case is a TestXxx, BenchmarkXxx, FuzzXxx or ExampleXxx
@@ -990,14 +904,10 @@ func fixture() *Store { return nil }
 func Testify() {}
 func Testé() {}
 `
-	units, _, err := Parse("store/store_test.go", []byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got []string
-	for _, u := range units {
-		got = append(got, fmt.Sprintf("%s case=%v", u.Name, u.TestCase))
-	}
+	units, _ := mustParse(t, "store/store_test.go", src)
+	got := testutil.Format(units, func(u unit.Unit) string {
+		return fmt.Sprintf("%s case=%v", u.Name, u.TestCase)
+	})
 	if want := "TestSave case=true\nBenchmarkSave case=true\nfixture case=false\nTestify case=false\nTesté case=false"; strings.Join(got, "\n") != want {
 		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}

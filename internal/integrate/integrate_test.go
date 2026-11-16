@@ -115,7 +115,7 @@ func TestInstallIsIdempotentAndUpdatesTheSectionInPlace(t *testing.T) {
 	second := install(t, root, Codex)
 
 	agents := read(t, root, "AGENTS.md")
-	if strings.Count(agents, "## ddslop") != 1 || strings.Contains(agents, "Old text.") {
+	if strings.Count(agents, sectionTitle) != 1 || strings.Contains(agents, "Old text.") {
 		t.Errorf("section not replaced in place:\n%s", agents)
 	}
 	if !strings.HasPrefix(agents, "# Rules\n\n## ddslop\n") || !strings.HasSuffix(agents, "## Testing\n\nRun tests.\n") {
@@ -138,7 +138,7 @@ func TestInstallWritesTheSectionOnceWhenClaudeMDLinksToAgentsMD(t *testing.T) {
 
 	install(t, root, Claude, Codex)
 
-	if got := strings.Count(read(t, root, "AGENTS.md"), "## ddslop"); got != 1 {
+	if got := strings.Count(read(t, root, "AGENTS.md"), sectionTitle); got != 1 {
 		t.Errorf("AGENTS.md has %d ddslop sections, want 1", got)
 	}
 	info, err := os.Lstat(filepath.Join(root, "CLAUDE.md"))
@@ -157,7 +157,7 @@ func TestInstallWritesTheSectionIntoTheRealFileWhenAgentsMDLinksToClaudeMD(t *te
 
 	install(t, root, Claude, Codex)
 
-	if got := strings.Count(read(t, root, "CLAUDE.md"), "## ddslop"); got != 1 {
+	if got := strings.Count(read(t, root, "CLAUDE.md"), sectionTitle); got != 1 {
 		t.Errorf("CLAUDE.md has %d ddslop sections, want 1", got)
 	}
 	info, err := os.Lstat(filepath.Join(root, "AGENTS.md"))
@@ -242,7 +242,7 @@ func TestUninstallRemovesEverythingButOtherContent(t *testing.T) {
 	if _, err := Uninstall(root, true); err != nil {
 		t.Fatal(err)
 	}
-	if exists(filepath.Join(root, ".ddslop")) {
+	if exists(filepath.Join(root, indexDir)) {
 		t.Error("purge left .ddslop/")
 	}
 }
