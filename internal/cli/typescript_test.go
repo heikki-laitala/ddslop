@@ -80,3 +80,59 @@ func TestTypeScriptExportsAreNotReportedUnused(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckReportsTypeScriptTypesAndConstantsDeclaredAgain(t *testing.T) {
+	billing := `export const MAX_GRANTED_MODELS = 64;
+
+export const CODE_UNAVAILABLE = "ledger_unavailable";
+
+export interface Budget {
+  id: string;
+  limit: number;
+  spent: number;
+  updatedAt: Date;
+}
+
+export type RunState = "queued" | "running" | "done";
+
+export function refuse(code: string): boolean {
+  return code === "ledger_unavailable";
+}
+`
+	reports := `export const MAX_GRANTED_MODELS = 64;
+
+export type Budget = {
+  id: string;
+  limit: number;
+  spent: number;
+  updatedAt: Date;
+};
+
+export enum JobState { Done = "done", Queued = "queued", Running = "running" }
+
+export type Phase = "queued" | "running" | "done";
+`
+	root := repo(t, map[string]string{"src/billing/billing.ts": billing, "src/reports/reports.ts": reports})
+
+	_, stdout, stderr := run("check", "--format", "json", root)
+
+	var got []string
+	for _, c := range decode(t, stdout).Candidates {
+		var occs []string
+		for _, o := range c.Occurrences {
+			occs = append(occs, filepath.ToSlash(o.File)+" "+o.Name)
+		}
+		got = append(got, fmt.Sprintf("%s %s [%s]", c.Language, c.Kind, strings.Join(occs, ", ")))
+	}
+	// An enum with values is not the union of those values: its variants
+	// have names.
+	want := []string{
+		"typescript duplicate-type [src/billing/billing.ts Budget, src/reports/reports.ts Budget]",
+		"typescript duplicate-type [src/billing/billing.ts RunState, src/reports/reports.ts Phase]",
+		"typescript duplicate-constant [src/billing/billing.ts MAX_GRANTED_MODELS, src/reports/reports.ts MAX_GRANTED_MODELS]",
+		"typescript inlined-constant [src/billing/billing.ts CODE_UNAVAILABLE, src/billing/billing.ts refuse]",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("candidates:\n%s\nwant:\n%s\nstderr: %s", strings.Join(got, "\n"), strings.Join(want, "\n"), stderr)
+	}
+}

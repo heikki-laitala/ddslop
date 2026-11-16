@@ -8,9 +8,9 @@ it writes the next copy.**
 > **ddslop supports Rust and Go, and TypeScript for copied code.** Every
 > detector works for Rust and Go, except setup-teardown, which Go does not
 > need: its `defer` already is the idiom. In TypeScript (`.ts`, `.tsx`,
-> `.mts`, `.cts`) it finds exact, renamed and near-miss copies and copied
-> blocks; TypeScript types, constants, calls and the other detectors are
-> in progress. Files in other languages are not analysed.
+> `.mts`, `.cts`) it finds exact, renamed and near-miss copies, copied
+> blocks, and types and constants declared again; TypeScript calls and
+> the other detectors are in progress. Files in other languages are not analysed.
 
 Coding agents regenerate rather than reuse. Each session that cannot see
 the helper written in the last one writes it again, a little differently:

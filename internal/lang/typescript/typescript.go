@@ -113,14 +113,14 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 }
 
 // Parse parses TypeScript source and returns one unit per function,
-// method, and constant or class field holding a function, in source order.
+// method, and constant or class field holding a function, in source order,
+// and its module-level declarations: interfaces and object types as
+// structs, enums and unions of string literals as enums, and constants.
 // Declarations containing syntax errors are skipped, and functions nested
 // in functions are part of them.
 func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
-	var units []unit.Unit
-	var decls unit.Decls
 	var marked error
-	p := parser{file: file, src: src, test: IsTestPath(file)}
+	p := &parser{file: file, src: src, test: IsTestPath(file)}
 	err := syntax.Parse(languageOf(file), src, func(root *sitter.Node) {
 		for i := uint(0); i < root.NamedChildCount(); i++ {
 			n, exported := root.NamedChild(i), false
@@ -128,12 +128,12 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 				n, exported = d, true
 			}
 			if !n.HasError() {
-				units = append(units, p.declaration(n, exported)...)
+				p.declaration(n, exported)
 			}
 		}
-		marked = syntax.MarkIgnored(root, src, units, &decls)
+		marked = syntax.MarkIgnored(root, src, p.units, &p.decls)
 	})
-	return units, decls, errors.Join(err, marked)
+	return p.units, p.decls, errors.Join(err, marked)
 }
 
 // languageOf picks the grammar for a file: TSX for .tsx files, which
@@ -145,43 +145,203 @@ func languageOf(file string) *sitter.Language {
 	return typescript
 }
 
-// parser holds what every unit of a file shares.
+// parser collects a file's units and declarations.
 type parser struct {
-	file string
-	src  []byte
-	test bool
+	file  string
+	src   []byte
+	test  bool
+	units []unit.Unit
+	decls unit.Decls
 }
 
-// declaration returns the units of a top-level declaration.
-func (p parser) declaration(n *sitter.Node, exported bool) []unit.Unit {
-	var out []unit.Unit
+// declaration records the units and declarations of a top-level
+// declaration.
+func (p *parser) declaration(n *sitter.Node, exported bool) {
 	switch n.Kind() {
 	case "function_declaration", "generator_function_declaration":
 		if name := n.ChildByFieldName("name"); name != nil {
-			out = append(out, p.unit(name.Utf8Text(p.src), n, n, exported))
+			p.units = append(p.units, p.unit(name.Utf8Text(p.src), n, n, exported))
 		}
 	case "lexical_declaration", "variable_declaration":
+		kind := n.ChildByFieldName("kind")
+		constant := kind != nil && kind.Kind() == "const"
 		for i := uint(0); i < n.NamedChildCount(); i++ {
 			d := n.NamedChild(i)
 			name, value := d.ChildByFieldName("name"), d.ChildByFieldName("value")
-			if d.Kind() == "variable_declarator" && name != nil && name.Kind() == "identifier" && isFunction(value) {
-				out = append(out, p.unit(name.Utf8Text(p.src), d, value, exported))
+			switch {
+			case d.Kind() != "variable_declarator" || name == nil || name.Kind() != "identifier" || value == nil:
+			case isFunction(value):
+				p.units = append(p.units, p.unit(name.Utf8Text(p.src), d, value, exported))
+			case constant && literalsOnly(value) && (!exported || !p.routeOption(name.Utf8Text(p.src))):
+				p.constant(name, value)
 			}
 		}
 	case "class_declaration", "abstract_class_declaration":
-		out = p.members(n, exported)
+		p.members(n, exported)
+	case "interface_declaration":
+		p.structure(n, n.ChildByFieldName("body"))
+	case "type_alias_declaration":
+		switch value := n.ChildByFieldName("value"); {
+		case value == nil:
+		case value.Kind() == "object_type":
+			p.structure(n, value)
+		case value.Kind() == "union_type":
+			p.union(n, value)
+		}
+	case "enum_declaration":
+		p.enum(n)
 	}
-	return out
 }
 
-// members returns a class's methods and fields holding a function, named
+// routeOptions are the names under which a Next.js page, layout or route
+// file exports its route's options.
+var routeOptions = map[string]bool{
+	"dynamic": true, "dynamicParams": true, "revalidate": true, "fetchCache": true,
+	"runtime": true, "preferredRegion": true, "maxDuration": true,
+}
+
+// routeOption reports whether a constant the file exports is a Next.js
+// route option: a copy the framework asks every route for.
+func (p *parser) routeOption(name string) bool {
+	base := path.Base(filepath.ToSlash(p.file))
+	switch strings.TrimSuffix(base, path.Ext(base)) {
+	case "page", "layout", "route":
+		return routeOptions[name]
+	}
+	return false
+}
+
+// literalsOnly reports whether a value is made of literals and operators
+// only (5 * 60 * 1000, { retries: 3 } as const): one naming anything,
+// such as a call or another constant, is computed at run time.
+func literalsOnly(n *sitter.Node) bool {
+	switch n.Kind() {
+	case "identifier", "shorthand_property_identifier", "this", "super", "meta_property", "template_substitution":
+		return false
+	}
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		if !literalsOnly(n.NamedChild(i)) {
+			return false
+		}
+	}
+	return true
+}
+
+// constant records a module-level constant: a string literal as written,
+// any other value without whitespace.
+func (p *parser) constant(name, value *sitter.Node) {
+	literal := value.Kind() == "string"
+	text := value.Utf8Text(p.src)
+	if !literal {
+		text = syntax.Compact(text)
+	}
+	p.decls.Consts = append(p.decls.Consts, unit.Const{
+		File: p.file, Name: name.Utf8Text(p.src), Value: text, Line: syntax.Line(name.StartPosition()),
+		Nodes: syntax.CountNodes(value), Literal: literal, Test: p.test,
+	})
+}
+
+// structure records an interface or object type as a struct of its
+// properties, each with its type as written; methods are left out.
+func (p *parser) structure(decl, body *sitter.Node) {
+	name := decl.ChildByFieldName("name")
+	if name == nil || body == nil {
+		return
+	}
+	s := unit.Struct{
+		File: p.file, Name: name.Utf8Text(p.src),
+		StartLine: syntax.Line(decl.StartPosition()), EndLine: syntax.Line(decl.EndPosition()),
+		Nodes: syntax.CountNodes(decl), Test: p.test,
+	}
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		prop := body.NamedChild(i)
+		field, typ := prop.ChildByFieldName("name"), prop.ChildByFieldName("type")
+		if prop.Kind() != "property_signature" || field == nil || typ == nil || typ.NamedChildCount() == 0 {
+			continue
+		}
+		s.Fields = append(s.Fields, unit.Field{
+			Name: field.Utf8Text(p.src), Type: syntax.Compact(typ.NamedChild(0).Utf8Text(p.src)), Line: syntax.Line(prop.StartPosition()),
+		})
+	}
+	p.decls.Structs = append(p.decls.Structs, s)
+}
+
+// enum records an enum, a variant's initialiser as its payload ("=10").
+func (p *parser) enum(decl *sitter.Node) {
+	body := decl.ChildByFieldName("body")
+	if body == nil {
+		return
+	}
+	var variants []unit.Variant
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		switch v := body.NamedChild(i); v.Kind() {
+		case "property_identifier":
+			variants = append(variants, unit.Variant{Name: v.Utf8Text(p.src)})
+		case "string":
+			variants = append(variants, unit.Variant{Name: quoted(v.Utf8Text(p.src))})
+		case "enum_assignment":
+			name, value := v.ChildByFieldName("name"), v.ChildByFieldName("value")
+			if name == nil || value == nil {
+				continue
+			}
+			payload := syntax.Compact(value.Utf8Text(p.src))
+			if value.Kind() == "string" {
+				payload = quoted(value.Utf8Text(p.src))
+			}
+			variants = append(variants, unit.Variant{Name: name.Utf8Text(p.src), Payload: "=" + payload})
+		}
+	}
+	p.addEnum(decl, variants)
+}
+
+// union records a union of string literals ("a" | "b") as an enum of
+// them; a union of anything else is no enum.
+func (p *parser) union(decl, union *sitter.Node) {
+	var variants []unit.Variant
+	var walk func(n *sitter.Node) bool
+	walk = func(n *sitter.Node) bool {
+		switch {
+		case n.Kind() == "union_type":
+			for i := uint(0); i < n.NamedChildCount(); i++ {
+				if !walk(n.NamedChild(i)) {
+					return false
+				}
+			}
+			return true
+		case n.Kind() == "literal_type" && n.NamedChild(0) != nil && n.NamedChild(0).Kind() == "string":
+			variants = append(variants, unit.Variant{Name: quoted(n.NamedChild(0).Utf8Text(p.src))})
+			return true
+		}
+		return false
+	}
+	if walk(union) {
+		p.addEnum(decl, variants)
+	}
+}
+
+// quoted writes a string literal in double quotes: 'a' and "a" are one
+// variant.
+func quoted(literal string) string { return `"` + strings.Trim(literal, `'"`) + `"` }
+
+func (p *parser) addEnum(decl *sitter.Node, variants []unit.Variant) {
+	name := decl.ChildByFieldName("name")
+	if name == nil {
+		return
+	}
+	p.decls.Enums = append(p.decls.Enums, unit.Enum{
+		File: p.file, Name: name.Utf8Text(p.src),
+		StartLine: syntax.Line(decl.StartPosition()), EndLine: syntax.Line(decl.EndPosition()),
+		Nodes: syntax.CountNodes(decl), Variants: variants, Test: p.test,
+	})
+}
+
+// members records a class's methods and fields holding a function, named
 // Class.member. A private member is never public.
-func (p parser) members(class *sitter.Node, exported bool) []unit.Unit {
+func (p *parser) members(class *sitter.Node, exported bool) {
 	name, body := class.ChildByFieldName("name"), class.ChildByFieldName("body")
 	if name == nil || body == nil {
-		return nil
+		return
 	}
-	var out []unit.Unit
 	for i := uint(0); i < body.NamedChildCount(); i++ {
 		m := body.NamedChild(i)
 		member, fn := m.ChildByFieldName("name"), m
@@ -191,9 +351,8 @@ func (p parser) members(class *sitter.Node, exported bool) []unit.Unit {
 		if member == nil || (m.Kind() != "method_definition" && !isFunction(fn)) {
 			continue
 		}
-		out = append(out, p.unit(name.Utf8Text(p.src)+"."+member.Utf8Text(p.src), m, fn, exported && !isPrivate(m, member)))
+		p.units = append(p.units, p.unit(name.Utf8Text(p.src)+"."+member.Utf8Text(p.src), m, fn, exported && !isPrivate(m, member)))
 	}
-	return out
 }
 
 // isFunction reports whether a value is a function expression of any kind.
@@ -216,7 +375,7 @@ func isPrivate(m, name *sitter.Node) bool {
 }
 
 // unit makes a unit of the declaration n, whose own function is fn.
-func (p parser) unit(name string, n, fn *sitter.Node, public bool) unit.Unit {
+func (p *parser) unit(name string, n, fn *sitter.Node, public bool) unit.Unit {
 	s := syntax.Flatten(n, p.src, grammar{fn: syntax.Span(fn)})
 	return unit.Unit{
 		File:      p.file,

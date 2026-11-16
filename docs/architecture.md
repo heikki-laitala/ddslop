@@ -410,7 +410,19 @@ protected or `#named`. Nested functions stay part of their function, and
 a return in one leaves only it. `.test` and `.spec` files and `__tests__`
 directories are test code; test runners take their cases as callbacks
 (`it("...", () => {})`), so no TypeScript unit is a test case.
-Declaration files (`.d.ts`) are not indexed: they hold no code. No calls
+Declaration files (`.d.ts`) are not indexed: they hold no code.
+Module-level declarations feed the type and constant detectors: an
+interface or object type (`type Budget = { ... }`) is a struct of its
+properties, methods left out; an enum is an enum, an initialiser its
+variant's payload (`High = 10`); a union of string literals
+(`"queued" | "running"`) is an enum of them, the idiomatic TypeScript
+enum. A `const` is a constant only when its value is made of literals and
+operators (`5 * 60 * 1000`, `{ retries: 3 } as const`): TypeScript binds
+any value with `const`, and on Hono and tRPC counting every one reported
+140 groups of call results (`const root = createRoot(el)`, one router
+per example) where 17 copied values remained. Next.js route options
+(`export const dynamic = ...` in page, layout and route files) are left
+out: the framework asks every route for them. No calls
 are recorded yet, so no TypeScript code counts as internal to the
 analysed code, and none is reported unused, even inside an unpublished
 Rust crate's directory (a Tauri app's frontend). On three open-source

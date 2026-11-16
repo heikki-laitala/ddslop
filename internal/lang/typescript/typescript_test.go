@@ -189,3 +189,124 @@ func TestTypeScriptSymbolsAreApartFromOtherLanguages(t *testing.T) {
 		}
 	}
 }
+
+func TestParseListsTypesEnumsAndModuleConstants(t *testing.T) {
+	src := `export const MAX_MODELS = 64;
+export const CODE_UNAVAILABLE = "ledger_unavailable";
+const RETRY = { attempts: 3, backoff: 100 } as const;
+let mutable = "not a constant";
+export const load = () => 1;
+export const TIMEOUT_MS = 5 * 60 * 1000, root = createRoot(el), DOUBLE = MAX_MODELS * 2;
+const SHORTHAND = { foo }, ENV = import.meta.env.X;
+
+export interface Budget {
+  id: string;
+  limit?: number;
+  readonly spent: number;
+  updatedAt: Date;
+  refresh(): void;
+}
+type Point = { x: number; y: number };
+type Id = string;
+export enum Level { Low, High = 10, Name = "name" }
+export type Status = "active" | "paused" | "done";
+type Mixed = "a" | number;
+
+function f() {
+  const local = "inside a function";
+}
+`
+	_, decls, err := Parse("src/budget.ts", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range decls.Consts {
+		got = append(got, fmt.Sprintf("const %s = %s line=%d literal=%v", c.Name, c.Value, c.Line, c.Literal))
+	}
+	for _, s := range decls.Structs {
+		var fields []string
+		for _, f := range s.Fields {
+			fields = append(fields, fmt.Sprintf("%s:%s@%d", f.Name, f.Type, f.Line))
+		}
+		got = append(got, fmt.Sprintf("struct %s %d-%d [%s]", s.Name, s.StartLine, s.EndLine, strings.Join(fields, " ")))
+	}
+	for _, e := range decls.Enums {
+		var variants []string
+		for _, v := range e.Variants {
+			variants = append(variants, v.Name+v.Payload)
+		}
+		got = append(got, fmt.Sprintf("enum %s %d-%d [%s]", e.Name, e.StartLine, e.EndLine, strings.Join(variants, " ")))
+	}
+	// Interfaces and object types are structs of their properties; enums
+	// and unions of string literals are enums; module-level constants are
+	// constants when their value is made of literals only: a call's
+	// result or another constant's value is computed at run time.
+	want := strings.Join([]string{
+		"const MAX_MODELS = 64 line=1 literal=false",
+		`const CODE_UNAVAILABLE = "ledger_unavailable" line=2 literal=true`,
+		"const RETRY = {attempts:3,backoff:100}as const line=3 literal=false",
+		"const TIMEOUT_MS = 5*60*1000 line=6 literal=false",
+		"struct Budget 9-15 [id:string@10 limit:number@11 spent:number@12 updatedAt:Date@13]",
+		"struct Point 16-16 [x:number@16 y:number@16]",
+		`enum Level 18-18 [Low High=10 Name="name"]`,
+		`enum Status 19-19 ["active" "paused" "done"]`,
+	}, "\n")
+	if strings.Join(got, "\n") != want {
+		t.Errorf("declarations:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+func TestDeclarationsOfTestFilesAreMarked(t *testing.T) {
+	_, decls, err := Parse("src/budget.test.ts", []byte("const LIMIT = 3;\ninterface Fixture { a: string }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decls.Consts) != 1 || !decls.Consts[0].Test || len(decls.Structs) != 1 || !decls.Structs[0].Test {
+		t.Errorf("decls = %+v, want one test constant and one test struct", decls)
+	}
+}
+
+// Next.js reads a route's options from constants each page, layout or
+// route file exports under fixed names: copies the framework asks for.
+func TestNextRouteSegmentOptionsAreNoConstants(t *testing.T) {
+	src := "export const dynamic = \"force-dynamic\";\nexport const revalidate = 60;\nexport const PAGE_SIZE = 20;\n"
+	for file, want := range map[string]string{
+		"src/app/posts/page.tsx":     "PAGE_SIZE",
+		"src/app/layout.tsx":         "PAGE_SIZE",
+		"src/app/api/users/route.ts": "PAGE_SIZE",
+		"src/lib/config.ts":          "dynamic revalidate PAGE_SIZE",
+	} {
+		_, decls, err := Parse(file, []byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, c := range decls.Consts {
+			got = append(got, c.Name)
+		}
+		if strings.Join(got, " ") != want {
+			t.Errorf("%s: constants %v, want %s", file, got, want)
+		}
+	}
+}
+
+// Quote style is formatting: 'a' and "a" name one variant.
+func TestVariantsOfEitherQuoteStyleAreAlike(t *testing.T) {
+	_, decls, err := Parse("src/state.ts", []byte(`type A = 'queued' | "done";
+enum B { 'queued', "done" }
+enum C { Queued = 'queued', Done = "done" }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range decls.Enums {
+		for _, v := range e.Variants {
+			got = append(got, e.Name+" "+v.Name+v.Payload)
+		}
+	}
+	if want := `A "queued" A "done" B "queued" B "done" C Queued="queued" C Done="done"`; strings.Join(got, " ") != want {
+		t.Errorf("variants = %s, want %s", strings.Join(got, " "), want)
+	}
+}
