@@ -101,7 +101,8 @@ func presence(ok bool) string {
 const uninstallUsage = `usage: ddslop uninstall [--purge] [path]
 
 Removes ddslop's skills, instruction sections and .gitignore entry from
-the project at path (default "."). Other content of those files is kept.
+the project at path (default "."). Other content of those files is kept,
+and so is an instructions section edited by hand.
 
 Flags:
 `

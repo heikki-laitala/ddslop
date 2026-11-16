@@ -164,12 +164,15 @@ func Uninstall(root string, purge bool) ([]string, error) {
 			continue
 		}
 		written[resolved] = true
-		changed, err := removeSection(path)
+		changed, kept, err := removeSection(path)
 		if err != nil {
 			return changes, err
 		}
 		if changed {
 			changes = append(changes, "removed the ddslop section from "+describe(path))
+		}
+		if kept {
+			changes = append(changes, fmt.Sprintf("kept the ddslop section in %s: it is not one ddslop wrote, so it stays as edited (delete it by hand if it should go)", describe(path)))
 		}
 	}
 	gitignore := filepath.Join(root, ".gitignore")
@@ -352,23 +355,28 @@ func ours(text string) bool {
 }
 
 // removeSection deletes the ddslop section of a file, and the file itself
-// when nothing else is left.
-func removeSection(path string) (bool, error) {
+// when nothing else is left. A section ddslop did not write (see ours) is
+// the project's own: it is kept, and kept reports so.
+func removeSection(path string) (changed, kept bool, err error) {
 	content, err := readFile(path)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	start, end, ok := findSection(content)
 	if !ok {
-		return false, nil
+		return false, false, nil
+	}
+	if !ours(content[start:end]) {
+		return false, true, nil
 	}
 	before, after := content[:start], content[end:]
 	if after == "" {
 		before = strings.TrimRight(before, "\n")
 		if before == "" {
-			return true, os.Remove(path)
+			return true, false, os.Remove(path)
 		}
 		before += "\n"
 	}
-	return writeFile(path, before+after)
+	changed, err = writeFile(path, before+after)
+	return changed, false, err
 }

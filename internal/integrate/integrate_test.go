@@ -262,3 +262,26 @@ func TestInstallKeepsASectionEditedByHand(t *testing.T) {
 		t.Errorf("second install = %v, want it to say again that the section was kept", again)
 	}
 }
+
+// Uninstall removes what ddslop wrote, not a section edited by hand: the
+// skill goes, the project's own section stays and the report says so.
+func TestUninstallKeepsASectionEditedByHand(t *testing.T) {
+	root := t.TempDir()
+	own := "# Rules\n\n## ddslop\n\nRun our gate, not --diff HEAD.\n"
+	write(t, root, "AGENTS.md", own)
+	install(t, root, Codex)
+
+	changes, err := Uninstall(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, root, "AGENTS.md"); got != own {
+		t.Errorf("AGENTS.md after uninstall = %q, want it as edited", got)
+	}
+	if exists(filepath.Join(root, ".codex/skills/ddslop")) {
+		t.Error("the skill is still installed")
+	}
+	if !slices.ContainsFunc(changes, func(c string) bool { return strings.Contains(c, "kept the ddslop section") }) {
+		t.Errorf("changes = %v, want a line saying the edited section was kept", changes)
+	}
+}
