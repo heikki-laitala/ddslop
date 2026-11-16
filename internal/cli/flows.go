@@ -167,9 +167,9 @@ func treeOrder(steps []flow.Step) []flow.Step {
 // manifests reads the manifest file (go.mod, package.json) of every
 // directory holding one of the files keep accepts, or above one, up to
 // the analysed root ("."), and maps each directory to what read finds in
-// it, when that is not "".
-func manifests(root string, files []index.File, keep func(file string) bool, manifest string, read func([]byte) string) map[string]string {
-	found, seen := map[string]string{}, map[string]bool{}
+// it, when read finds anything.
+func manifests[T any](root string, files []index.File, keep func(file string) bool, manifest string, read func([]byte) (T, bool)) map[string]T {
+	found, seen := map[string]T{}, map[string]bool{}
 	for _, f := range files {
 		if !keep(f.Path) {
 			continue
@@ -177,7 +177,7 @@ func manifests(root string, files []index.File, keep func(file string) bool, man
 		for dir := filepath.Dir(f.Path); !seen[dir]; dir = filepath.Dir(dir) {
 			seen[dir] = true
 			data, err := os.ReadFile(filepath.Join(root, dir, manifest)) //nolint:gosec // a manifest under the analysed root
-			if value := read(data); err == nil && value != "" {
+			if value, ok := read(data); err == nil && ok {
 				found[filepath.ToSlash(dir)] = value
 			}
 			if dir == "." || dir == string(filepath.Separator) {
@@ -188,6 +188,12 @@ func manifests(root string, files []index.File, keep func(file string) bool, man
 	return found
 }
 
+// tsManifests reads the package.json of every directory holding a
+// TypeScript file or above one.
+func tsManifests(root string, files []index.File) map[string]tsfile.Manifest {
+	return manifests(root, files, tsfile.IsSource, "package.json", tsfile.ReadManifest)
+}
+
 // graphInputs collects what call resolution needs: each file's imports,
 // each crate's name from its Cargo.toml under root, the types of Go
 // struct fields, the module path of each go.mod above a Go file, the
@@ -196,8 +202,16 @@ func manifests(root string, files []index.File, keep func(file string) bool, man
 // implementations, of the test code too when the graph includes it.
 func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
 	isGo := func(file string) bool { return strings.HasSuffix(file, ".go") }
-	modules := manifests(root, files, isGo, "go.mod", golang.ModulePath)
-	tsPackages := manifests(root, files, tsfile.IsSource, "package.json", tsfile.PackageName)
+	modules := manifests(root, files, isGo, "go.mod", func(data []byte) (string, bool) {
+		path := golang.ModulePath(data)
+		return path, path != ""
+	})
+	tsPackages := map[string]string{}
+	for dir, m := range tsManifests(root, files) {
+		if m.Name != "" {
+			tsPackages[dir] = m.Name
+		}
+	}
 	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{},
 		Fields: map[string]map[string]flow.FieldType{}, Modules: modules, TSPackages: tsPackages,
 		Libraries: packages(root, files).Libraries}

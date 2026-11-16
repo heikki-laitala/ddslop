@@ -35,6 +35,24 @@ func ModuleIs(importer, module, file string) bool {
 	return stem == named || stem == named+"/index"
 }
 
+// AliasMayBe reports whether a module path written through a path alias
+// ("@/db/schema", "~/server/db") or a package.json import ("#db/schema"),
+// which only the project's configuration resolves, may name file: one whose path, without extension,
+// ends in the path after the alias, or in its index file. It errs towards
+// yes, for uses that may only drop findings.
+func AliasMayBe(module, file string) bool {
+	rest, imported := strings.CutPrefix(module, "#")
+	if imported {
+		rest = strings.TrimPrefix(rest, "/")
+	} else if alias, after, ok := strings.Cut(module, "/"); ok && (alias == "@" || alias == "~") {
+		rest = after
+	} else {
+		return false
+	}
+	stem := "/" + strings.TrimSuffix(filepath.ToSlash(file), path.Ext(file))
+	return strings.HasSuffix(stem, "/"+rest) || strings.HasSuffix(stem, "/"+rest+"/index")
+}
+
 // IsDeclarationFile reports whether a file only declares types for code
 // elsewhere (.d.ts): it holds no code to compare.
 func IsDeclarationFile(file string) bool {
@@ -46,14 +64,27 @@ func IsDeclarationFile(file string) bool {
 	return false
 }
 
-// PackageName returns the name a package.json gives its package
-// (@acme/db), or "".
-func PackageName(manifest []byte) string {
-	var p struct {
-		Name string `json:"name"`
+// Manifest is what a package.json says of its package: its name
+// (@acme/db), and whether it is private, never published.
+type Manifest struct {
+	Name    string `json:"name"`
+	Private bool   `json:"private"`
+}
+
+// ReadManifest reads a package.json, reporting false when it is no JSON.
+func ReadManifest(data []byte) (Manifest, bool) {
+	var m Manifest
+	return m, json.Unmarshal(data, &m) == nil
+}
+
+// PackageDir returns the nearest directory above a file that packages
+// holds, "." when none does.
+func PackageDir[T any](file string, packages map[string]T) string {
+	dir := filepath.ToSlash(filepath.Dir(file))
+	for {
+		if _, ok := packages[dir]; ok || dir == "." || dir == "/" {
+			return dir
+		}
+		dir = path.Dir(dir)
 	}
-	if json.Unmarshal(manifest, &p) != nil {
-		return ""
-	}
-	return p.Name
 }

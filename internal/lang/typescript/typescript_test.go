@@ -490,3 +490,42 @@ const cast = (function (x: number) { return x; }) as Fn;
 	testutil.Lines(t, "units", testutil.Format(units, func(u unit.Unit) string { return u.Name + " -> " + u.Forwards }),
 		[]string{"typed -> work", "cast -> "})
 }
+
+// Code outside the analysed source calls a default export, under any
+// name, and a framework's functions by their names (Next.js's
+// getStaticProps, a route's GET): none is unused when nothing names it.
+func TestDefaultAndFrameworkExportsAreCalledFromOutside(t *testing.T) {
+	units, _ := testutil.Parse(t, Parse, "src/pages/index.tsx", `export default function Page() { return null; }
+export async function getStaticProps() { return { props: {} }; }
+export async function GET(req: Request) { return new Response(); }
+export const generateMetadata = async () => ({});
+export function proxy(request: Request) { return request; }
+function save() {}
+export default save;
+export function helper() {}
+`)
+	testutil.Lines(t, "units", testutil.Format(units, func(u unit.Unit) string { return fmt.Sprintf("%s external=%v", u.Name, u.External) }),
+		[]string{"Page external=true", "getStaticProps external=true", "GET external=true", "generateMetadata external=true",
+			"proxy external=true", "save external=true", "helper external=false"})
+}
+
+// A default-exported class is called from outside; its methods are
+// called by name like any other.
+func TestOnlyTheDefaultClassItselfIsExternal(t *testing.T) {
+	units, _ := testutil.Parse(t, Parse, "src/store.ts", "export default class Store {\n  load() { return 1; }\n}\n")
+	testutil.Lines(t, "units", testutil.Format(units, func(u unit.Unit) string { return fmt.Sprintf("%s external=%v", u.Name, u.External) }),
+		[]string{"Store.load external=false"})
+}
+
+// A file importing another whole (import * as schema, import("./user"))
+// may use any of its exports without naming it.
+func TestImportsOfWholeModulesAreRecorded(t *testing.T) {
+	_, decls := testutil.Parse(t, Parse, "src/db/client.ts", `import * as schema from "./schema";
+import { open } from "./open";
+export async function load() {
+  const routes = await import("./routes");
+  return [schema, routes, open];
+}
+`)
+	testutil.Lines(t, "whole imports", decls.WholeImports, []string{"./schema", "./routes"})
+}

@@ -125,13 +125,20 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	p := &parser{file: file, src: src, test: IsTestPath(file)}
 	err := syntax.Parse(languageOf(file), src, func(root *sitter.Node) {
 		p.imports = imports(root, src)
+		p.decls.WholeImports = wholeImports(root, src)
 		for i := uint(0); i < root.NamedChildCount(); i++ {
-			n, exported := root.NamedChild(i), false
+			n, exported, byDefault := root.NamedChild(i), false, false
 			if d := n.ChildByFieldName("declaration"); n.Kind() == "export_statement" && d != nil {
-				n, exported = d, true
+				// A default class is called from outside, its methods by name.
+				n, exported, byDefault = d, true, hasToken(n, "default") && d.Kind() != "class_declaration" && d.Kind() != "abstract_class_declaration"
 			}
-			if !n.HasError() {
-				p.declaration(n, exported)
+			if n.HasError() {
+				continue
+			}
+			from := len(p.units)
+			p.declaration(n, exported)
+			for j := from; j < len(p.units); j++ {
+				p.units[j].External = byDefault
 			}
 		}
 		p.markExported(root)
@@ -145,14 +152,15 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 // re-exporting another module's names (export { x } from "./y") lists
 // none of the file's.
 func (p *parser) markExported(root *sitter.Node) {
-	names := map[string]bool{}
+	names, defaults := map[string]bool{}, map[string]bool{}
 	for i := uint(0); i < root.NamedChildCount(); i++ {
 		n := root.NamedChild(i)
 		if n.Kind() != "export_statement" || n.ChildByFieldName("declaration") != nil || n.ChildByFieldName("source") != nil {
 			continue
 		}
 		if v := n.ChildByFieldName("value"); v != nil && v.Kind() == "identifier" {
-			names[v.Utf8Text(p.src)] = true
+			name := v.Utf8Text(p.src)
+			names[name], defaults[name] = true, true
 		}
 		for j := uint(0); j < n.NamedChildCount(); j++ {
 			clause := n.NamedChild(j)
@@ -167,8 +175,57 @@ func (p *parser) markExported(root *sitter.Node) {
 		}
 	}
 	for i := range p.units {
-		p.units[i].Public = p.units[i].Public || names[p.units[i].Name]
+		u := &p.units[i]
+		u.Public = u.Public || names[u.Name]
+		u.External = u.External || defaults[u.Name] || (u.Public && frameworkExports[u.Name])
 	}
+}
+
+// wholeImports returns the modules a file imports whole, in source order:
+// by a namespace import (import * as schema from "./schema") or a
+// dynamic one (import("./routes")).
+func wholeImports(root *sitter.Node, src []byte) []string {
+	var out []string
+	var walk func(n *sitter.Node)
+	walk = func(n *sitter.Node) {
+		switch fn, args := n.ChildByFieldName("function"), n.ChildByFieldName("arguments"); {
+		case n.Kind() == "import_statement" && n.ChildByFieldName("source") != nil && hasNamespaceImport(n):
+			out = append(out, strings.Trim(n.ChildByFieldName("source").Utf8Text(src), `"'`))
+		case n.Kind() == "call_expression" && fn != nil && fn.Kind() == "import" && args != nil && args.NamedChildCount() > 0 && args.NamedChild(0).Kind() == "string":
+			out = append(out, strings.Trim(args.NamedChild(0).Utf8Text(src), `"'`))
+		}
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			walk(n.NamedChild(i))
+		}
+	}
+	walk(root)
+	return out
+}
+
+// hasNamespaceImport reports whether an import statement imports its
+// module whole (import * as schema).
+func hasNamespaceImport(n *sitter.Node) bool {
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		if clause := n.NamedChild(i); clause.Kind() == "import_clause" {
+			for j := uint(0); j < clause.NamedChildCount(); j++ {
+				if clause.NamedChild(j).Kind() == "namespace_import" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// hasToken reports whether a node has an anonymous child of a kind, such
+// as an async, default or ? token.
+func hasToken(n *sitter.Node, kind string) bool {
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if n.Child(i).Kind() == kind {
+			return true
+		}
+	}
+	return false
 }
 
 // languageOf picks the grammar for a file: TSX for .tsx files, which
@@ -227,6 +284,19 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 	case "enum_declaration":
 		p.enum(n)
 	}
+}
+
+// frameworkExports are the names under which Next.js calls a module's
+// exported functions: a page's data functions, a route's handlers, the
+// app router's metadata and static parameters, middleware (proxy since
+// Next.js 16) and instrumentation. Unlike routeOptions, they count in any
+// file: a function of such a name elsewhere is only missed as unused.
+var frameworkExports = map[string]bool{
+	"getStaticProps": true, "getStaticPaths": true, "getServerSideProps": true,
+	"generateMetadata": true, "generateStaticParams": true, "generateViewport": true,
+	"generateImageMetadata": true, "generateSitemaps": true, "middleware": true, "proxy": true,
+	"register": true, "onRequestError": true,
+	"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true, "HEAD": true, "OPTIONS": true,
 }
 
 // routeOptions are the names under which a Next.js page, layout or route
@@ -345,14 +415,7 @@ func typeList(clause *sitter.Node, src []byte) string {
 
 // optional reports whether a property is optional (a?: T): its value may
 // be undefined.
-func optional(prop *sitter.Node) bool {
-	for i := uint(0); i < prop.ChildCount(); i++ {
-		if prop.Child(i).Kind() == "?" {
-			return true
-		}
-	}
-	return false
-}
+func optional(prop *sitter.Node) bool { return hasToken(prop, "?") }
 
 // enum records an enum, a variant's initialiser as its payload ("=10").
 func (p *parser) enum(decl *sitter.Node) {

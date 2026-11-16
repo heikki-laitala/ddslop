@@ -50,9 +50,9 @@ func TestCheckReportsCopiesInTypeScriptCode(t *testing.T) {
 	}
 }
 
-// TypeScript calls through package imports are not followed, so no
-// exported function is known to be unused, even in an unpublished Rust
-// crate's directory (a Tauri app's frontend).
+// A TypeScript package is internal by its own package.json, not by the
+// Rust crate whose directory holds it (a Tauri app's frontend): with no
+// private package.json, no export is known to be unused.
 func TestTypeScriptExportsAreNotReportedUnused(t *testing.T) {
 	root := repo(t, map[string]string{
 		"Cargo.toml":    "[package]\nname = \"app\"\npublish = false\n",
@@ -318,5 +318,29 @@ func TestCheckFollowsTypeScriptWorkspacePackages(t *testing.T) {
 
 	testutil.Lines(t, "wrappers", candidateLines(decode(t, stdout), "pass-through"), []string{
 		"typescript pass-through [packages/api/src/handler.ts select]",
+	})
+}
+
+// A private package's exports serve only the analysed code: one nothing
+// names is unused. A default export, a framework's function and the
+// exports of a module imported whole are called without their names.
+func TestCheckReportsUnusedExportsOfPrivateTypeScriptPackages(t *testing.T) {
+	root := repo(t, map[string]string{
+		"apps/web/package.json":        `{"name": "web", "private": true}`,
+		"apps/web/src/util.ts":         "export function usedHelper(s: string) {\n  return s.trim();\n}\n\nexport function forgottenHelper(s: string) {\n  return s.toUpperCase();\n}\n",
+		"apps/web/src/pages/index.tsx": "import { usedHelper } from \"../util\";\n\nexport default function Home() {\n  return usedHelper(\" x \");\n}\n\nexport async function getStaticProps() {\n  return { props: {} };\n}\n",
+		"apps/web/src/db/schema.ts":    "export function postRelations() {\n  return [];\n}\n",
+		"apps/web/src/db/client.ts":    "import * as schema from \"./schema\";\n\nexport const db = { schema };\n",
+		"apps/web/src/auth/schema.ts":  "export function sessionRelations() {\n  return [];\n}\n",
+		"apps/web/src/auth/client.ts":  "import * as schema from \"@/auth/schema\";\n\nexport const auth = { schema };\n",
+		"apps/web/src/util.test.ts":    "export function fixtureOnly() {\n  return 1;\n}\n",
+		"packages/lib/package.json":    `{"name": "@acme/lib"}`,
+		"packages/lib/src/index.ts":    "export function publishedApi() {\n  return 1;\n}\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "unused", candidateLines(decode(t, stdout), "dead-code"), []string{
+		"typescript dead-code [apps/web/src/util.ts forgottenHelper]",
 	})
 }

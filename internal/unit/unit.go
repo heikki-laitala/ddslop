@@ -271,11 +271,15 @@ type Decls struct {
 	// Package is the file's package name, for languages that declare one
 	// (Go).
 	Package string
-	Structs []Struct
-	Enums   []Enum
-	Consts  []Const
-	Traits  []Trait
-	Impls   []Impl
+	// WholeImports are the modules the file imports whole, as written
+	// (import * as schema from "./schema", import("./user")): it may use
+	// any of their exports without naming it. TypeScript only.
+	WholeImports []string
+	Structs      []Struct
+	Enums        []Enum
+	Consts       []Const
+	Traits       []Trait
+	Impls        []Impl
 	// TypeNames are the names of every type the file declares: structs of
 	// any kind, enums, unions and type aliases.
 	TypeNames []string

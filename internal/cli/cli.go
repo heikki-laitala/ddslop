@@ -724,6 +724,7 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 	internal := internalCrates(root, files)
 	flows := parallelFlows(g, traits, opts.minNodes)
 	found, conventions := drifts(units, packages(root, files), judged)
+	importedWhole := wholeImported(files)
 	r := report.Build(languageOf, report.Findings{
 		Groups: append(groups, helperGroups...), NearMisses: nearMisses, Blocks: blocks, Flows: flows,
 		Structs: byLanguage(structs, func(_ string, s []unit.Struct) []clone.StructGroup { return clone.Structs(s, minStructFields) }),
@@ -732,7 +733,9 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 		Inlined: byLanguage(consts, func(lang string, c []unit.Const) []clone.InlinedConst {
 			return clone.InlinedConstants(c, inLanguage(lang, units), flow.CrateOf)
 		}),
-		Dead:     simplify.Dead(units, wordCounts(files), internal),
+		Dead: simplify.Dead(units, wordCounts(files), func(file string) bool {
+			return internal(file) && !importedWhole[file]
+		}),
 		Wrappers: simplify.PassThrough(g),
 		Traits:   simplify.SingleImpl(decls, internal),
 		Scopes:   byLanguage(units, func(_ string, u []unit.Unit) []pattern.ScopeGroup { return pattern.Scopes(u) }),
@@ -1000,13 +1003,32 @@ func wordCounts(files []index.File) map[string]int {
 	return words
 }
 
+// wholeImported reports the TypeScript files another file imports whole
+// (import * as schema, import("./routes")), by a relative path or one
+// through a path alias (see tsfile.AliasMayBe): they may use any of its
+// exports without naming it.
+func wholeImported(files []index.File) map[string]bool {
+	out := map[string]bool{}
+	for _, importer := range files {
+		for _, module := range importer.Decls.WholeImports {
+			for _, f := range files {
+				if tsfile.IsSource(f.Path) && (tsfile.ModuleIs(importer.Path, module, f.Path) || tsfile.AliasMayBe(module, f.Path)) {
+					out[f.Path] = true
+				}
+			}
+		}
+	}
+	return out
+}
+
 // internalCrates reports, for a file, whether its crate or package serves
 // only the analysed code (see rust.Unpublished and golang.Internal). The
-// Rust workspace manifest is the one at root. TypeScript code is never
-// known to be internal: calls through package imports, such as another
-// workspace package's, are not followed.
+// Rust workspace manifest is the one at root. A TypeScript package is
+// internal when its package.json, the nearest above the file, is private,
+// which keeps the package from being published (see tsfile.Manifest).
 func internalCrates(root string, files []index.File) func(file string) bool {
 	workspace := manifest(root, ".")
+	ts := tsManifests(root, files)
 	libraries := packages(root, files).Libraries
 	internal := map[string]bool{}
 	for _, f := range files {
@@ -1026,7 +1048,10 @@ func internalCrates(root string, files []index.File) func(file string) bool {
 		}
 	}
 	return func(file string) bool {
-		return languageOf(file) != "typescript" && internal[libraries.CrateOf(file)]
+		if languageOf(file) == "typescript" {
+			return ts[tsfile.PackageDir(file, ts)].Private
+		}
+		return internal[libraries.CrateOf(file)]
 	}
 }
 

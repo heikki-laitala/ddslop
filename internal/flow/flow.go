@@ -767,7 +767,7 @@ func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner str
 	case c.Kind == unit.PathCall:
 		inModule := func(u unit.Unit) bool { return tsfile.ModuleIs(caller.File, c.Qualifier, u.File) }
 		if dir, ok := ix.tsPackageOf(c.Qualifier); ok {
-			inModule = func(u unit.Unit) bool { return ix.tsPackageDir(u.File) == dir }
+			inModule = func(u unit.Unit) bool { return tsfile.PackageDir(u.File, ix.tsPackages) == dir }
 		}
 		return only(units, ix.free[c.Name], func(u unit.Unit) bool { return u.Public && inModule(u) })
 	case c.Qualifier == "self" && owner != "":
@@ -787,18 +787,6 @@ func (ix index) tsPackageOf(module string) (string, bool) {
 		}
 	}
 	return found, n == 1
-}
-
-// tsPackageDir returns the directory of the nearest package.json above a
-// file that names its package, "." when none does.
-func (ix index) tsPackageDir(file string) string {
-	dir := filepath.ToSlash(filepath.Dir(file))
-	for {
-		if _, ok := ix.tsPackages[dir]; ok || dir == "." || dir == "/" {
-			return dir
-		}
-		dir = filepath.ToSlash(filepath.Dir(dir))
-	}
 }
 
 // pick chooses among candidates the one in the caller's file, else the

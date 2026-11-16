@@ -154,14 +154,7 @@ func forwards(fn *sitter.Node, src []byte) string {
 
 // asyncOrGenerator reports whether a function is async or a generator,
 // by its async or * token.
-func asyncOrGenerator(fn *sitter.Node) bool {
-	for i := uint(0); i < fn.ChildCount(); i++ {
-		if k := fn.Child(i).Kind(); k == "async" || k == "*" {
-			return true
-		}
-	}
-	return false
-}
+func asyncOrGenerator(fn *sitter.Node) bool { return hasToken(fn, "async") || hasToken(fn, "*") }
 
 // params returns a function's parameters that bind one name, in order,
 // each with its type as written ("" for none), and whether all are plain

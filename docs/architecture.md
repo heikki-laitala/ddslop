@@ -470,16 +470,35 @@ share one call index, so a `.tsx` component calls a `.ts` helper. What
 the call graph needs to know of TypeScript files by name (which are
 source, which file a relative import names) lives in
 `internal/lang/tsfile`, which holds no parser, so `flow` links no
-grammar. Imports through path aliases (`@/lib/x`) and calls on imported
-classes are not followed, so no TypeScript code counts as internal to
-the analysed code and none is reported unused; and as module cycles are
-found among a Rust crate's modules, TypeScript files in a crate's
-directory (a Tauri app's frontend) are none of its modules. On Hono,
-Excalidraw and tRPC, 6 wrappers, all passing their parameters on
-unchanged; most narrow the types (`createHTTPHandler` calling
-`createHandler`). Following workspace packages found 3 more on
-Excalidraw, each calling into another of its packages
-(`cloneLibraryItems` passing on to `@excalidraw/common`'s `cloneJSON`).
+grammar. A TypeScript package serves only the analysed code when its
+`package.json`, the nearest above a file, is `"private": true`, which
+keeps it from being published, as Rust's `publish = false` does; there
+an exported function nothing names is unused. Code outside the analysed
+source calls some without naming them: a default export, under any name,
+though a default class's methods are called by name; Next.js's
+functions, by the names it calls (`getStaticProps`, `GET`,
+`generateMetadata`, `proxy`, `register`), in any file, so a function of
+such a name elsewhere is only missed; and every export of a module
+another file imports whole (`import * as schema from "./schema"`, as
+drizzle takes its schema, or `import("./routes")`), through a path alias
+too (`@/db/schema`, matched by the end of a file's path, as only the
+project's tsconfig resolves it). None of these is a wrapper either: the
+framework, or a caller under another name, fixes its signature. A Tauri
+app's frontend with no private `package.json` is not internal for its
+Rust crate's `publish = false`. On tRPC (52 private packages: its
+examples and website), a first measure without these rules gave 15
+unused exports, among them a drizzle schema's relations and a page's
+`getStaticPaths`; with them, 6, all named nowhere else (`useMenuState`,
+`highlightCode`); none on Excalidraw and Hono, and the wrappers stayed
+the same. Calls through path aliases (`@/lib/x`) and calls on imported
+classes are not followed. And as module cycles are found among a Rust
+crate's modules, TypeScript files in a crate's directory (a Tauri app's
+frontend) are none of its modules. On Hono, Excalidraw and tRPC, 6
+wrappers, all passing their parameters on unchanged; most narrow the
+types (`createHTTPHandler` calling `createHandler`). Following workspace
+packages found 3 more on Excalidraw, each calling into another of its
+packages (`cloneLibraryItems` passing on to `@excalidraw/common`'s
+`cloneJSON`).
 
 TypeScript functions record their parameters named by one name, each
 with its type as written (`""` when it has none), and their switches on

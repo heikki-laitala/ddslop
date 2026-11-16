@@ -8,7 +8,7 @@ allowed-tools: Bash(ddslop *), Read, Grep, Glob
 
 ddslop is a duplicate-code linter for Rust, Go and TypeScript (in
 TypeScript it finds copied code, types, constants, pass-through
-wrappers, parameter groups and string kinds; unused exports, the map
+wrappers, parameter groups, string kinds and unused exports; the map
 and feature flows are Rust and Go only so far).
 It reports refactoring candidates as JSON, with exact file paths and line
 ranges, what differs between the copies, and a suggested action. It also
