@@ -37,7 +37,7 @@ type occurrence struct {
 }
 
 // concernOccurrences collects the forms the non-ignored units in the
-// grouping use, by concern, in unit order. Whether test code counts is
+// grouping use, but those on a marked line, by concern, in unit order. Whether test code counts is
 // the caller's choice of units: the map's call graph has none, and check
 // has it only with --tests.
 func concernOccurrences(g *flow.Graph, group Grouping) map[string][]occurrence {
@@ -47,6 +47,9 @@ func concernOccurrences(g *flow.Graph, group Grouping) map[string][]occurrence {
 			continue
 		}
 		for _, f := range u.Forms {
+			if f.Ignored {
+				continue
+			}
 			out[f.Concern] = append(out[f.Concern], occurrence{form: f.Form, unit: i, line: f.Line})
 		}
 	}

@@ -192,3 +192,15 @@ func TestBaselineRefJudgesDriftsByTheBaseConventions(t *testing.T) {
 	}
 }
 
+// A ddslop:ignore on a drift's line leaves that line out and nothing else:
+// the function's other drift and its code stay analysed.
+func TestAnIgnoredLineIsNoDrift(t *testing.T) {
+	root := driftRepo(t, "store/m.go", "package store\n\nimport \"strings\"\n\n"+
+		"func Says(err error) bool {\n"+
+		"\tif strings.Contains(err.Error(), \"a\") { // ddslop:ignore asserts the message the user reads\n\t\treturn true\n\t}\n"+
+		"\treturn strings.Contains(err.Error(), \"b\")\n}\n")
+
+	if got := driftCandidates(t, root); strings.Join(got, ", ") != "store/m.go:9-9 Says, store/s.go:40-40 ByMessage" {
+		t.Errorf("drifts = %v, want Says's unmarked check and ByMessage", got)
+	}
+}

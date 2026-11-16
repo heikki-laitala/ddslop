@@ -15,8 +15,8 @@ import (
 // reviewable.
 const IgnoreMarker = "ddslop:ignore"
 
-// MarkIgnored marks the units, structs, enums, constants and literal
-// leaves that start on a line a ddslop:ignore comment applies to (see
+// MarkIgnored marks the units, structs, enums, constants, literal leaves
+// and forms that start on a line a ddslop:ignore comment applies to (see
 // Ignored).
 func MarkIgnored(root *sitter.Node, src []byte, units []unit.Unit, decls *unit.Decls) error {
 	lines, err := Ignored(root, src)
@@ -31,6 +31,9 @@ func MarkIgnored(root *sitter.Node, src []byte, units []unit.Unit, decls *unit.D
 		}
 		for j := range u.Leaves {
 			u.Leaves[j].Ignored = u.Leaves[j].Kind == unit.Literal && lines[u.Leaves[j].Line]
+		}
+		for j := range u.Forms {
+			u.Forms[j].Ignored = lines[u.Forms[j].Line]
 		}
 	}
 	for i := range decls.Structs {

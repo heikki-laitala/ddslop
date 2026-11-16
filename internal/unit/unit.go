@@ -99,6 +99,9 @@ const (
 type Form struct {
 	Concern, Form string
 	Line          int
+	// Ignored is true when a ddslop:ignore comment marks the form's line:
+	// it neither sets a convention nor drifts from one.
+	Ignored bool
 }
 
 // Param is one parameter: its name and its type as written, without
