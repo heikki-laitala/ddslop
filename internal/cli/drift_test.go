@@ -118,3 +118,23 @@ func TestDriftsOfOneFormInOneFunctionAreOneCandidate(t *testing.T) {
 	_, text, _ := run("check", "--format", "text", root)
 	wantContains(t, text, "convention-drift: 2 place(s) using message, follow-convention")
 }
+
+// Test code is held to production code's conventions without setting
+// them: ten test helpers checking errors by message, enough to bring the
+// share below the drift share were tests counted, leave production's
+// convention whole, and --tests reports them beside ByMessage.
+func TestTestCodeDoesNotDecideTheConvention(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package store\n\nimport \"strings\"\n\n")
+	for i := range 10 {
+		fmt.Fprintf(&b, "func helper%d(err error) bool { return strings.Contains(err.Error(), \"x\") }\n", i)
+	}
+	root := driftRepo(t, "store/s_test.go", b.String())
+
+	if got := driftCandidates(t, root); strings.Join(got, ", ") != "store/s.go:40-40 ByMessage" {
+		t.Errorf("drifts = %v, want only ByMessage without --tests", got)
+	}
+	if got := driftCandidates(t, "--tests", root); len(got) != 11 {
+		t.Errorf("drifts with --tests = %v, want ByMessage and the ten test helpers", got)
+	}
+}

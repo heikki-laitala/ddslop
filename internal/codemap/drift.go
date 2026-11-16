@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/heikki-laitala/ddslop/internal/flow"
+	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
 // minDriftShare is the least share of a concern's occurrences the
@@ -21,9 +22,12 @@ const minDriftShare = 0.9
 // first.
 type Drift struct {
 	Concern, Form, Convention string
-	Unit                      int
-	Lines                     []int
-	Target, TargetLine        int
+	// Share is the share of the concern's occurrences the convention
+	// holds, where it was measured.
+	Share              float64
+	Unit               int
+	Lines              []int
+	Target, TargetLine int
 }
 
 // occurrence is one use of a form.
@@ -49,15 +53,29 @@ func concernOccurrences(g *flow.Graph, group Grouping) map[string][]occurrence {
 	return out
 }
 
-// Drifts finds, for each concern of the units in group, the occurrences
-// of other forms when the convention holds at least minDriftShare of at
-// least minIdiomOccurrences. Each drift's target is the convention's
-// occurrence in the same file nearest to it, else the first in the same
-// module (by module), else the first anywhere. The occurrences of one form
-// in one unit are one drift. Drifts come in unit order.
-func Drifts(g *flow.Graph, group, module Grouping) []Drift {
-	var out []Drift
-	for concern, occs := range concernOccurrences(g, group) {
+// Convention is a concern's most used form and the share of the
+// concern's occurrences it holds. It holds when that share is at least
+// minDriftShare of at least minIdiomOccurrences occurrences.
+type Convention struct {
+	Form  string
+	Share float64
+	Holds bool
+}
+
+// Conventions measures the convention of each concern the production
+// units in group use. Test code is held to production code's conventions
+// but sets none: a suite free to check errors by message would otherwise
+// move the share production code is judged by, and with it whether a
+// convention holds at all.
+func Conventions(g *flow.Graph, group Grouping) map[string]Convention {
+	production := Grouping(func(u unit.Unit) string {
+		if u.Test {
+			return ""
+		}
+		return group(u)
+	})
+	out := map[string]Convention{}
+	for concern, occs := range concernOccurrences(g, production) {
 		counts := map[string]int{}
 		for _, o := range occs {
 			counts[o.form]++
@@ -68,14 +86,35 @@ func Drifts(g *flow.Graph, group, module Grouping) []Drift {
 				convention = form
 			}
 		}
-		if len(occs) < minIdiomOccurrences || float64(counts[convention]) < minDriftShare*float64(len(occs)) {
+		share := float64(counts[convention]) / float64(len(occs))
+		out[concern] = Convention{Form: convention, Share: share,
+			Holds: len(occs) >= minIdiomOccurrences && share >= minDriftShare}
+	}
+	return out
+}
+
+// Drifts finds, for each concern of the units in group whose convention
+// holds in conventions, the occurrences of other forms. Each drift's
+// target is the convention's occurrence in the same file nearest to it,
+// else the first in the same module (by module), else the first anywhere.
+// The occurrences of one form in one unit are one drift. Drifts come in
+// unit order.
+func Drifts(g *flow.Graph, group, module Grouping, conventions map[string]Convention) []Drift {
+	var out []Drift
+	for concern, occs := range concernOccurrences(g, group) {
+		c, ok := conventions[concern]
+		if !ok || !c.Holds {
 			continue
 		}
+		convention := c.Form
 		var conventional []occurrence
 		for _, o := range occs {
 			if o.form == convention {
 				conventional = append(conventional, o)
 			}
+		}
+		if len(conventional) == 0 {
+			continue
 		}
 		slices.SortFunc(conventional, func(a, b occurrence) int {
 			return cmp.Or(cmp.Compare(g.Units[a.unit].File, g.Units[b.unit].File), cmp.Compare(a.line, b.line))
@@ -91,7 +130,7 @@ func Drifts(g *flow.Graph, group, module Grouping) []Drift {
 			}
 			t := closest(g, module, o, conventional)
 			merged[[2]any{o.unit, o.form}] = len(out)
-			out = append(out, Drift{Concern: concern, Form: o.form, Convention: convention, Unit: o.unit,
+			out = append(out, Drift{Concern: concern, Form: o.form, Convention: convention, Share: c.Share, Unit: o.unit,
 				Lines: []int{o.line}, Target: t.unit, TargetLine: t.line})
 		}
 	}

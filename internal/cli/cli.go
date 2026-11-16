@@ -715,7 +715,7 @@ func drifts(units []unit.Unit, crates *codemap.Packages) []report.Drift {
 			}
 			return lang
 		})
-		for _, d := range codemap.Drifts(g, inLang, codemap.ByModule(crates)) {
+		for _, d := range codemap.Drifts(g, inLang, codemap.ByModule(crates), codemap.Conventions(g, inLang)) {
 			out = append(out, report.Drift{Concern: d.Concern, Form: d.Form, Convention: d.Convention,
 				Unit: g.Units[d.Unit], Lines: d.Lines, Target: g.Units[d.Target], TargetLine: d.TargetLine})
 		}
