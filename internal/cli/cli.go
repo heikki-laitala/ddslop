@@ -27,6 +27,7 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/lang/golang"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
 	"github.com/heikki-laitala/ddslop/internal/lang/syntax"
+	"github.com/heikki-laitala/ddslop/internal/lang/typescript"
 	"github.com/heikki-laitala/ddslop/internal/pattern"
 	"github.com/heikki-laitala/ddslop/internal/report"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
@@ -68,16 +69,18 @@ Run "ddslop <command> -h" for a command's flags.
 
 const checkUsage = `usage: ddslop check [flags] [path]
 
-Finds duplicated Rust and Go code under path (default ".") and proposes
-refactoring candidates: exact copies, renamed copies, near-miss copies
-with added, removed or changed statements, copied blocks of statements
-inside larger functions, features running the same pipeline, structs with
-the same fields, constants declared twice or written inline, unused public
-functions of unpublished crates, wrappers that only forward their
-parameters, and traits with a single implementation. Generated files are
-skipped, and so is test code unless --tests is given. Extracted functions are kept in an index at
-<path>/.ddslop/index.db so unchanged files are not parsed again. Files are
-parsed on half the CPU cores; set DDSLOP_INDEX_THREADS to change that.
+Finds duplicated Rust, Go and TypeScript code under path (default ".")
+and proposes refactoring candidates: exact copies, renamed copies,
+near-miss copies with added, removed or changed statements, copied
+blocks of statements inside larger functions, features running the same
+pipeline, structs with the same fields, constants declared twice or
+written inline, unused public functions of unpublished crates, wrappers
+that only forward their parameters, and traits with a single
+implementation. Generated files are skipped, and so is test code unless
+--tests is given. Extracted functions are kept in an index at
+<path>/.ddslop/index.db so unchanged files are not parsed again. Files
+are parsed on half the CPU cores; set DDSLOP_INDEX_THREADS to change
+that.
 
 With --diff <ref>, the whole repository is still analysed, but only
 candidates touching lines changed since ref are reported, and the changed
@@ -568,10 +571,10 @@ type options struct {
 }
 
 // syncIndex opens the index under root and brings it up to date with the
-// Rust and Go files there that .ddslop.yaml does not exclude. The caller
-// closes the database.
+// Rust, Go and TypeScript files there that .ddslop.yaml does not exclude,
+// TypeScript declaration files aside. The caller closes the database.
 func syncIndex(root string) (*index.DB, index.Stats, error) {
-	paths, err := source.Files(root, ".rs", ".go")
+	paths, err := source.Files(root, append([]string{".rs", ".go"}, typescript.Extensions...)...)
 	if err != nil {
 		return nil, index.Stats{}, err
 	}
@@ -579,7 +582,9 @@ func syncIndex(root string) (*index.DB, index.Stats, error) {
 	if err != nil {
 		return nil, index.Stats{}, err
 	}
-	paths = slices.DeleteFunc(paths, func(p string) bool { return cfg.Excluded(filepath.ToSlash(p)) })
+	paths = slices.DeleteFunc(paths, func(p string) bool {
+		return cfg.Excluded(filepath.ToSlash(p)) || typescript.IsDeclarationFile(p)
+	})
 	version, err := extractorVersion()
 	if err != nil {
 		return nil, index.Stats{}, err
@@ -969,7 +974,8 @@ func wordCounts(files []index.File) map[string]int {
 
 // internalCrates reports, for a file, whether its crate or package serves
 // only the analysed code (see rust.Unpublished and golang.Internal). The
-// Rust workspace manifest is the one at root.
+// Rust workspace manifest is the one at root. TypeScript code is never
+// known to be internal: its calls are not recorded.
 func internalCrates(root string, files []index.File) func(file string) bool {
 	workspace := manifest(root, ".")
 	libraries := packages(root, files).Libraries
@@ -979,9 +985,10 @@ func internalCrates(root string, files []index.File) func(file string) bool {
 		if _, done := internal[dir]; done {
 			continue
 		}
-		if languageOf(f.Path) == "go" {
+		switch languageOf(f.Path) {
+		case "go":
 			internal[dir] = golang.Internal(f.Path, f.Decls.Package)
-		} else {
+		case "rust":
 			pkg := libraries.PackageOf(f.Path) // a placed target's crate is not its package
 			if pkg == "" {
 				pkg = dir
@@ -989,7 +996,9 @@ func internalCrates(root string, files []index.File) func(file string) bool {
 			internal[dir] = rust.Unpublished(manifest(root, pkg), workspace)
 		}
 	}
-	return func(file string) bool { return internal[libraries.CrateOf(file)] }
+	return func(file string) bool {
+		return languageOf(file) != "typescript" && internal[libraries.CrateOf(file)]
+	}
 }
 
 // frequentBlockNodes, frequentBlockLines and frequentBlockDuplicated keep
@@ -1240,19 +1249,25 @@ func parseFile(path string, src []byte) (index.Parsed, error) {
 // place given (see rust.ParseAs).
 func parseSource(file syntax.Source) (index.Parsed, error) {
 	path, src := file.Path, file.Src
-	golangFile := languageOf(path) == "go"
+	language := languageOf(path)
 	if syntax.IsGenerated(src) {
-		entries := rust.Traits(src)
-		if golangFile {
+		var entries []string
+		switch language {
+		case "go":
 			entries = golang.InterfaceMethods(src)
+		case "rust":
+			entries = rust.Traits(src)
 		}
 		return index.Parsed{Generated: true, Traits: entries, Words: source.Words(src)}, nil
 	}
 	var parsed index.Parsed
 	var err error
-	if golangFile {
+	switch language {
+	case "go":
 		parsed.Units, parsed.Decls, err = golang.Parse(path, src)
-	} else {
+	case "typescript":
+		parsed.Units, parsed.Decls, err = typescript.Parse(path, src)
+	case "rust":
 		parsed, err = parseRust(file)
 	}
 	for i := range parsed.Units {
@@ -1264,8 +1279,11 @@ func parseSource(file syntax.Source) (index.Parsed, error) {
 
 // languageOf names the language of a source file by its extension.
 func languageOf(path string) string {
-	if strings.HasSuffix(path, ".go") {
+	switch {
+	case strings.HasSuffix(path, ".go"):
 		return "go"
+	case slices.ContainsFunc(typescript.Extensions, func(ext string) bool { return strings.HasSuffix(path, ext) }):
+		return "typescript"
 	}
 	return "rust"
 }

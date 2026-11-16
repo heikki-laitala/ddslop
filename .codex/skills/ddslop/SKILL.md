@@ -5,7 +5,9 @@ description: Finds duplicated code (exact, renamed and near-miss copies, copied 
 
 # ddslop: find duplicated code to refactor
 
-ddslop is a duplicate-code linter for Rust and Go (TypeScript is planned).
+ddslop is a duplicate-code linter for Rust, Go and TypeScript (in
+TypeScript it finds copied code; types, constants and the call-graph
+detectors are Rust and Go only so far).
 It reports refactoring candidates as JSON, with exact file paths and line
 ranges, what differs between the copies, and a suggested action. It also
 reports code to simplify: unused public helpers, wrappers that only

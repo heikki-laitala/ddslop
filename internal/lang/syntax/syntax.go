@@ -132,6 +132,9 @@ func (s *Shaper) visit(n *sitter.Node, declares bool) {
 	s.emit(unit.Close, Line(n.EndPosition()))
 }
 
+// Span identifies a syntax node by its byte range.
+func Span(n *sitter.Node) [2]uint { return [2]uint{n.StartByte(), n.EndByte()} }
+
 // Line converts a tree-sitter position to a 1-based line number.
 func Line(p sitter.Point) int {
 	return int(p.Row) + 1 //nolint:gosec // a row count always fits in int

@@ -94,10 +94,10 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	switch n.Kind() {
 	case "call_expression":
 		if c, ok := g.call(n, s.Src); ok {
-			g.calls[span(n)] = len(s.Calls)
+			g.calls[syntax.Span(n)] = len(s.Calls)
 			if fn := n.ChildByFieldName("function"); c.Kind == unit.MethodCall && fn != nil {
 				if operand := fn.ChildByFieldName("operand"); operand != nil && operand.Kind() == "call_expression" {
-					g.chains[len(s.Calls)] = span(operand)
+					g.chains[len(s.Calls)] = syntax.Span(operand)
 				}
 			}
 			s.Calls = append(s.Calls, c)
@@ -373,7 +373,7 @@ func (g grammar) valueOf(values *sitter.Node, i, names uint, src []byte) syntax.
 	default:
 		return syntax.Operand{}
 	}
-	if k, ok := g.calls[span(value)]; ok && value.Kind() == "call_expression" {
+	if k, ok := g.calls[syntax.Span(value)]; ok && value.Kind() == "call_expression" {
 		return syntax.Operand{From: k + 1, Result: result}
 	}
 	if result > 0 {
@@ -381,9 +381,6 @@ func (g grammar) valueOf(values *sitter.Node, i, names uint, src []byte) syntax.
 	}
 	return syntax.Operand{Type: g.literalType(value, src)}
 }
-
-// span identifies a syntax node by its byte range.
-func span(n *sitter.Node) [2]uint { return [2]uint{n.StartByte(), n.EndByte()} }
 
 // literalType returns the type of a composite literal value (T{}, &T{})
 // as typeOf writes it, or "" for any other value.

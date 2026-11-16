@@ -287,9 +287,10 @@ returns), and each adapter describes its grammar to it: which node kinds
 are names, types and literals, which positions declare names, which node
 holds a block's statements, and per-node hooks. Each language prefixes
 its node kinds before they become symbols (Rust with nothing, so its
-fingerprints predate other languages; Go with `go:`), so alike-named kinds
-(identifier, block) never make a Go function a near miss of a Rust one.
-Files are indexed by extension (`.rs`, `.go`), and each candidate's
+fingerprints predate other languages; Go with `go:`, TypeScript with
+`ts:`), so alike-named kinds (identifier, block) never make a Go function
+a near miss of a Rust one. Files are indexed by extension (`.rs`, `.go`,
+`.ts`, `.tsx`, `.mts`, `.cts`), and each candidate's
 `language` is its first file's. The Go adapter (`internal/lang/golang`)
 extracts functions and methods (named `Type.Method`, the receiver
 without pointer or type arguments); function literals stay part of their
@@ -397,6 +398,25 @@ On a 100-file Go service: 43 candidates and 12.2% duplication, led by an
 authentication check in 14 handlers; with declarations, a client package
 re-declaring the server's response types (`MemoryItem`, `SearchResponse`,
 ...) was the main new finding.
+
+The TypeScript adapter (`internal/lang/typescript`) parses `.tsx` files
+with the TSX grammar and the others with the TypeScript one, under one
+prefix, so a component and a plain function can be copies. Its units are
+top-level functions, a class's methods and fields holding a function
+(named `Class.member`), and constants holding an arrow function or
+function expression (`const load = async () => {}`, named after the
+constant); `export` makes them public, unless a member is private,
+protected or `#named`. Nested functions stay part of their function, and
+a return in one leaves only it. `.test` and `.spec` files and `__tests__`
+directories are test code; test runners take their cases as callbacks
+(`it("...", () => {})`), so no TypeScript unit is a test case.
+Declaration files (`.d.ts`) are not indexed: they hold no code. No calls
+are recorded yet, so no TypeScript code counts as internal to the
+analysed code, and none is reported unused, even inside an unpublished
+Rust crate's directory (a Tauri app's frontend). On three open-source
+TypeScript codebases (Hono, Excalidraw, tRPC; 95k to 230k lines, 2 to 4
+seconds each), the copies found were real: adapters vendored twice, undo
+and redo actions, per-shape geometry.
 
 All three languages are parsed with tree-sitter
 (`github.com/tree-sitter/go-tree-sitter` plus the Go, TypeScript/TSX and Rust
