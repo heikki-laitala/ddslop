@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -26,9 +25,7 @@ func patternCandidates(t *testing.T, stdout, kind string) []patternCandidate {
 	var r struct {
 		Candidates []patternCandidate `json:"candidates"`
 	}
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not valid JSON: %v\n%s", err, stdout)
-	}
+	decodeInto(t, stdout, &r)
 	var out []patternCandidate
 	for _, c := range r.Candidates {
 		if c.Kind == kind {

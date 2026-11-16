@@ -58,11 +58,7 @@ fn in_namespace(principal: &str, token_id: u64) -> bool {
 func TestCheckHealthDescribesTheWholeRepositoryInDiffMode(t *testing.T) {
 	root := committedRepo(t, map[string]string{"a.rs": users, "b.rs": orders})
 
-	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", "--diff", "HEAD", root)
-
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0: nothing changed", code)
-	}
+	stdout, _ := runCode(t, 0, "check", "--format", "json", "--min-nodes", "20", "--diff", "HEAD", root)
 	if got := decodeHealth(t, stdout).Summary.Health; got.DuplicatedLines != 9 {
 		t.Errorf("health in diff mode = %+v, want the whole repository's 9 duplicated lines", got)
 	}

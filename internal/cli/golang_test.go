@@ -39,11 +39,7 @@ func TestCheckReportsCopiesInGoCode(t *testing.T) {
 		"src/orders.rs":       orders,
 	})
 
-	code, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", root)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr: %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", "--min-nodes", "20", root)
 	r := decode(t, stdout)
 	var got []string
 	for _, c := range r.Candidates {

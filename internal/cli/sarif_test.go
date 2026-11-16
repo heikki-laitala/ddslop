@@ -52,11 +52,7 @@ func decodeSARIF(t *testing.T, out string) sarifLog {
 func TestCheckSARIF(t *testing.T) {
 	root := repo(t, map[string]string{"src/orders.rs": orders, "src/users.rs": users})
 
-	code, stdout, _ := run("check", "--format", "sarif", "--min-nodes", "20", root)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "sarif", "--min-nodes", "20", root)
 	l := decodeSARIF(t, stdout)
 	if l.Version != "2.1.0" || len(l.Runs) != 1 || l.Runs[0].Tool.Driver.Name != "ddslop" || l.Runs[0].Tool.Driver.Version == "" {
 		t.Fatalf("SARIF header = %+v", l)

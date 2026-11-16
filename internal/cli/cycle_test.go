@@ -41,11 +41,31 @@ func cycles(t *testing.T, stdout string) cycleReport {
 	return r
 }
 
-func TestCheckReportsModulesCallingEachOther(t *testing.T) {
-	code, stdout, stderr := run("check", "--format", "json", repo(t, cyclicCrate))
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr = %s", code, stderr)
+// wantCycles runs check --format json with args (flags, then the root)
+// and stops the test unless it reports want dependency cycles, saying why.
+func wantCycles(t *testing.T, want int, why string, args ...string) cycleReport {
+	t.Helper()
+	_, stdout, stderr := run(append([]string{"check", "--format", "json"}, args...)...)
+	r := cycles(t, stdout)
+	if len(r.Candidates) != want {
+		t.Fatalf("candidates = %+v, want %d: %s; stderr = %s", r.Candidates, want, why, stderr)
 	}
+	return r
+}
+
+// wantCycleBetween runs check as wantCycles does and stops the test
+// unless it reports one cycle, closed by the dependencies in values.
+func wantCycleBetween(t *testing.T, values string, args ...string) cycleReport {
+	t.Helper()
+	r := wantCycles(t, 1, values, args...)
+	if got := strings.Join(r.Candidates[0].Values, ", "); got != values {
+		t.Fatalf("values = %s, want %s", got, values)
+	}
+	return r
+}
+
+func TestCheckReportsModulesCallingEachOther(t *testing.T) {
+	stdout, _ := runCode(t, 1, "check", "--format", "json", repo(t, cyclicCrate))
 	r := cycles(t, stdout)
 	if len(r.Candidates) != 1 {
 		t.Fatalf("candidates = %+v, want one dependency cycle", r.Candidates)
@@ -66,10 +86,7 @@ func TestCheckReportsModulesCallingEachOther(t *testing.T) {
 func TestCheckIgnoresACycleMarkedAtACallSite(t *testing.T) {
 	files := maps.Clone(cyclicCrate)
 	files["src/config.rs"] = "// ddslop:ignore config reads the store's endpoint on purpose\n" + files["src/config.rs"]
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want the marked cycle left out", r.Candidates)
-	}
+	wantCycles(t, 0, "the marked cycle left out", repo(t, files))
 }
 
 // In diff mode a cycle is reported when the change touched one of its
@@ -81,18 +98,12 @@ func TestDiffReportsTheChangeClosingACycle(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "src/store.rs"), []byte(cyclicCrate["src/store.rs"]), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, stdout, _ := run("check", "--format", "json", "--diff", "HEAD", root)
-	if r := cycles(t, stdout); len(r.Candidates) != 1 {
-		t.Errorf("candidates = %+v, want the cycle the change closed", r.Candidates)
-	}
+	wantCycles(t, 1, "the cycle the change closed", "--diff", "HEAD", root)
 	gitIn(t, root, "commit", "-qam", "close")
 	if err := os.WriteFile(filepath.Join(root, "src/api.rs"), []byte("pub fn serve() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, stdout, _ = run("check", "--format", "json", "--diff", "HEAD", root)
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none: the change touched no call of the cycle", r.Candidates)
-	}
+	wantCycles(t, 0, "none: the change touched no call of the cycle", "--diff", "HEAD", root)
 }
 
 // config::load calls Other::endpoint before Store::endpoint, which
@@ -111,11 +122,7 @@ pub fn value() -> u32 { 1 }
 }
 
 func TestACyclesOccurrenceIsTheCallClosingIt(t *testing.T) {
-	_, stdout, _ := run("check", "--format", "json", repo(t, cycleAfterAnotherCall))
-	r := cycles(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("candidates = %+v, want one cycle", r.Candidates)
-	}
+	r := wantCycles(t, 1, "one cycle", repo(t, cycleAfterAnotherCall))
 	if o := r.Candidates[0].Occurrences[0]; o.Name != "load" || o.StartLine != 3 {
 		t.Errorf("occurrence = %+v, want load's call into store, line 3", o)
 	}
@@ -130,10 +137,7 @@ func TestAnIgnoreOnACallLineLeavesItsCycleOut(t *testing.T) {
 }
 pub fn value() -> u32 { 1 }
 `
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want the cycle marked at its call left out", r.Candidates)
-	}
+	wantCycles(t, 0, "the cycle marked at its call left out", repo(t, files))
 }
 
 // With --tests, test code's calls count, cycles included.
@@ -157,14 +161,8 @@ mod tests {
 `,
 	}
 	root := repo(t, files)
-	_, stdout, _ := run("check", "--format", "json", root)
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none without --tests", r.Candidates)
-	}
-	_, stdout, _ = run("check", "--format", "json", "--tests", root)
-	if r := cycles(t, stdout); len(r.Candidates) != 1 {
-		t.Errorf("candidates = %+v, want the test code's cycle with --tests", r.Candidates)
-	}
+	wantCycles(t, 0, "none without --tests", root)
+	wantCycles(t, 1, "the test code's cycle with --tests", "--tests", root)
 }
 
 // The crate's root module (lib.rs) is a module like the others: a loop
@@ -176,11 +174,7 @@ func TestCheckReportsCyclesThroughTheRootModule(t *testing.T) {
 		"src/foo.rs": "pub fn child_fn() { crate::root_helper(); }\n",
 	}
 	files["src/lib.rs"] += "pub fn root_helper() {}\n"
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	r := cycles(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("candidates = %+v, want the root module and foo calling each other", r.Candidates)
-	}
+	r := wantCycles(t, 1, "the root module and foo calling each other", repo(t, files))
 	if got := strings.Join(r.Candidates[0].Values, ", "); !strings.Contains(got, "foo") {
 		t.Errorf("values = %s, want a cycle through foo and the root module", got)
 	}
@@ -225,11 +219,7 @@ func TestACycleThroughATraitAndADirectCallIsTheDirectCall(t *testing.T) {
 		"src/pod.rs": "use crate::source::Provide;\npub struct Pod;\n" +
 			"impl Provide for Pod {\n    fn provide(&self) -> u32 {\n        7\n    }\n}\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	r := cycles(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("candidates = %+v, want source and pod depending on each other", r.Candidates)
-	}
+	r := wantCycles(t, 1, "source and pod depending on each other", repo(t, files))
 	for _, o := range r.Candidates[0].Occurrences {
 		if filepath.ToSlash(o.File) == "src/source.rs" && o.StartLine != 6 {
 			t.Errorf("source's site = line %d, want 6, the direct call", o.StartLine)

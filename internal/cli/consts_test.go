@@ -41,11 +41,7 @@ func TestCheckReportsConstantsDeclaredTwice(t *testing.T) {
 		"ledger/src/model_grant.rs": "// Limits.\n\npub const MAX_GRANTED_MODELS: usize = 64;\n",
 	})
 
-	code, stdout, stderr := run("check", "--format", "json", root)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr: %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
 	r := decodeTargets(t, stdout)
 	if len(r.Candidates) != 1 {
 		t.Fatalf("got %d candidates, want 1: %s", len(r.Candidates), stdout)
@@ -70,11 +66,7 @@ func TestCheckReportsConstantValuesWrittenInline(t *testing.T) {
 `,
 	})
 
-	code, stdout, stderr := run("check", "--format", "json", root)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr: %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
 	r := decodeTargets(t, stdout)
 	if len(r.Candidates) != 1 {
 		t.Fatalf("got %d candidates, want 1: %s", len(r.Candidates), stdout)

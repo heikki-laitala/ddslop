@@ -19,10 +19,7 @@ func TestVersionPrintsTheVersion(t *testing.T) {
 
 func TestHelpListsCommands(t *testing.T) {
 	for _, arg := range []string{"help", "-h", "--help"} {
-		code, stdout, _ := run(arg)
-		if code != 0 {
-			t.Errorf("%s: exit code %d, want 0", arg, code)
-		}
+		stdout, _ := runCode(t, 0, arg)
 		for _, cmd := range []string{"check", "baseline", "flows", "map", "index", "init", "stats", "status", "uninstall", "version"} {
 			if !strings.Contains(stdout, "\n  "+cmd+" ") {
 				t.Errorf("%s: usage does not list %q:\n%s", arg, cmd, stdout)
@@ -41,10 +38,7 @@ func TestCheckHelpExitsZero(t *testing.T) {
 func TestIndexBuildsAndRefreshesTheIndex(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users, "b.rs": orders, "gen.rs": "// @generated\n" + users})
 
-	code, stdout, stderr := run("index", root)
-	if code != 0 {
-		t.Fatalf("index: exit %d, stderr %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 0, "index", root)
 	if want := "indexed 3 files: 3 parsed, 0 unchanged, 0 deleted"; !strings.Contains(stdout, want) {
 		t.Errorf("first index output %q, want it to contain %q", stdout, want)
 	}
@@ -67,11 +61,7 @@ func TestIndexErrors(t *testing.T) {
 func TestInitInstallsForClaudeByDefaultAndIndexes(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users})
 
-	code, stdout, stderr := run("init", root)
-
-	if code != 0 {
-		t.Fatalf("init: exit %d, stderr %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 0, "init", root)
 	for _, want := range []string{"claude skill", "CLAUDE.md", ".gitignore", "indexed 1 files"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("init output is missing %q:\n%s", want, stdout)
@@ -133,11 +123,7 @@ func TestStatsDescribesTheIndexWithoutSyncing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "new.rs"), []byte(orders), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, _ := run("stats", root)
-
-	if code != 0 {
-		t.Fatalf("stats: exit %d", code)
-	}
+	stdout, _ := runCode(t, 0, "stats", root)
 	for _, want := range []string{"files: 3 (1 generated)", "functions: 2 (1 test)", indexPath} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stats output is missing %q (new.rs must not be indexed by stats):\n%s", want, stdout)

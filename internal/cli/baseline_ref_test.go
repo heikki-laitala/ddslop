@@ -18,19 +18,13 @@ func TestBaselineRefReportsOnlyWhatTheChangeAdded(t *testing.T) {
 	gitIn(t, root, "mv", "svc/a.rs", "svc/moved.rs")
 	gitIn(t, root, "commit", "-q", "-m", "move")
 
-	code, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD~1", svc)
-	if code != 0 {
-		t.Fatalf("a move alone: exit code = %d, want 0; stdout: %s stderr: %s", code, stdout, stderr)
-	}
+	runCode(t, 0, "check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD~1", svc)
 
 	people := strings.ReplaceAll(syncUsers, "sync_users", "sync_people")
 	if err := os.WriteFile(filepath.Join(svc, "d.rs"), []byte(people), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr = run("check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD~1", svc)
-	if code != 1 {
-		t.Fatalf("a new copy: exit code = %d, want 1; stderr: %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD~1", svc)
 	r := decode(t, stdout)
 	if len(r.Candidates) != 1 {
 		t.Fatalf("got %d candidates, want only the new copy: %s", len(r.Candidates), stdout)
@@ -89,10 +83,7 @@ func TestBaselineRefOfAPathTheRefLacksKnowsNothing(t *testing.T) {
 		}
 	}
 
-	code, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD", svc)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1 for the new pair; stderr: %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD", svc)
 	if r := decode(t, stdout); len(r.Candidates) != 1 || r.Summary.Baselined != 0 {
 		t.Errorf("got %d candidates, %d baselined; want the new pair and nothing known", len(r.Candidates), r.Summary.Baselined)
 	}
@@ -110,10 +101,7 @@ func TestBaselineRefAnalysesTheRefWithTheChangesConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, stdout, stderr := run("check", "--format", "json", "--baseline-ref", "HEAD", root)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0: the pair was there before; stdout %s stderr %s", code, stdout, stderr)
-	}
+	stdout, _ := runCode(t, 0, "check", "--format", "json", "--baseline-ref", "HEAD", root)
 	if r := decode(t, stdout); r.Summary.Baselined != 1 {
 		t.Errorf("baselined = %d, want the pair", r.Summary.Baselined)
 	}
@@ -167,10 +155,7 @@ func TestBaselineRefOfAPathThatWasNoDirectoryKnowsNothing(t *testing.T) {
 		}
 	}
 
-	code, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD", filepath.Join(root, "svc"))
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1 for the pair now in svc; stderr: %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD", filepath.Join(root, "svc"))
 	if r := decode(t, stdout); r.Summary.Baselined != 0 {
 		t.Errorf("baselined = %d, want 0: the ref had no directory svc", r.Summary.Baselined)
 	}

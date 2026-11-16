@@ -38,10 +38,7 @@ func testHelperCrate() map[string]string {
 }
 
 func TestCheckReportsCopiedTestHelpers(t *testing.T) {
-	code, stdout, stderr := run("check", "--format", "json", repo(t, testHelperCrate()))
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr = %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", repo(t, testHelperCrate()))
 	r := decode(t, stdout)
 	if len(r.Candidates) != 1 {
 		t.Fatalf("candidates = %+v, want the copied helper alone", r.Candidates)

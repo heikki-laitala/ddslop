@@ -10,16 +10,13 @@ import (
 func TestBaselineSuppressesKnownAndReportsNewDuplication(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users, "b.rs": orders})
 
-	code, stdout, stderr := run("baseline", "--min-nodes", "20", root)
-	if code != 0 {
-		t.Fatalf("baseline: exit %d, stderr %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 0, "baseline", "--min-nodes", "20", root)
 	path := filepath.Join(root, baselineFile)
 	if !strings.Contains(stdout, "1 known candidate") || !strings.Contains(stdout, path) {
 		t.Errorf("baseline output %q, want the count and the file", stdout)
 	}
 
-	code, stdout, _ = run("check", "--format", "json", "--min-nodes", "20", "--baseline", path, root)
+	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", "--baseline", path, root)
 	r := decode(t, stdout)
 	if code != 0 || len(r.Candidates) != 0 || r.Summary.Baselined != 1 {
 		t.Errorf("check with the baseline: exit %d, %d candidates, %d baselined; want 0, 0, 1", code, len(r.Candidates), r.Summary.Baselined)

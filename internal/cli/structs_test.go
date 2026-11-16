@@ -39,11 +39,7 @@ func TestCheckReportsStructsWithTheSameFields(t *testing.T) {
 		"insights/src/principal.rs": verifierInsights,
 	})
 
-	code, stdout, stderr := run("check", "--format", "json", root)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr: %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
 	r := decode(t, stdout)
 	if len(r.Candidates) != 1 {
 		t.Fatalf("got %d candidates, want 1 (the test module's copy is test code): %+v", len(r.Candidates), r.Candidates)

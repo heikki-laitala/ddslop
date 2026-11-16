@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -18,34 +17,14 @@ var movedLibrary = map[string]string{
 }
 
 func TestCheckReportsCyclesInALibraryMovedOutOfSrc(t *testing.T) {
-	_, stdout, stderr := run("check", "--format", "json", repo(t, movedLibrary))
-	r := cycles(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("candidates = %+v, want config and store depending on each other; stderr = %s", r.Candidates, stderr)
-	}
-	if got := strings.Join(r.Candidates[0].Values, ", "); got != "config -> store, store -> config" {
-		t.Errorf("values = %s, want the moved library's modules", got)
-	}
+	r := wantCycleBetween(t, "config -> store, store -> config", repo(t, movedLibrary))
 	if got := sites(r); got != "lib/config.rs:load:1 lib/store/client.rs:open:2" {
 		t.Errorf("occurrences = %s, want config's path and store's call", got)
 	}
 }
 
 func TestMapNamesTheModulesOfALibraryMovedOutOfSrc(t *testing.T) {
-	code, stdout, stderr := run("map", "--format", "json", repo(t, movedLibrary))
-	if code != 0 {
-		t.Fatalf("map: exit %d, stderr %s", code, stderr)
-	}
-	var r mapOutput
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not JSON: %v\n%s", err, stdout)
-	}
-	var modules []string
-	for _, m := range r.Maps {
-		for _, l := range m.Layers {
-			modules = append(modules, l.Modules...)
-		}
-	}
+	modules := mapModules(t, movedLibrary)
 	slices.Sort(modules)
 	if got := strings.Join(modules, " "); got != "config store" {
 		t.Errorf("modules = %q, want config and store, the files under lib/", got)
@@ -143,11 +122,9 @@ func TestAPlacedBinarysPathModuleIsNotTheLibrarys(t *testing.T) {
 // mapModules runs map over files and returns the modules of its layers.
 func mapModules(t *testing.T, files map[string]string) []string {
 	t.Helper()
-	_, stdout, stderr := run("map", "--format", "json", repo(t, files))
+	stdout, _ := runCode(t, 0, "map", "--format", "json", repo(t, files))
 	var r mapOutput
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not JSON: %v\n%s\n%s", err, stdout, stderr)
-	}
+	decodeInto(t, stdout, &r)
 	var modules []string
 	for _, m := range r.Maps {
 		for _, l := range m.Layers {

@@ -24,11 +24,7 @@ func TestCheckProposesAnExtractorForASharedPreamble(t *testing.T) {
 	}
 	root := repo(t, map[string]string{"src/pages.rs": src.String()})
 
-	code, stdout, stderr := run("check", "--format", "json", root)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr: %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
 	var r struct {
 		Candidates []struct {
 			Kind        string `json:"kind"`

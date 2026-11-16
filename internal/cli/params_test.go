@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -29,9 +28,7 @@ func TestCheckProposesAParameterObjectForParametersPassedTogether(t *testing.T) 
 			} `json:"suggestion"`
 		} `json:"candidates"`
 	}
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not valid JSON: %v\n%s", err, stdout)
-	}
+	decodeInto(t, stdout, &r)
 	var found bool
 	for _, c := range r.Candidates {
 		if c.Kind != "parameter-group" {

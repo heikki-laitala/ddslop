@@ -34,11 +34,7 @@ pub fn parse(code: &str) -> u16 {
 		"store/b.go": strings.Replace(goCopy("Fetch"), "func Fetch", "// ddslop:ignore kept apart for the v1 API\nfunc Fetch", 1),
 	})
 
-	code, stdout, stderr := run("check", "--format", "json", root)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr: %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
 	var r struct {
 		Candidates []struct {
 			Kind        string `json:"kind"`
@@ -126,9 +122,5 @@ fn in_namespace(principal: &str, token_id: u64) -> bool {
 `,
 	})
 
-	code, stdout, stderr := run("check", "--format", "json", root)
-
-	if code != 0 {
-		t.Errorf("exit code = %d, want 0 (no candidates); stdout: %s stderr: %s", code, stdout, stderr)
-	}
+	runCode(t, 0, "check", "--format", "json", root)
 }

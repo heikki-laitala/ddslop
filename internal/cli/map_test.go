@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -91,15 +90,9 @@ type mapOutput struct {
 func TestMapDescribesLayersBreaksAndHelpers(t *testing.T) {
 	root := repo(t, layeredService)
 
-	code, stdout, stderr := run("map", "--format", "json", root)
-
-	if code != 0 {
-		t.Fatalf("map: exit %d, stderr %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 0, "map", "--format", "json", root)
 	var r mapOutput
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not JSON: %v\n%s", err, stdout)
-	}
+	decodeInto(t, stdout, &r)
 	if len(r.Maps) != 1 || r.Maps[0].Lang != "go" {
 		t.Fatalf("maps = %+v, want one Go map", r.Maps)
 	}
@@ -129,10 +122,7 @@ func TestMapDescribesLayersBreaksAndHelpers(t *testing.T) {
 
 func TestMapTextNamesTheSections(t *testing.T) {
 	root := repo(t, layeredService)
-	code, stdout, stderr := run("map", "--format", "text", root)
-	if code != 0 {
-		t.Fatalf("map: exit %d, stderr %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 0, "map", "--format", "text", root)
 	for _, want := range []string{"go, packages: ", "Layers", "handlers", "bypass", "Shared helpers", "Respond"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("text output lacks %q:\n%s", want, stdout)
@@ -144,9 +134,7 @@ func TestMapLimitCapsEachSection(t *testing.T) {
 	root := repo(t, layeredService)
 	_, stdout, _ := run("map", "--format", "json", "--limit", "1", root)
 	var r mapOutput
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not JSON: %v\n%s", err, stdout)
-	}
+	decodeInto(t, stdout, &r)
 	last := r.Maps[0].Layers[len(r.Maps[0].Layers)-1]
 	if len(last.Modules) != 1 || last.More != 1 {
 		t.Errorf("last layer = %+v, want one module and 1 more", last)
@@ -182,14 +170,9 @@ type scopedMap struct {
 
 func mapOf(t *testing.T, args ...string) scopedMap {
 	t.Helper()
-	code, stdout, stderr := run(append([]string{"map", "--format", "json"}, args...)...)
-	if code != 0 {
-		t.Fatalf("map %v: exit %d, stderr %s", args, code, stderr)
-	}
+	stdout, _ := runCode(t, 0, append([]string{"map", "--format", "json"}, args...)...)
 	var r scopedMap
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not JSON: %v\n%s", err, stdout)
-	}
+	decodeInto(t, stdout, &r)
 	return r
 }
 
@@ -406,10 +389,7 @@ func featureMapRepo(t *testing.T) string {
 func TestMapFlagsEachParallelFlowFamilyAsATypicalFeature(t *testing.T) {
 	root := featureMapRepo(t)
 
-	code, stdout, stderr := run("map", "--format", "json", root)
-	if code != 0 {
-		t.Fatalf("exit code = %d, stderr = %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 0, "map", "--format", "json", root)
 	var r featureOutput
 	decodeInto(t, stdout, &r)
 	if len(r.Maps) != 1 || len(r.Maps[0].Features) != 1 {
@@ -485,10 +465,7 @@ func G(err error) error { return fmt.Errorf("g: %w", err) }
 func TestMapNamesTheCodebasesFormForEachErrorConcern(t *testing.T) {
 	root := repo(t, errorsService)
 
-	code, stdout, stderr := run("map", "--format", "json", root)
-	if code != 0 {
-		t.Fatalf("exit code = %d, stderr = %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 0, "map", "--format", "json", root)
 	var r struct {
 		Maps []struct {
 			Idioms []struct {
@@ -699,10 +676,7 @@ pub fn endpoint() {}
 
 func TestMapListsModulesCallingEachOtherInALoop(t *testing.T) {
 	root := repo(t, cyclicCrate)
-	code, stdout, stderr := run("map", "--format", "json", root)
-	if code != 0 {
-		t.Fatalf("map: exit %d, stderr %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 0, "map", "--format", "json", root)
 	var r struct {
 		Maps []struct {
 			Cycles []struct {
@@ -718,9 +692,7 @@ func TestMapListsModulesCallingEachOtherInALoop(t *testing.T) {
 			} `json:"cycles"`
 		} `json:"maps"`
 	}
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not JSON: %v\n%s", err, stdout)
-	}
+	decodeInto(t, stdout, &r)
 	cs := r.Maps[0].Cycles
 	if len(cs) != 1 || !reflect.DeepEqual(cs[0].Modules, []string{"config", "store"}) || len(cs[0].Links) != 1 {
 		t.Fatalf("cycles = %+v, want config and store linked both ways", cs)

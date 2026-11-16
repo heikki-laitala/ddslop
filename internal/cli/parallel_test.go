@@ -131,11 +131,7 @@ func featureRepo(t *testing.T) string {
 func TestCheckReportsParallelFlows(t *testing.T) {
 	root := featureRepo(t)
 
-	code, stdout, _ := run("check", "--format", "json", "--min-nodes", "10", root)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", "--min-nodes", "10", root)
 	flows := flowCandidates(t, stdout)
 	if len(flows) != 1 {
 		t.Fatalf("got %d parallel flows, want 1", len(flows))

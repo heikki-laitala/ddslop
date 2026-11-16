@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -77,15 +76,9 @@ func TestFlowsFollowsEntryPointsOfGeneratedTraits(t *testing.T) {
 		"svc/src/store.rs":            storeImpl,
 	})
 
-	code, stdout, stderr := run("flows", "--format", "json", root)
-
-	if code != 0 {
-		t.Fatalf("flows: exit %d, stderr %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 0, "flows", "--format", "json", root)
 	var r flowsOutput
-	if err := json.Unmarshal([]byte(stdout), &r); err != nil {
-		t.Fatalf("output is not JSON: %v\n%s", err, stdout)
-	}
+	decodeInto(t, stdout, &r)
 	if len(r.Flows) != 1 || r.Flows[0].Entry.Name != "Api::create" {
 		t.Fatalf("flows = %+v, want one entry Api::create", r.Flows)
 	}

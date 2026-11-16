@@ -31,14 +31,7 @@ pub const REACHABLE: usize = 1 + crate::settle::LATE_REVISIONS;
 }
 
 func TestCheckReportsModulesReferringToEachOther(t *testing.T) {
-	_, stdout, stderr := run("check", "--format", "json", repo(t, constantCycle))
-	r := cycles(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("candidates = %+v, want the constants' cycle; stderr = %s", r.Candidates, stderr)
-	}
-	if got := strings.Join(r.Candidates[0].Values, ", "); got != "capacity -> settle, settle -> capacity" {
-		t.Errorf("values = %s, want capacity and settle depending on each other", got)
-	}
+	r := wantCycleBetween(t, "capacity -> settle, settle -> capacity", repo(t, constantCycle))
 	if got := sites(r); got != "src/capacity.rs:REACHABLE:2 src/settle.rs:REVISION_CHARGE:2" {
 		t.Errorf("occurrences = %s, want the two referring lines", got)
 	}
@@ -61,11 +54,7 @@ impl crate::settle::Usage {
 }
 `,
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	r := cycles(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("candidates = %+v, want the cycle a type closes", r.Candidates)
-	}
+	r := wantCycles(t, 1, "the cycle a type closes", repo(t, files))
 	if got := sites(r); got != "src/capacity.rs:reading:1 src/settle.rs:retained:2" {
 		t.Errorf("occurrences = %s, want the type's use and the call", got)
 	}
@@ -83,16 +72,9 @@ func TestReferencesThroughSuperReachTheModuleTheyName(t *testing.T) {
 		"src/store/pool.rs":   "pub const SIZE: usize = 4;\n",
 		"src/store/client.rs": "pub const PORT: u16 = super::super::config::PORT;\npub const SIZE: usize = super::pool::SIZE;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	r := cycles(t, stdout)
-	if len(r.Candidates) != 1 || strings.Join(r.Candidates[0].Values, ", ") != "config -> store, store -> config" {
-		t.Fatalf("candidates = %+v, want config and store depending on each other", r.Candidates)
-	}
+	wantCycleBetween(t, "config -> store, store -> config", repo(t, files))
 	files["src/store/client.rs"] = "pub const SIZE: usize = super::pool::SIZE;\n"
-	_, stdout, _ = run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none: super::pool stays in store", r.Candidates)
-	}
+	wantCycles(t, 0, "none: super::pool stays in store", repo(t, files))
 }
 
 // A test module's references count only with --tests, as its calls do.
@@ -105,14 +87,8 @@ mod tests {
 }
 `
 	root := repo(t, files)
-	_, stdout, _ := run("check", "--format", "json", root)
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none without --tests", r.Candidates)
-	}
-	_, stdout, _ = run("check", "--format", "json", "--tests", root)
-	if r := cycles(t, stdout); len(r.Candidates) != 1 {
-		t.Errorf("candidates = %+v, want the test module's cycle with --tests", r.Candidates)
-	}
+	wantCycles(t, 0, "none without --tests", root)
+	wantCycles(t, 1, "the test module's cycle with --tests", "--tests", root)
 }
 
 func TestAnIgnoreOnAReferenceLeavesItsCycleOut(t *testing.T) {
@@ -121,10 +97,7 @@ func TestAnIgnoreOnAReferenceLeavesItsCycleOut(t *testing.T) {
 // ddslop:ignore capacity counts settle's late revisions on purpose
 pub const REACHABLE: usize = 1 + crate::settle::LATE_REVISIONS;
 `
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want the cycle marked at its reference left out", r.Candidates)
-	}
+	wantCycles(t, 0, "the cycle marked at its reference left out", repo(t, files))
 }
 
 // A binary under src/bin is a crate of its own: its crate:: paths name
@@ -135,10 +108,7 @@ func TestABinarysCratePathsAreNotTheLibrarys(t *testing.T) {
 	files["src/settle.rs"] = "pub const REVISION_CHARGE: u64 = crate::capacity::EVENT_CHARGE + 1;\n"
 	files["src/bin/tool.rs"] = "mod capacity { pub const X: u8 = 1; }\nfn main() { let _ = crate::capacity::X; app::settle::REVISION_CHARGE; }\n"
 	files["src/lib.rs"] += "pub fn root() -> u8 { 1 }\n"
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none: the binary's crate::capacity is its own", r.Candidates)
-	}
+	wantCycles(t, 0, "none: the binary's crate::capacity is its own", repo(t, files))
 }
 
 // src/main.rs beside a library, build.rs and examples are Cargo targets of
@@ -169,11 +139,7 @@ func TestAWildcardImportOfTheRootIsADependencyOnIt(t *testing.T) {
 		"src/lib.rs": "pub mod a;\npub const VERSION: u8 = crate::a::V;\n",
 		"src/a.rs":   "use crate::*;\npub const V: u8 = 1;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	r := cycles(t, stdout)
-	if len(r.Candidates) != 1 {
-		t.Fatalf("candidates = %+v, want the root and a depending on each other", r.Candidates)
-	}
+	r := wantCycles(t, 1, "the root and a depending on each other", repo(t, files))
 	if got := sites(r); got != "src/lib.rs:VERSION:2 src/a.rs:use:1" {
 		t.Errorf("occurrences = %s, want the root's path and a's wildcard import", got)
 	}
@@ -187,10 +153,7 @@ func TestAnAliasOfTheRootIsADependencyOnIt(t *testing.T) {
 		"src/lib.rs": "pub mod a;\npub const Y: u8 = crate::a::X;\n",
 		"src/a.rs":   "use crate as root;\npub const X: u8 = 1;\npub const Z: u8 = root::Y;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 1 {
-		t.Errorf("candidates = %+v, want the root and a depending on each other", r.Candidates)
-	}
+	wantCycles(t, 1, "the root and a depending on each other", repo(t, files))
 }
 
 // crate::foo naming the root's function foo is a dependency on the root,
@@ -202,10 +165,7 @@ func TestARootValueIsNotTheModuleOfItsName(t *testing.T) {
 		"src/bar.rs": "pub fn b() -> u8 { crate::foo() }\n",
 		"src/foo.rs": "pub fn f() -> u8 { crate::bar::b() }\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none: bar calls the root's foo, not the module", r.Candidates)
-	}
+	wantCycles(t, 0, "none: bar calls the root's foo, not the module", repo(t, files))
 }
 
 // use crate::foo imports the module foo as well as the root's fn foo:
@@ -217,10 +177,7 @@ func TestAUseOfANameBothRootValueAndModuleDependsOnTheModule(t *testing.T) {
 		"src/bar.rs": "use crate::foo;\npub const B: u8 = foo::X;\n",
 		"src/foo.rs": "pub const X: u8 = 1;\npub const Y: u8 = crate::bar::B;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 1 {
-		t.Errorf("candidates = %+v, want bar and foo depending on each other", r.Candidates)
-	}
+	wantCycles(t, 1, "bar and foo depending on each other", repo(t, files))
 }
 
 // mod r#type lives in type.rs: crate::r#type names the module type.
@@ -231,11 +188,7 @@ func TestARawIdentifierNamesItsModule(t *testing.T) {
 		"src/type.rs": "pub const X: u8 = crate::a::Y;\n",
 		"src/a.rs":    "pub const Y: u8 = 1;\npub const Z: u8 = crate::r#type::X;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	r := cycles(t, stdout)
-	if len(r.Candidates) != 1 || strings.Join(r.Candidates[0].Values, ", ") != "a -> type, type -> a" {
-		t.Errorf("candidates = %+v, want a and type depending on each other", r.Candidates)
-	}
+	wantCycleBetween(t, "a -> type, type -> a", repo(t, files))
 }
 
 // pub fn r#type beside mod r#type: crate::r#type() calls the root's fn,
@@ -247,10 +200,7 @@ func TestARawRootValueIsNotTheModuleOfItsName(t *testing.T) {
 		"src/bar.rs":  "pub fn b() -> u8 { crate::r#type() }\n",
 		"src/type.rs": "pub fn t() -> u8 { crate::bar::b() }\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none: bar calls the root's fn r#type", r.Candidates)
-	}
+	wantCycles(t, 0, "none: bar calls the root's fn r#type", repo(t, files))
 }
 
 // crate::foo!() names the root's macro foo, never the module foo: macros
@@ -262,10 +212,7 @@ func TestARootMacroIsNotTheModuleOfItsName(t *testing.T) {
 		"src/bar.rs": "pub fn b() -> u8 { crate::foo!() }\n",
 		"src/foo.rs": "pub fn f() -> u8 { crate::bar::b() }\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none: bar invokes the root's macro foo", r.Candidates)
-	}
+	wantCycles(t, 0, "none: bar invokes the root's macro foo", repo(t, files))
 }
 
 // Through use crate as root, root::foo::Y is a dependency on foo.
@@ -276,11 +223,7 @@ func TestAPathThroughARootAliasEntersTheModule(t *testing.T) {
 		"src/a.rs":   "use crate as root;\npub const A: u8 = 1;\npub const X: u8 = root::foo::Y;\n",
 		"src/foo.rs": "pub const Y: u8 = 1;\npub const Z: u8 = crate::a::A;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	r := cycles(t, stdout)
-	if len(r.Candidates) != 1 || strings.Join(r.Candidates[0].Values, ", ") != "a -> foo, foo -> a" {
-		t.Errorf("candidates = %+v, want a and foo depending on each other", r.Candidates)
-	}
+	wantCycleBetween(t, "a -> foo, foo -> a", repo(t, files))
 }
 
 // A library module named bin and a binary under src/bin share a module
@@ -293,10 +236,7 @@ func TestABinarysCallsCloseNoCycleOfTheLibrarys(t *testing.T) {
 		"src/bin.rs":      "pub const VALUE: u8 = 1;\n",
 		"src/bin/tool.rs": "fn main() { app::root(); }\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none: the binary's call is not the library's", r.Candidates)
-	}
+	wantCycles(t, 0, "none: the binary's call is not the library's", repo(t, files))
 }
 
 // extern crate self as root at the crate root names the crate in every
@@ -308,11 +248,7 @@ func TestAnExternCrateSelfAliasNamesTheCrateEverywhere(t *testing.T) {
 		"src/a.rs":   "pub const A: u8 = 1;\npub const X: u8 = root::foo::Y;\n",
 		"src/foo.rs": "pub const Y: u8 = 1;\npub const Z: u8 = crate::a::A;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	r := cycles(t, stdout)
-	if len(r.Candidates) != 1 || strings.Join(r.Candidates[0].Values, ", ") != "a -> foo, foo -> a" {
-		t.Errorf("candidates = %+v, want a and foo depending on each other", r.Candidates)
-	}
+	wantCycleBetween(t, "a -> foo, foo -> a", repo(t, files))
 }
 
 // wrap!(crate::foo!()) invokes the root's macro foo, not the module foo.
@@ -323,10 +259,7 @@ func TestANestedRootMacroIsNotTheModuleOfItsName(t *testing.T) {
 		"src/bar.rs": "pub fn b() -> u8 { std::convert::identity(crate::foo!()) + wrap!(crate::foo!()) }\n",
 		"src/foo.rs": "pub fn f() -> u8 { crate::bar::b() }\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none: bar invokes the root's macro foo", r.Candidates)
-	}
+	wantCycles(t, 0, "none: bar invokes the root's macro foo", repo(t, files))
 }
 
 // A module root in a file hides the crate's alias root there: root::foo
@@ -338,10 +271,7 @@ func TestALocalModuleHidesTheCratesAlias(t *testing.T) {
 		"src/a.rs":   "mod root { pub mod foo { pub const X: u8 = 1; } }\npub const A: u8 = 1;\npub const X: u8 = root::foo::X;\n",
 		"src/foo.rs": "pub const Z: u8 = crate::a::A;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none: a's root is its own module", r.Candidates)
-	}
+	wantCycles(t, 0, "none: a's root is its own module", repo(t, files))
 }
 
 // The crate's alias reaches macro arguments too: wrap!(root::foo::Y).
@@ -352,10 +282,7 @@ func TestTheCratesAliasReachesMacroArguments(t *testing.T) {
 		"src/a.rs":   "pub const A: u8 = 1;\npub fn x() -> u8 { wrap!(root::foo::Y) }\n",
 		"src/foo.rs": "pub const Y: u8 = 1;\npub const Z: u8 = crate::a::A;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 1 {
-		t.Errorf("candidates = %+v, want a and foo depending on each other", r.Candidates)
-	}
+	wantCycles(t, 1, "a and foo depending on each other", repo(t, files))
 }
 
 // use root::* imports the crate's items through its alias: a dependency
@@ -366,10 +293,7 @@ func TestAWildcardImportThroughTheCratesAliasDependsOnTheRoot(t *testing.T) {
 		"src/lib.rs": "extern crate self as root;\npub mod a;\npub const R: u8 = crate::a::A;\n",
 		"src/a.rs":   "use root::*;\npub const A: u8 = 1;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 1 {
-		t.Errorf("candidates = %+v, want the root and a depending on each other", r.Candidates)
-	}
+	wantCycles(t, 1, "the root and a depending on each other", repo(t, files))
 }
 
 // A generic parameter root hides the crate's alias root in its item.
@@ -380,10 +304,7 @@ func TestAGenericParameterHidesTheCratesAlias(t *testing.T) {
 		"src/a.rs":   "pub trait Tr { type foo; }\npub const A: u8 = 1;\npub fn h<root: Tr>() -> u8 { let _: Option<root::foo> = None; 1 }\n",
 		"src/foo.rs": "pub const Z: u8 = crate::a::A;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none: root::foo is h's type parameter's", r.Candidates)
-	}
+	wantCycles(t, 0, "none: root::foo is h's type parameter's", repo(t, files))
 }
 
 // In the crate root, foo::Y names the child module foo: a dependency on
@@ -394,10 +315,7 @@ func TestAPathThroughAChildModuleDependsOnIt(t *testing.T) {
 		"src/lib.rs": "pub mod foo;\npub const ROOT: u8 = foo::Y;\npub const R: u8 = 1;\n",
 		"src/foo.rs": "pub const Y: u8 = crate::R;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 1 {
-		t.Errorf("candidates = %+v, want the root and foo depending on each other", r.Candidates)
-	}
+	wantCycles(t, 1, "the root and foo depending on each other", repo(t, files))
 }
 
 // A crate root re-exporting its children (pub use client::*) while they
@@ -437,10 +355,7 @@ func TestARootReexportedValueIsNotTheModuleOfItsName(t *testing.T) {
 		"src/bar.rs":    "pub fn b() -> u8 { crate::foo() }\n",
 		"src/foo.rs":    "pub fn f() -> u8 { crate::bar::b() }\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none: crate::foo is the re-exported value", r.Candidates)
-	}
+	wantCycles(t, 0, "none: crate::foo is the re-exported value", repo(t, files))
 }
 
 // extern crate self as root inside a function of the crate root holds in
@@ -452,8 +367,5 @@ func TestABlockLocalCrateAliasIsNotCrateWide(t *testing.T) {
 		"src/a.rs":   "pub const A: u8 = 1;\npub const X: u8 = root::foo::X;\n",
 		"src/foo.rs": "pub const X: u8 = 1;\npub const Z: u8 = crate::a::A;\n",
 	}
-	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	if r := cycles(t, stdout); len(r.Candidates) != 0 {
-		t.Errorf("candidates = %+v, want none: a's root is not this crate", r.Candidates)
-	}
+	wantCycles(t, 0, "none: a's root is not this crate", repo(t, files))
 }

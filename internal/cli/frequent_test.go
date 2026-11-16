@@ -24,11 +24,7 @@ func TestCheckReportsSmallBlocksCopiedManyTimes(t *testing.T) {
 	}
 	root := repo(t, map[string]string{"src/bindings.rs": src.String()})
 
-	code, stdout, stderr := run("check", "--format", "json", root)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr: %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
 	r := decode(t, stdout)
 	if len(r.Candidates) != 1 || r.Candidates[0].Kind != "block-clone" || len(r.Candidates[0].Occurrences) != 12 {
 		t.Fatalf("want one block clone with 12 occurrences, got:\n%s", stdout)

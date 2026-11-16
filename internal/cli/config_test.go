@@ -37,11 +37,7 @@ func TestCheckLeavesOutExcludedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, stdout, stderr := run("check", "--format", "json", root)
-
-	if code != 0 {
-		t.Errorf("exit code = %d, want 0: only users.rs is left\n%s%s", code, stdout, stderr)
-	}
+	stdout, _ := runCode(t, 0, "check", "--format", "json", root)
 	if r := decode(t, stdout); r.Summary.Files != 1 {
 		t.Errorf("files analysed = %d, want 1", r.Summary.Files)
 	}

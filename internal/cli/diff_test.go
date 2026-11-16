@@ -42,11 +42,7 @@ func TestCheckDiffReportsOnlyNewDuplication(t *testing.T) {
 		t.Fatalf("without --diff: %d candidates, want the old pair and the new one", got)
 	}
 
-	code, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", "--diff", "HEAD", root)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr: %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", "--min-nodes", "20", "--diff", "HEAD", root)
 	r := decode(t, stdout)
 	if len(r.Candidates) != 1 || r.Summary.Candidates != 1 {
 		t.Fatalf("got %d candidates (summary %d), want only the new duplication", len(r.Candidates), r.Summary.Candidates)

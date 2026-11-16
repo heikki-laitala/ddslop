@@ -18,11 +18,7 @@ func TestCheckReportsUnusedPublicFunctionsOfUnpublishedCrates(t *testing.T) {
 		"crates/published/src/lib.rs": "pub fn api_for_others() -> u32 {\n    1\n}\n",
 	})
 
-	code, stdout, stderr := run("check", "--format", "json", root)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr: %s", code, stderr)
-	}
+	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
 	r := decodeTargets(t, stdout)
 	var got []string
 	for _, c := range r.Candidates {
