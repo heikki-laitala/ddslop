@@ -92,6 +92,7 @@ func TestTestFilesAreTestCode(t *testing.T) {
 		"src/store.spec.tsx":          true,
 		"src/__tests__/store.ts":      true,
 		"__tests__/helpers/render.ts": true,
+		"src/Button.stories.tsx":      true,
 		"src/latest.ts":               false,
 	} {
 		units, _ := testutil.Parse(t, Parse, path, "function f() {}\n")
@@ -667,8 +668,8 @@ interface ICachedRepo extends IRepo {
 }
 `)
 	testutil.Lines(t, "traits", testutil.Format(decls.Traits, func(tr unit.Trait) string {
-		return fmt.Sprintf("%s %d-%d public=%v", tr.Name, tr.StartLine, tr.EndLine, tr.Public)
-	}), []string{"IRepo 3-5 public=true", "ICachedRepo 17-19 public=false"})
+		return fmt.Sprintf("%s %d-%d public=%v %v", tr.Name, tr.StartLine, tr.EndLine, tr.Public, tr.Methods)
+	}), []string{"IRepo 3-5 public=true [find]", "ICachedRepo 17-19 public=false [flush]"})
 	testutil.Lines(t, "impls", testutil.Format(decls.Impls, func(im unit.Impl) string {
 		return fmt.Sprintf("%s %s %s %d-%d", im.Type, im.Trait, im.TraitPath, im.StartLine, im.EndLine)
 	}), []string{"Repo IRepo IRepo 11-13", "Repo Other ./other.Other 11-13", "ICachedRepo IRepo IRepo 17-19"})

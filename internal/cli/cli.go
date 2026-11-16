@@ -1011,8 +1011,9 @@ func recordHealth(db *index.DB, root string, h report.Health) error {
 
 // wordCounts adds up the words of every indexed file, generated and test
 // code included, and, where TypeScript is analysed, of the files that may
-// import it without being analysed (see tsfile.Importers), files
-// .ddslop.yaml excludes aside: a .vue component naming an export uses it.
+// import it or name it without being analysed (see tsfile.Importers and
+// tsfile.Configs), files .ddslop.yaml excludes and unreadable ones aside:
+// a .vue component or a serverless.yml naming an export uses it.
 func wordCounts(root string, files []index.File) (map[string]int, error) {
 	words := map[string]int{}
 	for _, f := range files {
@@ -1023,14 +1024,14 @@ func wordCounts(root string, files []index.File) (map[string]int, error) {
 	if !slices.ContainsFunc(files, func(f index.File) bool { return tsfile.IsSource(f.Path) }) {
 		return words, nil
 	}
-	importers, err := includedFiles(root, tsfile.Importers...)
+	others, err := includedFiles(root, slices.Concat(tsfile.Importers, tsfile.Configs)...)
 	if err != nil {
 		return nil, err
 	}
-	for _, path := range importers {
+	for _, path := range others {
 		src, err := os.ReadFile(filepath.Join(root, path)) //nolint:gosec // a file under the analysed root
 		if err != nil {
-			return nil, err
+			continue // an unreadable file (a dangling symlink) adds no words
 		}
 		for w, n := range source.Words(src) {
 			words[w] += n
@@ -1047,17 +1048,19 @@ func singleImpls(traitDecls map[string]unit.Decls, files []index.File, internal 
 	for _, lang := range languages {
 		decls := traitDecls[lang]
 		if lang == "typescript" {
-			decls = withoutTestDoubles(decls, files)
+			decls = withoutImplicitImplementations(decls, files)
 		}
 		out = append(out, simplify.SingleImpl(decls, internal)...)
 	}
 	return out
 }
 
-// withoutTestDoubles leaves out the interfaces a TypeScript test file
-// names: a test's fake of one is its second implementation, which an
-// object literal (const fake: IClock = {...}) gives without a class.
-func withoutTestDoubles(decls unit.Decls, files []index.File) unit.Decls {
+// withoutImplicitImplementations leaves out the TypeScript interfaces
+// with an implementation no implements clause states: one a test file
+// names, as a test's fake of it is one (const fake: IClock = {...}), and
+// one a class matches by shape (see shapeImplemented).
+func withoutImplicitImplementations(decls unit.Decls, files []index.File) unit.Decls {
+	shaped := shapeImplemented(files)
 	named := map[string]bool{}
 	for _, f := range files {
 		if tsfile.IsSource(f.Path) && typescript.IsTestPath(f.Path) {
@@ -1067,9 +1070,50 @@ func withoutTestDoubles(decls unit.Decls, files []index.File) unit.Decls {
 		}
 	}
 	decls.Traits = slices.DeleteFunc(slices.Clone(decls.Traits), func(t unit.Trait) bool {
-		return named[t.Name]
+		return named[t.Name] || shaped[t.File+"#"+t.Name]
 	})
 	return decls
+}
+
+// shapeImplemented returns the TypeScript interfaces, as "file#name",
+// that a class of the non-test code implements without saying so: it
+// declares every method of the interface, and TypeScript checks
+// interfaces by shape.
+func shapeImplemented(files []index.File) map[string]bool {
+	classes := map[string]map[string]bool{} // "file#Class" -> its methods
+	stated := map[string]bool{}             // "file#Class#Interface"
+	for _, f := range files {
+		if !tsfile.IsSource(f.Path) {
+			continue
+		}
+		for _, u := range f.Units {
+			if class, method, ok := strings.Cut(u.Name, "."); ok && !u.Test {
+				key := f.Path + "#" + class
+				if classes[key] == nil {
+					classes[key] = map[string]bool{}
+				}
+				classes[key][method] = true
+			}
+		}
+		for _, im := range f.Decls.Impls {
+			stated[im.File+"#"+im.Type+"#"+im.Trait] = true
+		}
+	}
+	out := map[string]bool{}
+	for _, f := range files {
+		if !tsfile.IsSource(f.Path) {
+			continue
+		}
+		for _, t := range f.Decls.Traits {
+			for class, methods := range classes {
+				if !stated[class+"#"+t.Name] && !slices.ContainsFunc(t.Methods, func(m string) bool { return !methods[m] }) {
+					out[t.File+"#"+t.Name] = true
+					break
+				}
+			}
+		}
+	}
+	return out
 }
 
 // wholeImported reports the TypeScript files another file imports whole

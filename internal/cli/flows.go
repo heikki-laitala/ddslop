@@ -222,6 +222,9 @@ func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
 	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{},
 		Fields: map[string]map[string]flow.FieldType{}, Modules: modules, TSPackages: tsPackages, TSInterfaces: map[string][]string{},
 		Libraries: packages(root, files).Libraries}
+	// an interface a class matches by shape may run that class too, so no
+	// call resolves through it; with --tests, test classes are not counted
+	shaped := shapeImplemented(files)
 	goFiles := slices.ContainsFunc(files, func(f index.File) bool { return isGo(f.Path) })
 	if _, ok := in.Modules["."]; goFiles && !ok {
 		if path := moduleAbove(root); path != "" {
@@ -241,7 +244,7 @@ func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
 			}
 		}
 		for _, t := range f.Decls.Traits {
-			if tsfile.IsSource(t.File) && (tests || !t.Test) {
+			if tsfile.IsSource(t.File) && (tests || !t.Test) && !shaped[t.File+"#"+t.Name] {
 				in.TSInterfaces[t.Name] = append(in.TSInterfaces[t.Name], t.File)
 			}
 		}

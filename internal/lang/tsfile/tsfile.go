@@ -19,6 +19,11 @@ var Extensions = []string{".ts", ".tsx", ".mts", ".cts"}
 // Svelte, Astro and MDX.
 var Importers = []string{".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".astro", ".mdx"}
 
+// Configs are the extensions of files that may name a TypeScript export
+// as an entry point without importing it: a Lambda handler in
+// serverless.yml, a script in package.json.
+var Configs = []string{".json", ".yml", ".yaml", ".toml", ".html"}
+
 // IsSource reports whether a file is TypeScript source, by its extension.
 func IsSource(file string) bool {
 	return slices.ContainsFunc(Extensions, func(ext string) bool { return strings.HasSuffix(file, ext) })

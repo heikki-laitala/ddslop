@@ -418,7 +418,9 @@ before the declaration or in an export clause (`export { load }`,
 protected or `#named`. A member with a computed name
 (`[Symbol.iterator]`) is no unit: code never calls it by name. Nested
 functions stay part of their function, and a return in one leaves only
-it. `.test` and `.spec` files and `__tests__` directories are test code;
+it. `.test` and `.spec` files and `__tests__` directories are test
+code, and so are Storybook's `.stories` files, whose exports Storybook
+loads;
 test runners take their cases as callbacks (`it("...", () => {})`), so
 no TypeScript unit is a test case. Declaration files (`.d.ts`) are not
 indexed: they hold no code. Module-level declarations feed the type and
@@ -491,7 +493,8 @@ an exported function nothing names is unused. Code outside the analysed
 source calls some without naming them: a default export, under any name,
 though a default class's methods are called by name; Next.js's
 functions, by the names it calls (`getStaticProps`, `GET`,
-`generateMetadata`, `proxy`, `register`), in any file, so a function of
+`generateMetadata`, `proxy`, `register`), and Remix's and SvelteKit's
+route functions (`loader`, `action`, `load`), anywhere, so a function of
 such a name elsewhere is only missed; and every export of a module
 another file imports whole (`import * as schema from "./schema"`, as
 drizzle takes its schema, or `import("./routes")`), through a path alias
@@ -499,8 +502,11 @@ too (`@/db/schema`, matched by the end of a file's path, as only the
 project's tsconfig resolves it) or a workspace package's name
 (`@acme/db`, every file of that package). Files ddslop does not analyse
 but that may import TypeScript (`.js`, `.vue`, `.svelte`, `.astro`,
-`.mdx`) are read for the names they mention: a Vue component calling a
-composable uses it. None of these is a wrapper either: the framework, or
+`.mdx`) are read for the names they mention, and so are configuration
+files (`.json`, `.yaml`, `.toml`, `.html`), unreadable ones skipped: a
+Vue component calling a composable uses it, and a `serverless.yml`
+naming a Lambda handler does. None of these is a wrapper either: the
+framework, or
 a caller under another name, fixes its signature. A Tauri app's frontend
 with no private `package.json` is not internal for its Rust crate's
 `publish = false`. On tRPC (52 private packages: its examples and
@@ -535,7 +541,11 @@ object typed as the interface (`const mem: IRepo = {...}`) or a function
 typed to return it that returns an object literal (a factory): an
 interface with one class and one of these has two. A function returning
 `new PgRepo()` leaves the class the implementation. An unrelated class
-named like an interface of ours does not hide the interface. The
+named like an interface of ours does not hide the interface.
+TypeScript checks interfaces by shape, so a class of the non-test code
+that declares every method of an interface implements it without an
+`implements` clause: such an interface has a further implementation, no
+call through it resolves, and it is not reported. The
 interface must be ours: matched by the file declaring it, as an imported
 type is, so a call on an outside one (`vscode`'s `Disposable`, the DOM's
 `EventListenerObject`) reaches no class of ours that implements it, and
@@ -1774,7 +1784,8 @@ the map lists the pairs that call each other directly, with the calls
 each way and a call site each way, those with the fewest calls one way
 first, or, when no pair does, a shortest loop through the group; a
 workspace map counts each crate's modules in cycles (`cycle_modules`).
-A call through a value of a trait type (`dyn Store`, `S: Store`) is no
+A call through a value of a trait type (`dyn Store`, `S: Store`, a
+TypeScript interface of ours) is no
 module dependency, for the layers or the cycles: the call graph follows
 it to the trait's only implementation, but the caller depends on the
 trait, and the implementation's module, which imports the trait, would

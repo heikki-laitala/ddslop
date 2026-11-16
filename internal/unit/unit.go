@@ -324,6 +324,9 @@ type Trait struct {
 	// Public is true when the trait is visible outside its crate.
 	Public bool
 	Test   bool
+	// Methods are the names of the methods a TypeScript interface
+	// declares: a class declaring them all implements it.
+	Methods []string
 }
 
 // Impl is an implementation of a trait for a type, both as simple names

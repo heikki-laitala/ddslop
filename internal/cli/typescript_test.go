@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -364,6 +366,24 @@ func TestCheckReportsTypeScriptInterfacesWithOneImplementation(t *testing.T) {
 	})
 }
 
+// TypeScript checks an interface by shape: a class declaring all its
+// methods implements it without saying so, and is a second one.
+func TestAClassOfAnInterfacesShapeImplementsIt(t *testing.T) {
+	root := repo(t, map[string]string{
+		"package.json": `{"name": "web", "private": true}`,
+		"src/repo.ts":  "export interface IRepo {\n  find(id: string): string;\n}\n\nexport class Repo implements IRepo {\n  find(id: string) {\n    return id;\n  }\n}\n",
+		"src/pg.ts":    "export class PgRepo {\n  find(id: string) {\n    return id;\n  }\n  close() {}\n}\n",
+		"src/clock.ts": "export interface IClock {\n  now(): number;\n  tick(): void;\n}\n\nexport class SystemClock implements IClock {\n  now() {\n    return 1;\n  }\n  tick() {}\n}\n",
+		"src/timer.ts": "export class Timer {\n  now() {\n    return 2;\n  }\n}\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "single implementations", candidateLines(decode(t, stdout), "single-impl-trait"), []string{
+		"typescript single-impl-trait [src/clock.ts IClock, src/clock.ts IClock for SystemClock]",
+	})
+}
+
 // A Rust trait and a TypeScript class are of two languages: a class
 // named like the type a Rust impl is for makes that type no type of ours.
 func TestSingleImplementationsKeepTheirLanguage(t *testing.T) {
@@ -393,6 +413,48 @@ func TestExportsOnlyOtherFilesNameAreNotUnused(t *testing.T) {
 	_, stdout, _ := run("check", "--format", "json", root)
 
 	testutil.Lines(t, "unused", candidateLines(decode(t, stdout), "dead-code"), nil)
+}
+
+// Entry points that only a deployment config names (a Lambda handler in
+// serverless.yml), that Storybook loads (stories) or that a router calls
+// (Remix's loader and action, SvelteKit's load) are not unused.
+func TestEntryPointsFrameworksCallAreNotUnused(t *testing.T) {
+	root := repo(t, map[string]string{
+		"package.json":             `{"name": "web", "private": true}`,
+		"serverless.yml":           "functions:\n  hello:\n    handler: src/handler.handler\n",
+		"src/handler.ts":           "export const handler = async () => {\n  return 1;\n};\n",
+		"src/Button.stories.tsx":   "export const WithIcon = () => {\n  return 1;\n};\n",
+		"app/routes/posts.tsx":     "export async function loader() {\n  return 1;\n}\n\nexport async function action() {\n  return 2;\n}\n",
+		"src/routes/blog/+page.ts": "export function load() {\n  return 1;\n}\n",
+		"src/forgotten.ts":         "export function forgotten() {\n  return 1;\n}\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "unused", candidateLines(decode(t, stdout), "dead-code"), []string{
+		"typescript dead-code [src/forgotten.ts forgotten]",
+	})
+}
+
+// A file that only adds to the word count, and cannot be read (a dangling
+// symlink), is skipped: it fails no check.
+func TestAnUnreadableImporterIsSkipped(t *testing.T) {
+	root := repo(t, map[string]string{
+		"package.json": `{"name": "web", "private": true}`,
+		"src/main.ts":  "export function forgotten() {\n  return 1;\n}\n",
+	})
+	if err := os.Symlink(filepath.Join(root, "missing.js"), filepath.Join(root, "src", "broken.js")); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := run("check", "--format", "json", root)
+
+	if code != 1 {
+		t.Fatalf("exit %d, stderr %q, want 1", code, stderr)
+	}
+	testutil.Lines(t, "unused", candidateLines(decode(t, stdout), "dead-code"), []string{
+		"typescript dead-code [src/main.ts forgotten]",
+	})
 }
 
 // A module imported whole through its workspace package's name may have

@@ -279,6 +279,23 @@ func TestGraphInputsListTestImplsOnlyWithTests(t *testing.T) {
 	}
 }
 
+// A call through an interface a class matches by shape may run that
+// class: the graph knows no interface of the name, so resolves no call
+// through it.
+func TestGraphInputsLeaveOutInterfacesAClassMatchesByShape(t *testing.T) {
+	repo := unit.Decls{
+		Traits: []unit.Trait{{File: "src/repo.ts", Name: "IRepo", Methods: []string{"find"}}, {File: "src/repo.ts", Name: "IClock", Methods: []string{"now", "tick"}}},
+		Impls:  []unit.Impl{{File: "src/repo.ts", Trait: "IRepo", TraitPath: "IRepo", Type: "Repo"}},
+	}
+	files := []index.File{
+		{Path: "src/repo.ts", Parsed: index.Parsed{Decls: repo, Units: []unit.Unit{{File: "src/repo.ts", Name: "Repo.find"}}}},
+		{Path: "src/pg.ts", Parsed: index.Parsed{Units: []unit.Unit{{File: "src/pg.ts", Name: "PgRepo.find"}, {File: "src/pg.ts", Name: "PgRepo.now"}}}},
+	}
+	if got := fmt.Sprint(graphInputs(t.TempDir(), false, files).TSInterfaces); got != "map[IClock:[src/repo.ts]]" {
+		t.Errorf("TSInterfaces = %s, want IClock's only", got)
+	}
+}
+
 func TestMarkTestMarksFieldTypes(t *testing.T) {
 	f := index.File{Path: "a/src/tests/helpers.rs", Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Fake", Field: "db", Type: "Database"}}}}}
 	markTest(&f)

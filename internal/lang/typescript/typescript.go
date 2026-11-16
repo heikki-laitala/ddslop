@@ -358,13 +358,15 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 // frameworkExports are the names under which Next.js calls a module's
 // exported functions: a page's data functions, a route's handlers, the
 // app router's metadata and static parameters, middleware (proxy since
-// Next.js 16) and instrumentation. Unlike routeOptions, they count in any
-// file: a function of such a name elsewhere is only missed as unused.
+// Next.js 16) and instrumentation; and Remix's and SvelteKit's route
+// modules' data functions. Unlike routeOptions, they count in any file:
+// a function of such a name elsewhere is only missed as unused.
 var frameworkExports = map[string]bool{
 	"getStaticProps": true, "getStaticPaths": true, "getServerSideProps": true,
 	"generateMetadata": true, "generateStaticParams": true, "generateViewport": true,
 	"generateImageMetadata": true, "generateSitemaps": true, "middleware": true, "proxy": true,
 	"register": true, "onRequestError": true,
+	"loader": true, "action": true, "clientLoader": true, "clientAction": true, "load": true,
 	"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true, "HEAD": true, "OPTIONS": true,
 }
 
@@ -690,13 +692,22 @@ func (p *parser) typeOf(n *sitter.Node) string {
 // ddslop:ignore fills unit.Trait as addEnum fills unit.Enum; only a data model change could merge them
 func (p *parser) contract(decl *sitter.Node, exported bool) {
 	name, body := decl.ChildByFieldName("name"), decl.ChildByFieldName("body")
-	if name == nil || body == nil || !hasChild(body, "method_signature") {
+	if name == nil || body == nil {
+		return
+	}
+	var methods []string
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		if m := body.NamedChild(i); m.Kind() == "method_signature" && m.ChildByFieldName("name") != nil {
+			methods = append(methods, m.ChildByFieldName("name").Utf8Text(p.src))
+		}
+	}
+	if len(methods) == 0 {
 		return
 	}
 	p.decls.Traits = append(p.decls.Traits, unit.Trait{
 		File: p.file, Name: name.Utf8Text(p.src),
 		StartLine: syntax.Line(decl.StartPosition()), EndLine: syntax.Line(decl.EndPosition()),
-		Nodes: syntax.CountNodes(decl), Public: exported, Test: p.test,
+		Nodes: syntax.CountNodes(decl), Public: exported, Test: p.test, Methods: methods,
 	})
 }
 
@@ -817,11 +828,12 @@ func (p *parser) unit(name string, n, fn *sitter.Node, public bool) unit.Unit {
 
 // IsTestPath reports whether a file is test code by the conventions of
 // TypeScript test runners: a .test or .spec file, or a file under a
-// __tests__ directory.
+// __tests__ directory; or a Storybook .stories file, whose exports
+// Storybook loads.
 func IsTestPath(file string) bool {
 	slashed := filepath.ToSlash(file)
 	base := path.Base(slashed)
 	stem := strings.TrimSuffix(base, path.Ext(base))
-	return strings.HasSuffix(stem, ".test") || strings.HasSuffix(stem, ".spec") ||
+	return strings.HasSuffix(stem, ".test") || strings.HasSuffix(stem, ".spec") || strings.HasSuffix(stem, ".stories") ||
 		slices.Contains(strings.Split(path.Dir(slashed), "/"), "__tests__")
 }

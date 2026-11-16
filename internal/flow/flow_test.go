@@ -1432,9 +1432,11 @@ func TestBuildResolvesTypeScriptCallsThroughATypedVariablesField(t *testing.T) {
 }
 
 func TestBuildResolvesTypeScriptCallsOnAnInterfaceToItsOnlyClass(t *testing.T) {
+	findByID := exported(fn("src/repositories/cluster.ts", "ClusterRepo.findById"))
+	findByID.Dispatched = true // as every class method
 	units := []unit.Unit{
 		fn("src/controllers/cluster.ts", "load", unit.Call{Kind: unit.MethodCall, Name: "findById", Type: "../repositories/cluster.IClusterRepo"}),
-		exported(fn("src/repositories/cluster.ts", "ClusterRepo.findById")),
+		findByID,
 		// two classes implement IStore: which one runs is not known
 		fn("src/controllers/cluster.ts", "save", unit.Call{Kind: unit.MethodCall, Name: "put", Type: "../store.IStore"}),
 		exported(fn("src/store/memory.ts", "MemoryStore.put")),
@@ -1447,6 +1449,8 @@ func TestBuildResolvesTypeScriptCallsOnAnInterfaceToItsOnlyClass(t *testing.T) {
 		fn("src/controllers/cluster.ts", "read", unit.Call{Kind: unit.MethodCall, Name: "get", Type: "../types.Cache"}),
 		exported(fn("src/mem.ts", "MemCache.get")),
 		exported(fn("src/legacy.ts", "Cache.get")),
+		// a call on the class itself
+		fn("src/controllers/cluster.ts", "direct", unit.Call{Kind: unit.MethodCall, Name: "findById", Type: "../repositories/cluster.ClusterRepo"}),
 	}
 	g := Build(Inputs{Impls: []unit.Impl{
 		{File: "src/repositories/cluster.ts", Trait: "IClusterRepo", TraitPath: "IClusterRepo", Type: "ClusterRepo"},
@@ -1456,13 +1460,19 @@ func TestBuildResolvesTypeScriptCallsOnAnInterfaceToItsOnlyClass(t *testing.T) {
 		{File: "src/mem.ts", Trait: "Cache", TraitPath: "./types.Cache", Type: "MemCache"},
 	}, TSInterfaces: map[string][]string{"IClusterRepo": {"src/repositories/cluster.ts"}, "IStore": {"src/store.ts"}, "Cache": {"src/types.ts"}}}, units)
 	for caller, want := range map[string]string{
-		"src/controllers/cluster.ts load":  "[src/repositories/cluster.ts ClusterRepo.findById]",
-		"src/controllers/cluster.ts save":  "[]",
-		"src/controllers/cluster.ts close": "[]",
-		"src/controllers/cluster.ts read":  "[src/mem.ts MemCache.get]",
+		"src/controllers/cluster.ts load":   "[src/repositories/cluster.ts ClusterRepo.findById]",
+		"src/controllers/cluster.ts save":   "[]",
+		"src/controllers/cluster.ts close":  "[]",
+		"src/controllers/cluster.ts read":   "[src/mem.ts MemCache.get]",
+		"src/controllers/cluster.ts direct": "[src/repositories/cluster.ts ClusterRepo.findById]",
 	} {
 		if got := callees(g, caller); got != want {
 			t.Errorf("%s calls %s, want %s", caller, got, want)
 		}
+	}
+	// load runs the class through the interface, depending on the
+	// interface only (see Graph.Dispatched); direct depends on the class
+	if got := fmt.Sprint(g.Dispatched[0], g.Dispatched[len(units)-1]); got != "[true] [false]" {
+		t.Errorf("Dispatched of load and direct = %s, want [true] [false]", got)
 	}
 }

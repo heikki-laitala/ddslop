@@ -36,10 +36,11 @@ type Graph struct {
 	// by its method name, which may be another type's method).
 	Targets [][]int
 	// Dispatched marks, parallel to Targets, the calls that reached their
-	// target through a value of a trait type (dyn Store, S: Store) in the
-	// trait's only implementation, which the caller runs without
-	// depending on it. A call reaching the trait's own default is not
-	// marked: it is in the trait's module, which the caller depends on.
+	// target through a value of a trait type (dyn Store, S: Store, a
+	// TypeScript interface) in the trait's only implementation, which the
+	// caller runs without depending on it. A call reaching the trait's own
+	// default is not marked: it is in the trait's module, which the caller
+	// depends on.
 	Dispatched [][]bool
 	// Calls and Resolved count all call sites and the resolved ones.
 	Calls, Resolved int
@@ -197,7 +198,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 			g.Calls++
 			callee, byName, dispatched := r.resolve(k)
 			g.Targets[i][k] = callee
-			g.Dispatched[i][k] = dispatched && callee >= 0 && units[callee].Trait != ""
+			g.Dispatched[i][k] = dispatched && callee >= 0 && units[callee].ViaInterface()
 			if byName {
 				g.Targets[i][k] = -1
 			}
@@ -309,7 +310,8 @@ func (r *callResolver) resolveCall(c unit.Call) (int, bool, bool) {
 // value of a trait type (see Graph.Dispatched).
 func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) (int, bool, bool) {
 	if tsfile.IsSource(caller.File) {
-		return ix.resolveTypeScript(units, caller, owner, c), false, false
+		callee, dispatched := ix.resolveTypeScript(units, caller, owner, c)
+		return callee, false, dispatched
 	}
 	if c.Kind != unit.MethodCall || c.Qualifier == "self" {
 		return ix.resolveNamed(units, caller, owner, c), false, false
@@ -780,19 +782,19 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 // parameter, a field of this or of a typed variable) is the method of that
 // type's class (see resolveTSMethod, tsFieldType). Without a type, the
 // name of any other method says nothing: it is not resolved.
-func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) int {
+func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) (int, bool) {
 	sameFile := func(u unit.Unit) bool { return u.File == caller.File }
 	switch {
 	case c.Kind == unit.FreeCall:
 		if c.Name != caller.Name && slices.ContainsFunc(caller.Leaves, func(l unit.Leaf) bool { return l.Declares && l.Text == c.Name }) {
-			return -1
+			return -1, false
 		}
-		return only(units, ix.free[c.Name], sameFile)
+		return only(units, ix.free[c.Name], sameFile), false
 	case c.Kind == unit.PathCall:
 		inModule := tsfile.ModuleFiles(caller.File, c.Qualifier, ix.tsPackages)
-		return only(units, ix.free[c.Name], func(u unit.Unit) bool { return u.Public && inModule(u.File) })
+		return only(units, ix.free[c.Name], func(u unit.Unit) bool { return u.Public && inModule(u.File) }), false
 	case c.Qualifier == "self" && owner != "":
-		return only(units, ix.owned[owner+"::"+c.Name], sameFile)
+		return only(units, ix.owned[owner+"::"+c.Name], sameFile), false
 	case c.Field != "" && (c.Type != "" || owner != ""):
 		// deps.repo.find() on a typed variable, or this.repo.find() on the
 		// caller's own class: the field's type, read where its type is
@@ -803,7 +805,7 @@ func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner str
 		}
 		ft, ok := ix.tsFieldType(caller.File, typ, c.Field)
 		if !ok {
-			return -1
+			return -1, false
 		}
 		return ix.resolveTSMethod(units, ft.File, ft.Type, c.Name)
 	}
@@ -816,22 +818,23 @@ func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner str
 // file's own class of the name: one the file does not declare is a
 // global (Response, Map), whatever class of ours shares its name. An
 // interface of ours (IRepo) that a single class implements stands for
-// that class; with several, which one runs is not known.
-func (ix index) resolveTSMethod(units []unit.Unit, home, typ, method string) int {
+// that class, reached through the interface (see Graph.Dispatched); with
+// several, which one runs is not known.
+func (ix index) resolveTSMethod(units []unit.Unit, home, typ, method string) (int, bool) {
 	if typ == "" {
-		return -1
+		return -1, false
 	}
 	name := typ[strings.LastIndex(typ, ".")+1:]
 	if decl, ok := ix.tsInterfaceFile(home, typ); ok {
 		// an interface of ours one class implements: that class's method runs
 		if impls := ix.tsImpls[decl+"#"+name]; len(impls) == 1 {
 			im := impls[0]
-			return only(units, ix.owned[im.Type+"::"+method], func(u unit.Unit) bool { return u.File == im.File })
+			return only(units, ix.owned[im.Type+"::"+method], func(u unit.Unit) bool { return u.File == im.File }), true
 		}
-		return -1
+		return -1, false
 	}
 	declares := ix.tsDeclares(home, typ)
-	return only(units, ix.owned[name+"::"+method], func(u unit.Unit) bool { return declares(u.File) })
+	return only(units, ix.owned[name+"::"+method], func(u unit.Unit) bool { return declares(u.File) }), false
 }
 
 // tsDeclares reports, for a file, whether it is where the TypeScript type
