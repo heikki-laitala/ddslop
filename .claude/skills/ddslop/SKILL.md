@@ -244,7 +244,9 @@ What to do per `kind`:
   its only impl block. Move the methods into an inherent impl of the type
   and replace `dyn Trait` and `impl Trait` uses with the type. Keep the
   trait if it is a seam for tests you are about to write, or a second
-  implementation is planned.
+  implementation is planned. In TypeScript the trait is an interface and
+  the impl its only class (`IRepo for Repo`): type its uses as the class,
+  drop the `implements` clause and the interface.
 
 ## Rules
 

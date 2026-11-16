@@ -604,3 +604,31 @@ export function createController(deps: ClusterDeps) {
 	testutil.Lines(t, "calls", testutil.Format(units[0].Calls, func(c unit.Call) string { return c.Name + " " + c.Type + " " + c.Field }),
 		[]string{"findById ClusterDeps clusters"})
 }
+
+// An interface declaring methods is a contract classes implement, as a
+// Rust trait is; one only of properties is a data shape, no contract.
+func TestInterfacesWithMethodsAndTheirImplementationsAreRecorded(t *testing.T) {
+	_, decls := testutil.Parse(t, Parse, "src/store/repo.ts", `import type { Other } from "./other";
+
+export interface IRepo {
+  find(id: string): Row;
+}
+
+interface Row {
+  id: string;
+}
+
+export class Repo extends Base implements IRepo, Other<string> {
+  find(id: string) { return { id }; }
+}
+
+class Plain {}
+`)
+	testutil.Lines(t, "traits", testutil.Format(decls.Traits, func(tr unit.Trait) string {
+		return fmt.Sprintf("%s %d-%d public=%v", tr.Name, tr.StartLine, tr.EndLine, tr.Public)
+	}), []string{"IRepo 3-5 public=true"})
+	testutil.Lines(t, "impls", testutil.Format(decls.Impls, func(im unit.Impl) string {
+		return fmt.Sprintf("%s %s %s %d-%d", im.Type, im.Trait, im.TraitPath, im.StartLine, im.EndLine)
+	}), []string{"Repo IRepo IRepo 11-13", "Repo Other ./other.Other 11-13"})
+	testutil.Lines(t, "type names", decls.TypeNames, []string{"Repo", "Plain"})
+}

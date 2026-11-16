@@ -281,8 +281,10 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 		}
 	case "class_declaration", "abstract_class_declaration":
 		p.members(n, exported)
+		p.implementations(n)
 	case "interface_declaration":
 		p.structure(n, n.ChildByFieldName("body"))
+		p.contract(n, exported)
 	case "type_alias_declaration":
 		switch value := n.ChildByFieldName("value"); {
 		case value == nil:
@@ -593,6 +595,52 @@ func (p *parser) typeOf(n *sitter.Node) string {
 		return im.module + "." + im.name
 	}
 	return name
+}
+
+// contract records an interface declaring methods as a trait, the
+// contract classes implement; one of properties only is a data shape.
+// ddslop:ignore fills unit.Trait as addEnum fills unit.Enum; only a data model change could merge them
+func (p *parser) contract(decl *sitter.Node, exported bool) {
+	name, body := decl.ChildByFieldName("name"), decl.ChildByFieldName("body")
+	if name == nil || body == nil || !hasChild(body, "method_signature") {
+		return
+	}
+	p.decls.Traits = append(p.decls.Traits, unit.Trait{
+		File: p.file, Name: name.Utf8Text(p.src),
+		StartLine: syntax.Line(decl.StartPosition()), EndLine: syntax.Line(decl.EndPosition()),
+		Nodes: syntax.CountNodes(decl), Public: exported, Test: p.test,
+	})
+}
+
+// implementations records a class's name, and each interface it
+// implements (class Repo implements IRepo) as an impl of that trait.
+func (p *parser) implementations(class *sitter.Node) {
+	name := class.ChildByFieldName("name")
+	if name == nil {
+		return
+	}
+	p.decls.TypeNames = append(p.decls.TypeNames, name.Utf8Text(p.src))
+	for i := uint(0); i < class.NamedChildCount(); i++ {
+		heritage := class.NamedChild(i)
+		for j := uint(0); heritage.Kind() == "class_heritage" && j < heritage.NamedChildCount(); j++ {
+			clause := heritage.NamedChild(j)
+			for k := uint(0); clause.Kind() == "implements_clause" && k < clause.NamedChildCount(); k++ {
+				p.implementation(class, name.Utf8Text(p.src), clause.NamedChild(k))
+			}
+		}
+	}
+}
+
+// implementation records that a class implements the interface typ.
+func (p *parser) implementation(class *sitter.Node, name string, typ *sitter.Node) {
+	path := p.typeOf(typ)
+	if path == "" {
+		return
+	}
+	p.decls.Impls = append(p.decls.Impls, unit.Impl{
+		File: p.file, Trait: path[strings.LastIndex(path, ".")+1:], TraitPath: path, Type: name,
+		StartLine: syntax.Line(class.StartPosition()), EndLine: syntax.Line(class.EndPosition()), Test: p.test,
+	})
 }
 
 // isFunction reports whether a value is a function expression of any kind.

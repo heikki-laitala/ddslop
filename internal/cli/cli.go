@@ -649,8 +649,9 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 	var structs []unit.Struct
 	var enums []unit.Enum
 	var consts []unit.Const
-	var decls unit.Decls    // every file's, test code included, for traits
-	var helpers []unit.Unit // test code's helpers, fakes and fixtures, without --tests
+	var funcTypes []unit.FuncType
+	traitDecls := map[string]unit.Decls{} // each language's, test code included, for traits
+	var helpers []unit.Unit               // test code's helpers, fakes and fixtures, without --tests
 	for _, f := range files {
 		if f.Generated {
 			summary.GeneratedFiles++
@@ -672,10 +673,12 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 		structs = appendAnalysed(structs, f.Decls.Structs, opts.tests, &summary, func(s unit.Struct) (bool, bool) { return s.Test, s.Ignored })
 		consts = appendAnalysed(consts, f.Decls.Consts, opts.tests, &summary, func(c unit.Const) (bool, bool) { return c.Test, c.Ignored })
 		enums = appendAnalysed(enums, f.Decls.Enums, opts.tests, &summary, func(e unit.Enum) (bool, bool) { return e.Test, e.Ignored })
-		decls.Traits = append(decls.Traits, f.Decls.Traits...)
-		decls.Impls = append(decls.Impls, f.Decls.Impls...)
-		decls.TypeNames = append(decls.TypeNames, f.Decls.TypeNames...)
-		decls.FuncTypes = append(decls.FuncTypes, f.Decls.FuncTypes...)
+		d := traitDecls[languageOf(f.Path)]
+		d.Traits = append(d.Traits, f.Decls.Traits...)
+		d.Impls = append(d.Impls, f.Decls.Impls...)
+		d.TypeNames = append(d.TypeNames, f.Decls.TypeNames...)
+		traitDecls[languageOf(f.Path)] = d
+		funcTypes = append(funcTypes, f.Decls.FuncTypes...)
 	}
 	summary.Units = len(units) + len(helpers)
 	summary.Version = versionString()
@@ -737,11 +740,11 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 			return internal(file) && !importedWhole[file]
 		}),
 		Wrappers: simplify.PassThrough(g),
-		Traits:   simplify.SingleImpl(decls, internal),
+		Traits:   singleImpls(traitDecls, files, internal),
 		Scopes:   byLanguage(units, func(_ string, u []unit.Unit) []pattern.ScopeGroup { return pattern.Scopes(u) }),
 		Kinds:    byLanguage(units, func(_ string, u []unit.Unit) []pattern.StringKind { return pattern.StringKinds(u) }),
 		Params: byLanguage(units, func(_ string, u []unit.Unit) []pattern.ParamGroup {
-			return pattern.ParameterGroups(u, decls.FuncTypes)
+			return pattern.ParameterGroups(u, funcTypes)
 		}),
 		Drifts: found,
 		Cycles: dependencyCycles(cycleGraph(g, root, files, units, opts.tests), files, packages(root, files), opts.tests),
@@ -1004,6 +1007,35 @@ func wordCounts(files []index.File) map[string]int {
 		}
 	}
 	return words
+}
+
+// singleImpls finds the traits with a single implementation in each
+// language on its own: a Rust trait and a TypeScript interface, or a type
+// of one and a class of the other, never match by their names.
+func singleImpls(traitDecls map[string]unit.Decls, files []index.File, internal func(file string) bool) []simplify.SingleImplTrait {
+	var out []simplify.SingleImplTrait
+	for _, lang := range languages {
+		out = append(out, simplify.SingleImpl(withoutTestDoubles(traitDecls[lang], files), internal)...)
+	}
+	return out
+}
+
+// withoutTestDoubles leaves out the TypeScript interfaces a test file
+// names: a test's fake of one is its second implementation, which an
+// object literal (const fake: IClock = {...}) gives without a class.
+func withoutTestDoubles(decls unit.Decls, files []index.File) unit.Decls {
+	named := map[string]bool{}
+	for _, f := range files {
+		if tsfile.IsSource(f.Path) && typescript.IsTestPath(f.Path) {
+			for w := range f.Words {
+				named[w] = true
+			}
+		}
+	}
+	decls.Traits = slices.DeleteFunc(slices.Clone(decls.Traits), func(t unit.Trait) bool {
+		return tsfile.IsSource(t.File) && named[t.Name]
+	})
+	return decls
 }
 
 // wholeImported reports the TypeScript files another file imports whole

@@ -513,6 +513,23 @@ calling `createHandler`). Following workspace packages found 3 more on
 Excalidraw, each calling into another of its packages
 (`cloneLibraryItems` passing on to `@excalidraw/common`'s `cloneJSON`).
 
+An interface declaring methods is a trait, the contract classes
+implement (`class Repo implements IRepo`); one of properties only is a
+data shape. A method call on a value of an interface's type resolves to
+the method of the one class implementing an interface of that name; with
+several, which runs is not known. The interface must be ours: matched by
+the file declaring it, as an imported type is, so a call on an outside
+one (`vscode`'s `Disposable`, the DOM's `EventListenerObject`) reaches
+no class of ours that implements it, and each language's traits are
+matched on their own. Single-implementation interfaces are reported as
+Rust's traits are, except one a test file names: a test's fake is its
+second implementation, and TypeScript gives it without a class
+(`const fake: IClock = { now: () => 1 }`). On a dependency-injected
+TypeScript service with about 120 interfaces, 78 had one class, tests
+named 60 of them, and the 18 left, all reported, follow the code's
+one-interface-per-repository convention; Excalidraw, tRPC and Hono have
+none.
+
 `ddslop map --lang typescript` describes TypeScript by directory (scope
 `directories`, as `packages` would read as npm packages): a directory is
 a module, as a Go package is, and its layers, breaks, cycles and shared

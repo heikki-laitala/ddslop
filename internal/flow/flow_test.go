@@ -1430,3 +1430,33 @@ func TestBuildResolvesTypeScriptCallsThroughATypedVariablesField(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildResolvesTypeScriptCallsOnAnInterfaceToItsOnlyClass(t *testing.T) {
+	units := []unit.Unit{
+		fn("src/controllers/cluster.ts", "load", unit.Call{Kind: unit.MethodCall, Name: "findById", Type: "../repositories/cluster.IClusterRepo"}),
+		exported(fn("src/repositories/cluster.ts", "ClusterRepo.findById")),
+		// two classes implement IStore: which one runs is not known
+		fn("src/controllers/cluster.ts", "save", unit.Call{Kind: unit.MethodCall, Name: "put", Type: "../store.IStore"}),
+		exported(fn("src/store/memory.ts", "MemoryStore.put")),
+		exported(fn("src/store/disk.ts", "DiskStore.put")),
+		// an outside interface (vscode's Disposable) is none of ours,
+		// whatever class of ours implements it
+		fn("src/controllers/cluster.ts", "close", unit.Call{Kind: unit.MethodCall, Name: "dispose", Type: "vscode.Disposable"}),
+		exported(fn("src/ext.ts", "Foo.dispose")),
+	}
+	g := Build(Inputs{Impls: []unit.Impl{
+		{File: "src/repositories/cluster.ts", Trait: "IClusterRepo", TraitPath: "IClusterRepo", Type: "ClusterRepo"},
+		{File: "src/store/memory.ts", Trait: "IStore", TraitPath: "../store.IStore", Type: "MemoryStore"},
+		{File: "src/store/disk.ts", Trait: "IStore", TraitPath: "../store.IStore", Type: "DiskStore"},
+		{File: "src/ext.ts", Trait: "Disposable", TraitPath: "vscode.Disposable", Type: "Foo"},
+	}, TSInterfaces: map[string][]string{"IClusterRepo": {"src/repositories/cluster.ts"}, "IStore": {"src/store.ts"}}}, units)
+	for caller, want := range map[string]string{
+		"src/controllers/cluster.ts load":  "[src/repositories/cluster.ts ClusterRepo.findById]",
+		"src/controllers/cluster.ts save":  "[]",
+		"src/controllers/cluster.ts close": "[]",
+	} {
+		if got := callees(g, caller); got != want {
+			t.Errorf("%s calls %s, want %s", caller, got, want)
+		}
+	}
+}

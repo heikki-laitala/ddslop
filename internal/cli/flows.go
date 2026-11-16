@@ -213,7 +213,7 @@ func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
 		}
 	}
 	in := flow.Inputs{Imports: map[string]map[string]string{}, Crates: map[string]string{},
-		Fields: map[string]map[string]flow.FieldType{}, Modules: modules, TSPackages: tsPackages,
+		Fields: map[string]map[string]flow.FieldType{}, Modules: modules, TSPackages: tsPackages, TSInterfaces: map[string][]string{},
 		Libraries: packages(root, files).Libraries}
 	goFiles := slices.ContainsFunc(files, func(f index.File) bool { return isGo(f.Path) })
 	if _, ok := in.Modules["."]; goFiles && !ok {
@@ -231,6 +231,11 @@ func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
 		for _, im := range f.Decls.Impls {
 			if tests || !im.Test {
 				in.Impls = append(in.Impls, im)
+			}
+		}
+		for _, t := range f.Decls.Traits {
+			if tsfile.IsSource(t.File) && (tests || !t.Test) {
+				in.TSInterfaces[t.Name] = append(in.TSInterfaces[t.Name], t.File)
 			}
 		}
 		dir := in.Libraries.CrateOf(f.Path)

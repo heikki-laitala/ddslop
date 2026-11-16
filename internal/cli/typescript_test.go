@@ -344,3 +344,37 @@ func TestCheckReportsUnusedExportsOfPrivateTypeScriptPackages(t *testing.T) {
 		"typescript dead-code [apps/web/src/util.ts forgottenHelper]",
 	})
 }
+
+// An interface a single class implements is an abstraction nothing uses,
+// unless a test names it: its fake is a second implementation.
+func TestCheckReportsTypeScriptInterfacesWithOneImplementation(t *testing.T) {
+	root := repo(t, map[string]string{
+		"apps/web/package.json":      `{"name": "web", "private": true}`,
+		"apps/web/src/repo.ts":       "export interface IRepo {\n  find(id: string): string;\n}\n\nexport class Repo implements IRepo {\n  find(id: string) {\n    return id;\n  }\n}\n",
+		"apps/web/src/clock.ts":      "export interface IClock {\n  now(): number;\n}\n\nexport class SystemClock implements IClock {\n  now() {\n    return Date.now();\n  }\n}\n",
+		"apps/web/src/clock.test.ts": "import type { IClock } from \"./clock\";\n\nconst fake: IClock = { now: () => 1 };\n",
+		"packages/lib/package.json":  `{"name": "@acme/lib"}`,
+		"packages/lib/src/api.ts":    "export interface IApi {\n  call(): void;\n}\n\nexport class Api implements IApi {\n  call() {}\n}\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "single implementations", candidateLines(decode(t, stdout), "single-impl-trait"), []string{
+		"typescript single-impl-trait [apps/web/src/repo.ts IRepo, apps/web/src/repo.ts IRepo for Repo]",
+	})
+}
+
+// A Rust trait and a TypeScript class are of two languages: a class
+// named like the type a Rust impl is for makes that type no type of ours.
+func TestSingleImplementationsKeepTheirLanguage(t *testing.T) {
+	root := repo(t, map[string]string{
+		"Cargo.toml":       "[package]\nname = \"app\"\npublish = false\n",
+		"src/lib.rs":       "trait Codec {\n    fn encode(&self) -> String;\n}\n\nimpl Codec for Value {\n    fn encode(&self) -> String {\n        String::new()\n    }\n}\n",
+		"web/package.json": `{"name": "web", "private": true}`,
+		"web/src/value.ts": "export class Value {}\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "single implementations", candidateLines(decode(t, stdout), "single-impl-trait"), nil)
+}
