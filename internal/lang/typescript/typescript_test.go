@@ -174,7 +174,7 @@ let mutable = "not a constant";
 export const load = () => 1;
 export const TIMEOUT_MS = 5 * 60 * 1000, root = createRoot(el), DOUBLE = MAX_MODELS * 2;
 const SHORTHAND = { foo }, ENV = import.meta.env.X;
-const cache: Record<string, string> = {}, items: string[] = [], HANDLERS = { a: () => 1 };
+const cache: Record<string, string> = {}, items: string[] = [], HANDLERS = { a: () => 1 }, CAST = {} as Cache, SEEN = ([] satisfies string[]);
 
 export interface Budget {
   id: string;
@@ -183,7 +183,7 @@ export interface Budget {
   updatedAt: Date;
   refresh(): void;
 }
-type Point = { x: number; y: number };
+type Point = { x: number; y?: number | undefined };
 type Id = string;
 export enum Level { Low, High = 10, Name = "name" }
 export type Status = "active" | "paused" | "done";
@@ -215,18 +215,19 @@ function f() {
 		}
 		got = append(got, fmt.Sprintf("enum %s %d-%d [%s]", e.Name, e.StartLine, e.EndLine, strings.Join(variants, " ")))
 	}
-	// Interfaces and object types are structs of their properties; enums
-	// and unions of string literals are enums; module-level constants are
-	// constants when their value is made of literals only: a call's
-	// result or another constant's value is computed at run time, an
-	// empty object or array is state to fill, and a function is code.
+	// Interfaces and object types are structs of their properties, an
+	// optional one typed as possibly undefined; enums and unions of string
+	// literals are enums; module-level constants are constants when their
+	// value is made of literals only: a call's result or another
+	// constant's value is computed at run time, an empty object or array
+	// is state to fill, and a function is code.
 	want := strings.Join([]string{
 		"const MAX_MODELS = 64 line=1 literal=false",
 		`const CODE_UNAVAILABLE = "ledger_unavailable" line=2 literal=true`,
 		"const RETRY = {attempts:3,backoff:100}as const line=3 literal=false",
 		"const TIMEOUT_MS = 5*60*1000 line=6 literal=false",
-		"struct Budget 10-16 [id:string@11 limit:number@12 spent:number@13 updatedAt:Date@14]",
-		"struct Point 17-17 [x:number@17 y:number@17]",
+		"struct Budget 10-16 [id:string@11 limit:number|undefined@12 spent:number@13 updatedAt:Date@14]",
+		"struct Point 17-17 [x:number@17 y:number|undefined@17]",
 		`enum Level 19-19 [Low High=10 Name="name"]`,
 		`enum Status 20-20 ["active" "paused" "done"]`,
 	}, "\n")
@@ -274,6 +275,7 @@ func TestVariantsOfEitherQuoteStyleAreAlike(t *testing.T) {
 	_, decls, err := Parse("src/state.ts", []byte(`type A = 'queued' | "done" | "say 'hi'" | '"';
 enum B { 'queued', "done" }
 enum C { Queued = 'queued', Done = "done" }
+enum D { 'x-y' = 1 }
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -284,7 +286,7 @@ enum C { Queued = 'queued', Done = "done" }
 			got = append(got, e.Name+" "+v.Name+v.Payload)
 		}
 	}
-	if want := `A "queued" A "done" A "say 'hi'" A """ B "queued" B "done" C Queued="queued" C Done="done"`; strings.Join(got, " ") != want {
+	if want := `A "queued" A "done" A "say 'hi'" A """ B "queued" B "done" C Queued="queued" C Done="done" D "x-y"=1`; strings.Join(got, " ") != want {
 		t.Errorf("variants = %s, want %s", strings.Join(got, " "), want)
 	}
 }
@@ -336,6 +338,10 @@ export function bound(this: Ctx, id: string) {
 }
 
 export const withDefaults = (id: string, opts = {}) => load(id, opts);
+
+export function* steps(x: number) {
+  return step(x);
+}
 `
 	units, _, err := Parse("src/store/store.ts", []byte(src))
 	if err != nil {
@@ -351,9 +357,10 @@ export const withDefaults = (id: string, opts = {}) => load(id, opts);
 		}
 	}
 	// A rest parameter, reordered arguments, a second statement or a
-	// default value it adds make no wrapper; an awaited call does, and a
-	// this parameter is no argument to pass on.
-	wantForwards := "Store.visible -> this.inNamespace\nread -> readFile\ncheck -> verifyToken\nload -> open\nbound -> load"
+	// default value it adds make no wrapper, and nor does an async
+	// function or a generator: its callers get a promise or an iterator,
+	// not the call's value. A this parameter is no argument to pass on.
+	wantForwards := "Store.visible -> this.inNamespace\ncheck -> verifyToken\nload -> open\nbound -> load"
 	if strings.Join(forwards, "\n") != wantForwards {
 		t.Errorf("wrappers:\n%s\nwant:\n%s", strings.Join(forwards, "\n"), wantForwards)
 	}
@@ -375,6 +382,7 @@ export const withDefaults = (id: string, opts = {}) => load(id, opts);
 		fmt.Sprintf("pick:%d:::helper", unit.FreeCall),
 		fmt.Sprintf("bound:%d:::load", unit.FreeCall),
 		fmt.Sprintf("withDefaults:%d:::load", unit.FreeCall),
+		fmt.Sprintf("steps:%d:::step", unit.FreeCall),
 	}
 	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(calls, "\n"), strings.Join(want, "\n"))
@@ -429,4 +437,31 @@ const small = (kind: string) => {
 	if len(small.StringMatches) != 0 {
 		t.Errorf("small: string switches %v, want none (two strings are too few)", small.StringMatches)
 	}
+}
+
+// A computed member name ([Symbol.iterator]) names no member code calls
+// by name.
+func TestComputedMembersAreNoUnits(t *testing.T) {
+	units, _ := testutil.Parse(t, Parse, "src/bag.ts", `export class Bag {
+  *[Symbol.iterator]() { yield this.count(); }
+  ["size"]() { return 1; }
+  count() { return 0; }
+}
+`)
+	testutil.Lines(t, "units", testutil.Format(units, func(u unit.Unit) string { return u.Name }), []string{"Bag.count"})
+}
+
+// An export clause makes the names it lists public, as export before a
+// declaration does; one re-exporting another module's names does not.
+func TestExportClausesMakeNamesPublic(t *testing.T) {
+	units, _ := testutil.Parse(t, Parse, "src/api.ts", `function load() {}
+function save() {}
+const remove = () => {};
+function helper() {}
+export { load, remove as del };
+export default save;
+export { helper } from "./other";
+`)
+	testutil.Lines(t, "units", testutil.Format(units, func(u unit.Unit) string { return fmt.Sprintf("%s public=%v", u.Name, u.Public) }),
+		[]string{"load public=true", "save public=true", "remove public=true", "helper public=false"})
 }

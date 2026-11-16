@@ -140,9 +140,41 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 				p.declaration(n, exported)
 			}
 		}
+		p.markExported(root)
 		marked = syntax.MarkIgnored(root, src, p.units, &p.decls)
 	})
 	return p.units, p.decls, errors.Join(err, marked)
+}
+
+// markExported makes public the units an export clause (export { load })
+// or a default export of a name (export default save) lists; a clause
+// re-exporting another module's names (export { x } from "./y") lists
+// none of the file's.
+func (p *parser) markExported(root *sitter.Node) {
+	names := map[string]bool{}
+	for i := uint(0); i < root.NamedChildCount(); i++ {
+		n := root.NamedChild(i)
+		if n.Kind() != "export_statement" || n.ChildByFieldName("declaration") != nil || n.ChildByFieldName("source") != nil {
+			continue
+		}
+		if v := n.ChildByFieldName("value"); v != nil && v.Kind() == "identifier" {
+			names[v.Utf8Text(p.src)] = true
+		}
+		for j := uint(0); j < n.NamedChildCount(); j++ {
+			clause := n.NamedChild(j)
+			if clause.Kind() != "export_clause" {
+				continue
+			}
+			for k := uint(0); k < clause.NamedChildCount(); k++ {
+				if name := clause.NamedChild(k).ChildByFieldName("name"); name != nil {
+					names[name.Utf8Text(p.src)] = true
+				}
+			}
+		}
+	}
+	for i := range p.units {
+		p.units[i].Public = p.units[i].Public || names[p.units[i].Name]
+	}
 }
 
 // languageOf picks the grammar for a file: TSX for .tsx files, which
@@ -223,8 +255,11 @@ func (p *parser) routeOption(name string) bool {
 
 // isConstant reports whether a const's value is a constant: made of
 // literals and operators only, and no empty object or array, which is
-// state to fill (const cache = {}).
+// state to fill (const cache = {}, or {} as Cache).
 func isConstant(value *sitter.Node) bool {
+	for value.NamedChildCount() > 0 && (value.Kind() == "as_expression" || value.Kind() == "satisfies_expression" || value.Kind() == "parenthesized_expression") {
+		value = value.NamedChild(0) // {} as Cache
+	}
 	empty := (value.Kind() == "object" || value.Kind() == "array") && value.NamedChildCount() == 0
 	return !empty && literalsOnly(value)
 }
@@ -264,7 +299,8 @@ func (p *parser) constant(name, value *sitter.Node) {
 }
 
 // structure records an interface or object type as a struct of its
-// properties, each with its type as written; methods are left out.
+// properties, each with its type as written, an optional one's as
+// T|undefined; methods are left out.
 func (p *parser) structure(decl, body *sitter.Node) {
 	name := decl.ChildByFieldName("name")
 	if name == nil || body == nil {
@@ -281,11 +317,24 @@ func (p *parser) structure(decl, body *sitter.Node) {
 		if prop.Kind() != "property_signature" || field == nil || typ == nil || typ.NamedChildCount() == 0 {
 			continue
 		}
-		s.Fields = append(s.Fields, unit.Field{
-			Name: field.Utf8Text(p.src), Type: syntax.Compact(typ.NamedChild(0).Utf8Text(p.src)), Line: syntax.Line(prop.StartPosition()),
-		})
+		t := syntax.Compact(typ.NamedChild(0).Utf8Text(p.src))
+		if optional(prop) && !strings.HasSuffix(t, "|undefined") {
+			t += "|undefined"
+		}
+		s.Fields = append(s.Fields, unit.Field{Name: field.Utf8Text(p.src), Type: t, Line: syntax.Line(prop.StartPosition())})
 	}
 	p.decls.Structs = append(p.decls.Structs, s)
+}
+
+// optional reports whether a property is optional (a?: T): its value may
+// be undefined.
+func optional(prop *sitter.Node) bool {
+	for i := uint(0); i < prop.ChildCount(); i++ {
+		if prop.Child(i).Kind() == "?" {
+			return true
+		}
+	}
+	return false
 }
 
 // enum records an enum, a variant's initialiser as its payload ("=10").
@@ -310,7 +359,11 @@ func (p *parser) enum(decl *sitter.Node) {
 			if value.Kind() == "string" {
 				payload = quoted(value.Utf8Text(p.src))
 			}
-			variants = append(variants, unit.Variant{Name: name.Utf8Text(p.src), Payload: "=" + payload})
+			variant := name.Utf8Text(p.src)
+			if name.Kind() == "string" {
+				variant = quoted(variant)
+			}
+			variants = append(variants, unit.Variant{Name: variant, Payload: "=" + payload})
 		}
 	}
 	p.addEnum(decl, variants)
@@ -383,7 +436,7 @@ func (p *parser) members(class *sitter.Node, exported bool) {
 		if m.Kind() == "public_field_definition" {
 			fn = m.ChildByFieldName("value")
 		}
-		if member == nil || (m.Kind() != "method_definition" && !isFunction(fn)) {
+		if member == nil || member.Kind() == "computed_property_name" || (m.Kind() != "method_definition" && !isFunction(fn)) {
 			continue
 		}
 		u := p.unit(name.Utf8Text(p.src)+"."+member.Utf8Text(p.src), m, fn, exported && !isPrivate(m, member))
@@ -450,6 +503,22 @@ func IsTestPath(file string) bool {
 // IsSource reports whether a file is TypeScript source, by its extension.
 func IsSource(file string) bool {
 	return slices.ContainsFunc(Extensions, func(ext string) bool { return strings.HasSuffix(file, ext) })
+}
+
+// ModuleIs reports whether a relative module path, as importer imports
+// it ("./store", "../auth/verify.js", ".."), names file: the file itself,
+// written with or without its extension or a JavaScript one, or its
+// directory's index file. A package's path names no file of ours.
+func ModuleIs(importer, module, file string) bool {
+	if module != "." && module != ".." && !strings.HasPrefix(module, "./") && !strings.HasPrefix(module, "../") {
+		return false
+	}
+	if ext := path.Ext(module); slices.Contains(Extensions, ext) || slices.Contains([]string{".js", ".jsx", ".mjs", ".cjs"}, ext) {
+		module = strings.TrimSuffix(module, ext)
+	}
+	named := path.Join(path.Dir(filepath.ToSlash(importer)), module)
+	stem := strings.TrimSuffix(filepath.ToSlash(file), path.Ext(file))
+	return stem == named || stem == named+"/index"
 }
 
 // IsDeclarationFile reports whether a file only declares types for code

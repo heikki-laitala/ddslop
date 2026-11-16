@@ -106,14 +106,16 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 }
 
 // forwards returns the callee when a function's whole body is one call,
-// returned, awaited or not, passing the function's parameters on in
-// order: function f(a, b) { return g(a, b); }, or (a) => g(a). Calls on
-// fields (this.inner.get(x)) do not count, and nor do functions without
-// parameters or with a rest, destructured or defaulted one (opts = {}).
+// returned or not, passing the function's parameters on in order:
+// function f(a, b) { return g(a, b); }, or (a) => g(a). Calls on fields
+// (this.inner.get(x)) do not count, and nor do functions without
+// parameters or with a rest, destructured or defaulted one (opts = {}),
+// nor async functions and generators, whose callers get a promise or an
+// iterator, not the call's value.
 func forwards(fn *sitter.Node, src []byte) string {
 	ps, plain := params(fn, src)
 	expr := fn.ChildByFieldName("body")
-	if !plain || len(ps) == 0 || expr == nil {
+	if !plain || len(ps) == 0 || expr == nil || asyncOrGenerator(fn) {
 		return ""
 	}
 	names := make([]string, len(ps))
@@ -130,9 +132,6 @@ func forwards(fn *sitter.Node, src []byte) string {
 		default:
 			return ""
 		}
-	}
-	if expr != nil && expr.Kind() == "await_expression" {
-		expr = expr.NamedChild(0)
 	}
 	if expr == nil || expr.Kind() != "call_expression" {
 		return ""
@@ -151,6 +150,17 @@ func forwards(fn *sitter.Node, src []byte) string {
 		return ""
 	}
 	return callee.Utf8Text(src)
+}
+
+// asyncOrGenerator reports whether a function is async or a generator,
+// by its async or * token.
+func asyncOrGenerator(fn *sitter.Node) bool {
+	for i := uint(0); i < fn.ChildCount(); i++ {
+		if k := fn.Child(i).Kind(); k == "async" || k == "*" {
+			return true
+		}
+	}
+	return false
 }
 
 // params returns a function's parameters that bind one name, in order,

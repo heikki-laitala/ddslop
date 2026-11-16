@@ -743,43 +743,29 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 }
 
 // resolveTypeScript resolves a TypeScript call. A name the file does not
-// import is its own function's, or a global's; an imported one (a path
-// call qualified by its module) is the function of that name in the file
-// a relative module path names, or in its index file, never a package's;
-// a call on this is the caller's class's method. Without types, the name
-// of any other method says nothing: it is not resolved.
+// import is its own function's, or a global's, unless the caller declares
+// it (a parameter), its own name aside (a recursive call); an imported
+// one (a path call qualified by its module) is the exported function of
+// that name in the module a relative path names (see typescript.ModuleIs),
+// never a package's; a call on this is the caller's class's method.
+// Without types, the name of any other method says nothing: it is not
+// resolved.
 func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) int {
 	sameFile := func(u unit.Unit) bool { return u.File == caller.File }
 	switch {
 	case c.Kind == unit.FreeCall:
-		return only(units, ix.free[c.Name], sameFile)
-	case c.Kind == unit.PathCall:
-		module, ok := relativeModule(caller.File, c.Qualifier)
-		if !ok {
+		if c.Name != caller.Name && slices.ContainsFunc(caller.Leaves, func(l unit.Leaf) bool { return l.Declares && l.Text == c.Name }) {
 			return -1
 		}
+		return only(units, ix.free[c.Name], sameFile)
+	case c.Kind == unit.PathCall:
 		return only(units, ix.free[c.Name], func(u unit.Unit) bool {
-			stem := strings.TrimSuffix(filepath.ToSlash(u.File), filepath.Ext(u.File))
-			return stem == module || stem == module+"/index"
+			return u.Public && typescript.ModuleIs(caller.File, c.Qualifier, u.File)
 		})
 	case c.Qualifier == "self" && owner != "":
 		return only(units, ix.owned[owner+"::"+c.Name], sameFile)
 	}
 	return -1
-}
-
-// relativeModule returns the file, without extension, a relative module
-// path ("./store", "../auth/verify.js", "..") names from the file
-// importing it.
-func relativeModule(file, module string) (string, bool) {
-	if module != "." && module != ".." && !strings.HasPrefix(module, "./") && !strings.HasPrefix(module, "../") {
-		return "", false
-	}
-	switch filepath.Ext(module) {
-	case ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts":
-		module = strings.TrimSuffix(module, filepath.Ext(module))
-	}
-	return filepath.ToSlash(filepath.Join(filepath.Dir(file), filepath.FromSlash(module))), true
 }
 
 // pick chooses among candidates the one in the caller's file, else the

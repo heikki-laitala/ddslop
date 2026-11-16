@@ -1266,20 +1266,26 @@ func TestEachPlacedTargetIsACrateOfItsOwn(t *testing.T) {
 	}
 }
 
+// exported marks a unit public, as a TypeScript export does.
+func exported(u unit.Unit) unit.Unit {
+	u.Public = true
+	return u
+}
+
 func TestBuildResolvesTypeScriptCalls(t *testing.T) {
 	units := []unit.Unit{
 		fn("src/store/store.ts", "Store.visible", method("self", "inNamespace")),
 		fn("src/store/store.ts", "Store.inNamespace"),
 		fn("src/store/store.ts", "check", unit.Call{Kind: unit.PathCall, Qualifier: "../auth/verify.js", Name: "verify"}),
-		fn("src/auth/verify.ts", "verify"),
+		exported(fn("src/auth/verify.ts", "verify")),
 		fn("src/web/page.tsx", "Page", unit.Call{Kind: unit.PathCall, Qualifier: "../store/load", Name: "load"}),
-		fn("src/store/load/index.ts", "load"),
-		fn("src/other/load.ts", "load"),
+		exported(fn("src/store/load/index.ts", "load")),
+		exported(fn("src/other/load.ts", "load")),
 		fn("src/store/x/a.ts", "barrel", unit.Call{Kind: unit.PathCall, Qualifier: "..", Name: "open"}),
-		fn("src/store/index.ts", "open"),
+		exported(fn("src/store/index.ts", "open")),
 		// a package's function is none of ours, whatever its name
 		fn("src/store/store.ts", "read", unit.Call{Kind: unit.PathCall, Qualifier: "node:fs/promises", Name: "readFile"}),
-		fn("src/fs/readFile.ts", "readFile"),
+		exported(fn("src/fs/readFile.ts", "readFile")),
 		// a name the file does not import is its own, or a global
 		fn("src/store/store.ts", "logged", unit.Call{Kind: unit.FreeCall, Name: "add"}, unit.Call{Kind: unit.FreeCall, Name: "log"}),
 		fn("src/store/store.ts", "add"),
@@ -1290,6 +1296,17 @@ func TestBuildResolvesTypeScriptCalls(t *testing.T) {
 		fn("src/store/api.ts", "Api.fetchUser"),
 		fn("src/cache.ts", "Cache.get"),
 		fn("src/list.ts", "List.map"),
+		// an import names an exported function: a private one of the name
+		// is not the module's default export
+		fn("src/web/form.tsx", "Form", unit.Call{Kind: unit.PathCall, Qualifier: "../store/persist", Name: "save"}),
+		fn("src/store/persist.ts", "save"),
+		// a parameter shadows the file's function of its name
+		{File: "src/store/store.ts", Name: "apply", Calls: []unit.Call{{Kind: unit.FreeCall, Name: "fn"}},
+			Leaves: []unit.Leaf{{Kind: unit.Identifier, Text: "fn", Declares: true}}},
+		fn("src/store/store.ts", "fn"),
+		// a function declares its own name, and still calls itself
+		{File: "src/store/tree.ts", Name: "walk", Calls: []unit.Call{{Kind: unit.FreeCall, Name: "walk"}},
+			Leaves: []unit.Leaf{{Kind: unit.Identifier, Text: "walk", Declares: true}}},
 	}
 	g := Build(Inputs{}, units)
 	for caller, want := range map[string]string{
@@ -1300,6 +1317,9 @@ func TestBuildResolvesTypeScriptCalls(t *testing.T) {
 		"src/store/store.ts read":           "[]",
 		"src/store/store.ts logged":         "[src/store/store.ts add]",
 		"src/store/store.ts Store.delegate": "[]",
+		"src/web/form.tsx Form":             "[]",
+		"src/store/store.ts apply":          "[]",
+		"src/store/tree.ts walk":            "[src/store/tree.ts walk]",
 	} {
 		if got := callees(g, caller); got != want {
 			t.Errorf("%s calls %s, want %s", caller, got, want)
