@@ -14,7 +14,7 @@ import (
 	"unicode"
 
 	"github.com/heikki-laitala/ddslop/internal/clone"
-	"github.com/heikki-laitala/ddslop/internal/lang/typescript"
+	"github.com/heikki-laitala/ddslop/internal/lang/tsfile"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
@@ -99,7 +99,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 	langs := map[string]*index{}
 	indexOf := func(file string) *index {
 		ext := filepath.Ext(file)
-		if typescript.IsSource(file) {
+		if tsfile.IsSource(file) {
 			ext = ".ts"
 		}
 		if langs[ext] == nil {
@@ -282,7 +282,7 @@ func (r *callResolver) resolveCall(c unit.Call) (int, bool, bool) {
 // by its method name alone (see Graph.ByName), and whether through a
 // value of a trait type (see Graph.Dispatched).
 func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) (int, bool, bool) {
-	if typescript.IsSource(caller.File) {
+	if tsfile.IsSource(caller.File) {
 		return ix.resolveTypeScript(units, caller, owner, c), false, false
 	}
 	if c.Kind != unit.MethodCall || c.Qualifier == "self" {
@@ -746,7 +746,7 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 // import is its own function's, or a global's, unless the caller declares
 // it (a parameter), its own name aside (a recursive call); an imported
 // one (a path call qualified by its module) is the exported function of
-// that name in the module a relative path names (see typescript.ModuleIs),
+// that name in the module a relative path names (see tsfile.ModuleIs),
 // never a package's; a call on this is the caller's class's method.
 // Without types, the name of any other method says nothing: it is not
 // resolved.
@@ -760,7 +760,7 @@ func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner str
 		return only(units, ix.free[c.Name], sameFile)
 	case c.Kind == unit.PathCall:
 		return only(units, ix.free[c.Name], func(u unit.Unit) bool {
-			return u.Public && typescript.ModuleIs(caller.File, c.Qualifier, u.File)
+			return u.Public && tsfile.ModuleIs(caller.File, c.Qualifier, u.File)
 		})
 	case c.Qualifier == "self" && owner != "":
 		return only(units, ix.owned[owner+"::"+c.Name], sameFile)

@@ -28,6 +28,7 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/lang/golang"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
 	"github.com/heikki-laitala/ddslop/internal/lang/syntax"
+	"github.com/heikki-laitala/ddslop/internal/lang/tsfile"
 	"github.com/heikki-laitala/ddslop/internal/lang/typescript"
 	"github.com/heikki-laitala/ddslop/internal/pattern"
 	"github.com/heikki-laitala/ddslop/internal/report"
@@ -575,7 +576,7 @@ type options struct {
 // Rust, Go and TypeScript files there that .ddslop.yaml does not exclude,
 // TypeScript declaration files aside. The caller closes the database.
 func syncIndex(root string) (*index.DB, index.Stats, error) {
-	paths, err := source.Files(root, append([]string{".rs", ".go"}, typescript.Extensions...)...)
+	paths, err := source.Files(root, append([]string{".rs", ".go"}, tsfile.Extensions...)...)
 	if err != nil {
 		return nil, index.Stats{}, err
 	}
@@ -584,7 +585,7 @@ func syncIndex(root string) (*index.DB, index.Stats, error) {
 		return nil, index.Stats{}, err
 	}
 	paths = slices.DeleteFunc(paths, func(p string) bool {
-		return cfg.Excluded(filepath.ToSlash(p)) || typescript.IsDeclarationFile(p)
+		return cfg.Excluded(filepath.ToSlash(p)) || tsfile.IsDeclarationFile(p)
 	})
 	version, err := extractorVersion()
 	if err != nil {
@@ -1310,7 +1311,7 @@ func languageOf(path string) string {
 	switch {
 	case strings.HasSuffix(path, ".go"):
 		return "go"
-	case typescript.IsSource(path):
+	case tsfile.IsSource(path):
 		return "typescript"
 	}
 	return "rust"

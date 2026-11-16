@@ -461,7 +461,10 @@ nor is an async function or a generator, whose callers get a promise or
 an iterator, not the call's value; class members are left out,
 as they may implement an interface, which TypeScript checks by shape.
 All TypeScript extensions share one call index, so a `.tsx` component
-calls a `.ts` helper. Calls through packages are not followed, so no
+calls a `.ts` helper. What the call graph needs to know of TypeScript
+files by name (which are source, which file a relative import names)
+lives in `internal/lang/tsfile`, which holds no parser, so `flow` links
+no grammar. Calls through packages are not followed, so no
 TypeScript code counts as internal to the analysed code and none is
 reported unused; and as module cycles are found among a Rust crate's
 modules, TypeScript files in a crate's directory (a Tauri app's
@@ -2502,7 +2505,8 @@ main.go              entry point; calls internal/cli (kept at the root so
                      `go install github.com/heikki-laitala/ddslop@latest` works)
 internal/cli/        flag parsing, orchestration, exit codes
 internal/unit/       the language-neutral unit and leaf types
-internal/lang/       language adapters (golang, typescript, rust)
+internal/lang/       language adapters (golang, typescript, rust), and tsfile:
+                     TypeScript files by name, without a parser
 internal/parse/      tree-sitter parsing and unit extraction
 internal/clone/      hashing, LSH, verification, grouping
 internal/unify/      anti-unification and hole classification
