@@ -249,7 +249,7 @@ func TestParseErrorFailsSyncAndKeepsPreviousIndex(t *testing.T) {
 
 	_, err := f.db.Sync(Options{Root: f.root, Paths: f.paths, Version: "v1", Parse: f.fake.parse})
 
-	if err == nil || !strings.Contains(err.Error(), "b.rs") { // ddslop:ignore asserts the message the user reads
+	if err == nil || !strings.Contains(err.Error(), "b.rs") {
 		t.Fatalf("Sync error = %v, want an error naming b.rs", err)
 	}
 	if files := f.files(); files[0].Units[0].Name != "alpha" {

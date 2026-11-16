@@ -91,7 +91,7 @@ func TestIgnoredNeedsAReason(t *testing.T) {
 		"/* ddslop:ignore */\nfn f() {}\n",
 	} {
 		_, err := parseIgnored(rustLanguage, src)
-		if err == nil || !strings.Contains(err.Error(), "line 1: ddslop:ignore needs a reason") { // ddslop:ignore asserts the message the user reads
+		if err == nil || !strings.Contains(err.Error(), "line 1: ddslop:ignore needs a reason") {
 			t.Errorf("%q: error = %v, want one asking for a reason on line 1", src, err)
 		}
 	}

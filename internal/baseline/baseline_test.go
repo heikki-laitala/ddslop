@@ -101,7 +101,7 @@ func TestLoadErrors(t *testing.T) {
 	if err := os.WriteFile(bad, []byte(`{"version": 2, "candidates": []}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(bad); err == nil || !strings.Contains(err.Error(), "version") { // ddslop:ignore asserts the message the user reads
+	if _, err := Load(bad); err == nil || !strings.Contains(err.Error(), "version") {
 		t.Errorf("unsupported version: err = %v, want a version error", err)
 	}
 }

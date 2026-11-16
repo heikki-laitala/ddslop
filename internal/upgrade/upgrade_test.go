@@ -98,7 +98,7 @@ func TestInstallReplacesTheBinaryWithAVerifiedRelease(t *testing.T) {
 
 func TestInstallRefusesAReleaseWhoseChecksumDoesNotMatch(t *testing.T) {
 	bin, err := installOver(t, "tampered binary", true)
-	if err == nil || !strings.Contains(err.Error(), "checksum") { // ddslop:ignore asserts the message the user reads
+	if err == nil || !strings.Contains(err.Error(), "checksum") {
 		t.Errorf("Install with a bad checksum: %v, want a checksum error", err)
 	}
 	if got, _ := os.ReadFile(bin); string(got) != "old binary" { //nolint:gosec // the test's own file
