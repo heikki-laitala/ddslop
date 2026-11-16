@@ -1782,11 +1782,16 @@ Section 5 is built for the error idioms (`codemap.Drifts`, kind
 `convention-drift`, action `follow-convention`). `check` finds, per
 language (Go's and Rust's forms are never compared), every occurrence of
 another form in a concern whose convention holds at least 90% of at
-least 5 occurrences across the repository's production code. Test code
-is held to those conventions but sets none: with `--tests` it would
-otherwise move the share production code is judged by, and a suite
-free to check errors by message once took a convention below 90% and
-every drift of its concern, production code's included, with it. The map names a convention
+least 5 occurrences across the repository's production code. With
+`--tests`, test code has conventions of its own, measured and judged
+apart: a test asserts an error's message and fails with a string where
+production code would not, so held to production's conventions every
+such test would drift, and counted with production code a suite free to
+check errors by message once took a convention below 90% and every
+drift of its concern, production code's included, with it. Measured on
+a Rust workspace, its tests' error checks and wrapping hold their
+conventions at 100%, and their error values are a mix (76% variants),
+so a test drifts only from what the other tests do. The map names a convention
 at a simple majority, which describes the code; drift needs more,
 because below it the forms are a mix the code chose, not a slip:
 the Rust service wraps errors with `map_err` in 69% and anyhow's
@@ -2161,8 +2166,7 @@ A linter on a sloppy codebase must not fail every build on day one:
   applies to the first line below it that is neither a comment nor an
   attribute; after code, to its own line. A function, method, struct,
   enum or constant starting on such a line is left out of the analysis,
-  and so is an error form on it (a test asserting an error's message)
-  and a string literal on it (a value that only happens to equal a
+  and so is an error form on it and a string literal on it (a value that only happens to equal a
   constant, which `inlined-constant` would otherwise report). Leaving the
   code out, rather than dropping occurrences from finished candidates,
   keeps differences, scores and health consistent. Parallel flows still
