@@ -941,6 +941,9 @@ func usesIn(container *sitter.Node, src []byte) map[string]string {
 	test := false
 	for i := uint(0); i < container.NamedChildCount(); i++ {
 		n := container.NamedChild(i)
+		if n.IsExtra() {
+			continue // a comment between an attribute and its item
+		}
 		if n.Kind() == "attribute_item" {
 			test = test || isCfgTest(n.Utf8Text(src))
 			continue

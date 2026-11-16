@@ -487,6 +487,27 @@ func TestRootImportsAreTheRootsOwn(t *testing.T) {
 			"mod child;\nmod nested {\n    pub struct Thing;\n}\npub use nested::Thing;\npub fn run() -> u8 { child::f() }\n",
 			"pub fn f() -> u8 { let _t: Option<crate::Thing> = None; 1 }\n")))
 	})
+	t.Run("a glob re-export follows its module's own re-exports", func(t *testing.T) {
+		wantCycleBetween(t, "child -> foo, foo -> child", repo(t, crate(
+			"mod child;\nmod facade;\nmod foo;\npub use facade::*;\n",
+			"pub fn f() -> u8 { let _x: Option<crate::X> = None; 1 }\n",
+			"src/facade.rs", "pub use crate::foo::X;\n",
+			"src/foo.rs", "pub struct X;\npub fn g() -> u8 { crate::child::f() }\n")))
+	})
+	t.Run("a glob's own use of a name another glob defines is no re-export of it", func(t *testing.T) {
+		wantCycleBetween(t, "client -> envelope, envelope -> client", repo(t, map[string]string{
+			"Cargo.toml":      "[package]\nname = \"app\"\n",
+			"src/lib.rs":      "mod client;\nmod envelope;\npub use client::*;\npub use envelope::*;\n",
+			"src/client.rs":   "use crate::Response;\npub enum Failure { Down }\npub fn call() -> Option<Response> { None }\n",
+			"src/envelope.rs": "pub struct Response;\npub fn fail() -> Option<crate::Failure> { None }\n",
+		}))
+	})
+	t.Run("a comment between cfg(test) and its use keeps the use test code's", func(t *testing.T) {
+		wantCycleBetween(t, ". -> child, child -> .", repo(t, crate(
+			"mod child;\nmod foo;\n#[cfg(test)]\n// only the tests take foo's\nuse crate::foo::Thing;\n#[cfg(not(test))]\npub struct Thing;\npub fn run() -> u8 { child::f() }\n",
+			"pub fn f() -> u8 { let _t: Option<crate::Thing> = None; 1 }\n",
+			"src/foo.rs", "pub struct Thing;\n")))
+	})
 	t.Run("a macro the root imports is its module's", func(t *testing.T) {
 		wantCycles(t, 0, "child invokes the macro the root imports from macros", repo(t, crate(
 			"#[macro_use]\nmod macros;\nmod child;\npub(crate) use macros::one;\npub fn run() -> u8 { child::f() }\n",

@@ -235,6 +235,10 @@ type CrateFacts struct {
 	InlineModules map[string]bool
 	// ModuleItems are, by module, the items each defines at its top level.
 	ModuleItems map[string]map[string]bool
+	// ModuleReexports are, by module, the crate:: paths its top-level use
+	// declarations bring in under each name: what a glob of it supplies
+	// besides its own items.
+	ModuleReexports map[string]map[string]string
 }
 
 // ReferencedModule returns the module of its crate a reference written in
@@ -288,9 +292,22 @@ func ReferencedModule(file string, crates *Packages, ref unit.Reference, crate C
 		// A name a glob re-export supplies (pub use refusal::*) is the
 		// module's that defines it.
 		if !crate.RootItems[at[0]] {
+			// The module defining the name comes first: a module's own use
+			// of it (use crate::Response) may be private, not the re-export.
+			var sources []string
 			for _, glob := range crate.RootGlobs {
-				if m := importedModule(name, glob, crate, map[string]bool{}); m != moduleName(name, "") && crate.ModuleItems[m][at[0]] {
+				if m := importedModule(name, glob, crate, map[string]bool{}); m != moduleName(name, "") {
+					sources = append(sources, m)
+				}
+			}
+			for _, m := range sources {
+				if crate.ModuleItems[m][at[0]] {
 					return m
+				}
+			}
+			for _, m := range sources {
+				if path, ok := crate.ModuleReexports[m][at[0]]; ok {
+					return importedModule(name, path, crate, map[string]bool{at[0]: true})
 				}
 			}
 		}

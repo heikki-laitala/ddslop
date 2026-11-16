@@ -876,7 +876,7 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		}
 	}
 	rootValues, selfAliases, rootImports, rootItems := map[string]bool{}, map[string]bool{}, map[string]string{}, map[string]bool{}
-	inline, moduleItems := map[string]bool{}, map[string]map[string]bool{}
+	inline, moduleItems, moduleReexports := map[string]bool{}, map[string]map[string]bool{}, map[string]map[string]string{}
 	var globs []string
 	for _, f := range files {
 		if codemap.Crate(f.Path, crates) != name {
@@ -888,6 +888,15 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		}
 		for _, n := range definedNames(f) {
 			moduleItems[m][n] = true
+		}
+		for n, path := range f.TopImports {
+			// Only a crate:: path reads the same from every module.
+			if !strings.HasPrefix(n, "*") && strings.HasPrefix(path, "crate::") {
+				if moduleReexports[m] == nil {
+					moduleReexports[m] = map[string]string{}
+				}
+				moduleReexports[m][strings.TrimPrefix(n, "r#")] = path
+			}
 		}
 	}
 	for _, f := range files {
@@ -932,7 +941,7 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 	}
 	slices.Sort(globs)
 	facts := codemap.CrateFacts{Modules: modules, RootValues: rootValues, SelfAliases: selfAliases, RootImports: rootImports,
-		RootItems: rootItems, RootGlobs: globs, InlineModules: inline, ModuleItems: moduleItems}
+		RootItems: rootItems, RootGlobs: globs, InlineModules: inline, ModuleItems: moduleItems, ModuleReexports: moduleReexports}
 	var deps []codemap.Dependency
 	for _, f := range files {
 		if generated[f.Path] || codemap.Crate(f.Path, crates) != name || !inLibrary(f.Path, crates, libraries) {
