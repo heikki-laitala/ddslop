@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/heikki-laitala/ddslop/internal/codemap"
 	"github.com/heikki-laitala/ddslop/internal/report"
 )
 
@@ -25,6 +26,10 @@ type Baseline struct {
 	// Functions are the code's functions, as "file#function", when known: a
 	// baseline built from a ref's code knows them, a baseline file does not.
 	Functions map[string]bool `json:"-"`
+	// Conventions are the code's conventions, by language and concern, when
+	// known, as Functions are: a change is judged by the conventions the
+	// code it started from has.
+	Conventions map[string]map[string]codemap.Convention `json:"-"`
 }
 
 // Entry is one known candidate: its occurrences as "file#function".

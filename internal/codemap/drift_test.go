@@ -45,16 +45,21 @@ func TestAMixOfFormsIsNoDrift(t *testing.T) {
 	}
 }
 
-func TestDriftsOnOneLineComeInConcernOrder(t *testing.T) {
+// twoConcerns is 20 functions checking errors by variant and wrapping
+// them with map_err, and one in a/b.go checking by message and wrapping
+// with context, on one line.
+func twoConcerns() *flow.Graph {
 	var units []unit.Unit
 	for i := range 20 {
 		units = append(units, formUnit("a/a.go", i+1, "error-checks", "variant", "error-wrapping", "map_err"))
 	}
 	both := formUnit("a/b.go", 1, "error-wrapping", "context")
 	both.Forms = append(both.Forms, unit.Form{Concern: "error-checks", Form: "message", Line: 1})
-	units = append(units, both)
+	return &flow.Graph{Units: append(units, both)}
+}
 
-	g := &flow.Graph{Units: units}
+func TestDriftsOnOneLineComeInConcernOrder(t *testing.T) {
+	g := twoConcerns()
 	got := Drifts(g, ByModule(nil), ByModule(nil), Conventions(g, ByModule(nil)))
 	if len(got) != 2 || got[0].Concern != "error-checks" || got[1].Concern != "error-wrapping" {
 		t.Errorf("Drifts = %+v, want error-checks then error-wrapping", got)
@@ -91,13 +96,7 @@ func TestTestCodeIsHeldToProductionConventionsButSetsNone(t *testing.T) {
 // whatever its share here, and one that holds there makes a drift of
 // every other form here.
 func TestDriftsAreJudgedAgainstTheConventionsGiven(t *testing.T) {
-	var units []unit.Unit
-	for i := range 20 {
-		units = append(units, formUnit("a/a.go", i+1, "error-checks", "variant", "error-wrapping", "map_err"))
-	}
-	units = append(units, formUnit("a/b.go", 1, "error-checks", "message", "error-wrapping", "context"))
-	g := &flow.Graph{Units: units}
-
+	g := twoConcerns()
 	given := map[string]Convention{
 		"error-checks":   {Form: "variant", Share: 0.85},
 		"error-wrapping": {Form: "map_err", Share: 0.95, Holds: true},

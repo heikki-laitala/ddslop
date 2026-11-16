@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -393,7 +394,7 @@ func filteredCheck(root string, opts options, f filters) (report.Report, error) 
 			return report.Report{}, err
 		}
 	}
-	r, err := check(root, opts)
+	r, _, err := check(root, opts, known.Conventions)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -468,11 +469,12 @@ func baselineAt(root string, opts options, ref string) (baseline.Baseline, error
 	if err := sameConfig(root, dir); err != nil {
 		return baseline.Baseline{}, err
 	}
-	r, err := check(dir, opts)
+	r, conventions, err := check(dir, opts, nil)
 	if err != nil {
 		return baseline.Baseline{}, err
 	}
 	b := baseline.FromReport(r)
+	b.Conventions = conventions
 	if b.Functions, err = functionsAt(dir); err != nil {
 		return baseline.Baseline{}, err
 	}
@@ -527,7 +529,7 @@ func runBaseline(args []string, stdout, stderr io.Writer) int {
 	if path == "" {
 		path = filepath.Join(root, baselineFile)
 	}
-	r, err := check(root, opts)
+	r, _, err := check(root, opts, nil)
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -597,10 +599,13 @@ func threadCount() int {
 	return index.ResolveThreads(os.Getenv("DDSLOP_INDEX_THREADS"), runtime.NumCPU())
 }
 
-func check(root string, opts options) (report.Report, error) {
+// check analyses the code at root, judging its convention drifts by judged
+// where it names a concern (see drifts), and returns its report with the
+// conventions measured on that code, by language.
+func check(root string, opts options, judged map[string]map[string]codemap.Convention) (report.Report, map[string]map[string]codemap.Convention, error) {
 	db, files, stats, err := openFiles(root)
 	if err != nil {
-		return report.Report{}, err
+		return report.Report{}, nil, err
 	}
 	defer func() { _ = db.Close() }()
 	threads := threadCount()
@@ -684,6 +689,7 @@ func check(root string, opts options) (report.Report, error) {
 	g, traits := callGraph(root, files)
 	internal := internalCrates(root, files)
 	flows := parallelFlows(g, traits, opts.minNodes)
+	found, conventions := drifts(units, packages(root, files), judged)
 	r := report.Build(languageOf, report.Findings{
 		Groups: append(groups, helperGroups...), NearMisses: nearMisses, Blocks: blocks, Flows: flows,
 		Structs:  clone.Structs(structs, minStructFields),
@@ -696,18 +702,21 @@ func check(root string, opts options) (report.Report, error) {
 		Scopes:   pattern.Scopes(units),
 		Kinds:    pattern.StringKinds(units),
 		Params:   pattern.ParameterGroups(units, decls.FuncTypes),
-		Drifts:   drifts(units, packages(root, files)),
+		Drifts:   found,
 		Cycles:   dependencyCycles(cycleGraph(g, root, files, units, opts.tests), files, packages(root, files), opts.tests),
 	}, summary)
-	return r, recordHealth(db, root, r.Summary.Health)
+	return r, conventions, recordHealth(db, root, r.Summary.Health)
 }
 
 // drifts finds the convention drifts in the units check analyses (no
 // generated code, test code only with --tests), each language on its own
-// (see codemap.Drifts): Go's and Rust's forms are never compared.
-func drifts(units []unit.Unit, crates *codemap.Packages) []report.Drift {
+// (see codemap.Drifts): Go's and Rust's forms are never compared. A
+// concern judged has the convention judged gives it, else the one
+// measured here; the conventions measured here come back, by language.
+func drifts(units []unit.Unit, crates *codemap.Packages, judged map[string]map[string]codemap.Convention) ([]report.Drift, map[string]map[string]codemap.Convention) {
 	g := &flow.Graph{Units: units}
 	var out []report.Drift
+	measured := map[string]map[string]codemap.Convention{}
 	for _, lang := range []string{"go", "rust"} {
 		inLang := codemap.Grouping(func(u unit.Unit) string {
 			if languageOf(u.File) != lang {
@@ -715,12 +724,15 @@ func drifts(units []unit.Unit, crates *codemap.Packages) []report.Drift {
 			}
 			return lang
 		})
-		for _, d := range codemap.Drifts(g, inLang, codemap.ByModule(crates), codemap.Conventions(g, inLang)) {
+		measured[lang] = codemap.Conventions(g, inLang)
+		conventions := maps.Clone(measured[lang])
+		maps.Copy(conventions, judged[lang])
+		for _, d := range codemap.Drifts(g, inLang, codemap.ByModule(crates), conventions) {
 			out = append(out, report.Drift{Concern: d.Concern, Form: d.Form, Convention: d.Convention, Share: d.Share,
 				Unit: g.Units[d.Unit], Lines: d.Lines, Target: g.Units[d.Target], TargetLine: d.TargetLine})
 		}
 	}
-	return out
+	return out, measured
 }
 
 // dependencyCycles finds the modules of each Rust crate depending on each

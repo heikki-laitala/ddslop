@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 // driftRepo checks errors with errors.Is in 30 functions and by message
@@ -142,3 +144,51 @@ func TestTestCodeDoesNotDecideTheConvention(t *testing.T) {
 		t.Errorf("drifts with --tests = %v, want ByMessage and the ten test helpers", got)
 	}
 }
+
+// errorChecks is a Go file of n functions checking errors with errors.Is
+// and m checking them by message, named with prefix.
+func errorChecks(prefix string, n, m int) string {
+	var b strings.Builder
+	b.WriteString("package store\n\nimport (\n\t\"errors\"\n\t\"strings\"\n)\n\n")
+	for i := range n {
+		fmt.Fprintf(&b, "func %sIs%d(err error) bool { return errors.Is(err, ErrMissing) }\n", prefix, i)
+	}
+	for i := range m {
+		fmt.Fprintf(&b, "func %sByMessage%d(err error) bool { return strings.Contains(err.Error(), \"x\") }\n", prefix, i)
+	}
+	return b.String()
+}
+
+// A gate judges a change by the conventions the code it started from has:
+// a change that brings a concern's share up to the drift share makes no
+// drift of the code it did not touch, and one that brings it down still
+// has its own drifts reported.
+func TestBaselineRefJudgesDriftsByTheBaseConventions(t *testing.T) {
+	sentinel := "package store\n\nimport \"errors\"\n\nvar ErrMissing = errors.New(\"missing\")\n"
+	cases := []struct {
+		name       string
+		base, more [2]int // checks by errors.Is and by message, at the base and added
+		want       []string
+	}{
+		// 30 of 35 at the base, no convention; 50 of 55 after.
+		{name: "rising", base: [2]int{30, 5}, more: [2]int{20, 0}, want: nil},
+		// 30 of 31 at the base; 30 of 35 after, below the drift share.
+		{name: "falling", base: [2]int{30, 1}, more: [2]int{0, 4},
+			want: []string{"store/new.go:8-8 NewByMessage0", "store/new.go:9-9 NewByMessage1",
+				"store/new.go:10-10 NewByMessage2", "store/new.go:11-11 NewByMessage3"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := committedRepo(t, map[string]string{
+				"store/e.go": sentinel,
+				"store/s.go": errorChecks("Old", tc.base[0], tc.base[1]),
+			})
+			testutil.WriteFiles(t, root, map[string]string{"store/new.go": errorChecks("New", tc.more[0], tc.more[1])})
+
+			if got := driftCandidates(t, "--baseline-ref", "HEAD", root); strings.Join(got, ", ") != strings.Join(tc.want, ", ") {
+				t.Errorf("drifts = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
