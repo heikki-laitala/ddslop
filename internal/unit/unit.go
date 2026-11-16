@@ -133,6 +133,14 @@ type Scope struct {
 	Nodes int
 }
 
+// Import is one import statement of a file: the module it names, as
+// written ("../db/client"), and its line.
+type Import struct {
+	Module        string
+	Line          int
+	Test, Ignored bool
+}
+
 // Reference is a path naming another module of the same crate, such as
 // crate::store::Endpoint or super::config::load: a dependency on that
 // module whether or not it calls a function there, as a constant, a type
@@ -277,11 +285,15 @@ type Decls struct {
 	// (import * as schema from "./schema", import("./user")): it may use
 	// any of their exports without naming it. TypeScript only.
 	WholeImports []string
-	Structs      []Struct
-	Enums        []Enum
-	Consts       []Const
-	Traits       []Trait
-	Impls        []Impl
+	// Imports are the file's static import statements: a dependency on
+	// the modules they name, whether or not it calls them. TypeScript
+	// only.
+	Imports []Import
+	Structs []Struct
+	Enums   []Enum
+	Consts  []Const
+	Traits  []Trait
+	Impls   []Impl
 	// TypeNames are the names of every type the file declares: structs of
 	// any kind, enums, unions and type aliases.
 	TypeNames []string

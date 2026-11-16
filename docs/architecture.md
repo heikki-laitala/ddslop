@@ -523,7 +523,8 @@ the outer name has its own type again after it. A parameter or local
 named like an import shadows the import, and `this` in a nested
 `function` (not an arrow function) is no class instance. And as module
 cycles are found among a Rust crate's modules, TypeScript files in a
-crate's directory (a Tauri app's frontend) are none of its modules. On
+crate's directory (a Tauri app's frontend) are none of its modules:
+their directories form cycles of their own. On
 Hono, Excalidraw and tRPC, 6 wrappers, all passing their parameters on
 unchanged; most narrow the types (`createHTTPHandler` calling
 `createHandler`). Following workspace packages found 3 more on
@@ -1541,7 +1542,7 @@ gathered once, by the detectors that exist; `map` describes it and
 | Kinds and states | `string-kinds` matches, enums | the enum, or the strings flagged | `string-kinds`; `convention-drift` for strings matched where the enum exists |
 | Parameter groups | `parameter-group` | the groups flagged; a struct that already holds a group is not recognised yet, so this concern has no conventional or drift state | `parameter-group` |
 | Errors | per-adapter error forms (section 4) | the form of each error concern | `convention-drift` |
-| Layers | the module graph | the layers, and the cycles they collapse | `dependency-cycle` for modules of a Rust crate depending on each other in a loop, by calls or paths; `convention-drift` for bypasses |
+| Layers | the module graph | the layers, and the cycles they collapse | `dependency-cycle` for modules of a Rust crate depending on each other in a loop, by calls or paths, or TypeScript directories, by calls or imports; `convention-drift` for bypasses |
 | Helpers | the call graph, clone groups | the shared helpers, a helper with copies flagged | the clone candidate |
 
 Every occurrence of a concern is exactly one of:
@@ -1793,8 +1794,20 @@ otherwise close a loop that the code does not have (`Graph.Dispatched`,
 per call). A function that also calls the implementation directly
 depends on it, and that call is the cycle's site. On a Rust workspace
 this removed two cycles, both of that shape, and changed no other.
-Only Rust modules within a crate can form one: Go's compiler forbids
-import cycles between packages, and Cargo cycles between crates.
+Only Rust modules within a crate, and TypeScript directories, can form
+one: Go's compiler forbids import cycles between packages, and Cargo
+cycles between crates. A TypeScript directory, the module `map`
+describes, depends on another it calls or imports from by a relative
+path. An import of types only (`import type`) is none, as compiling
+removes it; nor is a re-export (`export * from`, a barrel's) or a
+dynamic `import()`, which loads later, as code breaking a cycle does.
+Measured: 37 cycles on Excalidraw, 12 on Hono, 14 on tRPC; most are a
+directory and one below it, where the upper one holds both the code
+wiring the lower ones together and a module they import back (a
+logger, the configuration), so moving that module down a level breaks
+them all. Taking the files directly in `src/` as modules of their own,
+as Rust's are, was measured and dropped: Excalidraw's cycles went from
+37 to 54, between single files.
 
 The map does not say which side of a pair is wrong. A weighted greedy
 feedback arc set (Eades, Lin and Smyth) was measured for that: it broke

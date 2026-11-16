@@ -34,15 +34,27 @@ func IsSource(file string) bool {
 // written with or without its extension or a JavaScript one, or its
 // directory's index file. A package's path names no file of ours.
 func ModuleIs(importer, module, file string) bool {
+	named, ok := ModulePath(importer, module)
+	stem := Stem(file)
+	return ok && (stem == named || stem == named+"/index")
+}
+
+// ModulePath returns the path, without extension, that a relative module
+// path names as importer imports it: a file of that stem, or the index
+// file of a directory of that path. A package's path names none.
+func ModulePath(importer, module string) (string, bool) {
 	if module != "." && module != ".." && !strings.HasPrefix(module, "./") && !strings.HasPrefix(module, "../") {
-		return false
+		return "", false
 	}
 	if ext := path.Ext(module); slices.Contains(Extensions, ext) || slices.Contains([]string{".js", ".jsx", ".mjs", ".cjs"}, ext) {
 		module = strings.TrimSuffix(module, ext)
 	}
-	named := path.Join(path.Dir(filepath.ToSlash(importer)), module)
-	stem := strings.TrimSuffix(filepath.ToSlash(file), path.Ext(file))
-	return stem == named || stem == named+"/index"
+	return path.Join(path.Dir(filepath.ToSlash(importer)), module), true
+}
+
+// Stem returns a file's slashed path without its extension.
+func Stem(file string) string {
+	return strings.TrimSuffix(filepath.ToSlash(file), path.Ext(file))
 }
 
 // AliasMayBe reports whether a module path written through a path alias
@@ -59,7 +71,7 @@ func AliasMayBe(module, file string) bool {
 	} else {
 		return false
 	}
-	stem := "/" + strings.TrimSuffix(filepath.ToSlash(file), path.Ext(file))
+	stem := "/" + Stem(file)
 	return strings.HasSuffix(stem, "/"+rest) || strings.HasSuffix(stem, "/"+rest+"/index")
 }
 

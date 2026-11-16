@@ -842,15 +842,16 @@ func appendDrifts(out []report.Drift, g *flow.Graph, found []codemap.Drift) []re
 	return out
 }
 
-// dependencyCycles finds the modules of each Rust crate depending on each
-// other in a loop (see codemap.Cycles), in the code check reports on: no
-// generated files, and test code only with tests. A module depends on
-// another it calls or names in a path: a constant, a type or a use is a
-// dependency as much as a call. A pair depending on each other is one
-// cycle, closed by its two sites; a group with no such pair is one, closed
-// by each step of a shortest loop. A cycle any of whose sites a
-// ddslop:ignore marks is deliberate, and left out. Go packages and Rust
-// crates cannot form one.
+// dependencyCycles finds the modules of each Rust crate, and the
+// TypeScript directories, depending on each other in a loop (see
+// codemap.Cycles), in the code check reports on: no generated files, and
+// test code only with tests. A Rust module depends on another it calls or
+// names in a path: a constant, a type or a use is a dependency as much as
+// a call; a TypeScript directory on another it calls or imports from. A
+// pair depending on each other is one cycle, closed by its two sites; a
+// group with no such pair is one, closed by each step of a shortest loop.
+// A cycle any of whose sites a ddslop:ignore marks is deliberate, and
+// left out. Go packages and Rust crates cannot form one.
 func dependencyCycles(g *flow.Graph, files []index.File, crates *codemap.Packages, tests bool) []report.Cycle {
 	generated := map[string]bool{}
 	for _, f := range files {
@@ -867,23 +868,68 @@ func dependencyCycles(g *flow.Graph, files []index.File, crates *codemap.Package
 			}
 			return in(u)
 		})
-		for _, c := range codemap.Cycles(g, group, dependencies(files, crates, name, generated, libraries, tests)) {
-			for _, l := range c.Links {
-				out = appendCycle(out, g, name+"\x00"+l.A+"\x00"+l.B,
-					[]string{l.A + " -> " + l.B, l.B + " -> " + l.A}, []codemap.Site{l.AB, l.BA})
+		out = appendCycles(out, g, name, codemap.Cycles(g, group, dependencies(files, crates, name, generated, libraries, tests)))
+	}
+	directory := codemap.Grouping(func(u unit.Unit) string {
+		if !tsfile.IsSource(u.File) {
+			return ""
+		}
+		return codemap.Module(u.File, nil)
+	})
+	return appendCycles(out, g, "typescript", codemap.Cycles(g, directory, tsDependencies(files, tests)))
+}
+
+// appendCycles adds the cycles among the modules of one crate, or of a
+// language's code, named name: a cycle for each pair depending on each
+// other, and one for each group with no such pair, closed by its loop.
+func appendCycles(out []report.Cycle, g *flow.Graph, name string, cycles []codemap.Cycle) []report.Cycle {
+	for _, c := range cycles {
+		for _, l := range c.Links {
+			out = appendCycle(out, g, name+"\x00"+l.A+"\x00"+l.B,
+				[]string{l.A + " -> " + l.B, l.B + " -> " + l.A}, []codemap.Site{l.AB, l.BA})
+		}
+		if len(c.Loop) > 0 {
+			var steps []string
+			var sites []codemap.Site
+			for _, h := range c.Loop {
+				steps = append(steps, h.From+" -> "+h.To)
+				sites = append(sites, h.Site)
 			}
-			if len(c.Loop) > 0 {
-				var steps []string
-				var sites []codemap.Site
-				for _, h := range c.Loop {
-					steps = append(steps, h.From+" -> "+h.To)
-					sites = append(sites, h.Site)
-				}
-				out = appendCycle(out, g, name+"\x00"+strings.Join(c.Modules, "\x00"), steps, sites)
-			}
+			out = appendCycle(out, g, name+"\x00"+strings.Join(c.Modules, "\x00"), steps, sites)
 		}
 	}
 	return out
+}
+
+// tsDependencies lists the TypeScript directories' imports of a file of
+// another directory: a relative import (see tsfile.ModulePath), in files
+// order and each file's source order. Test files' imports count only with
+// tests; a re-export (export * from) or a dynamic import is none.
+func tsDependencies(files []index.File, tests bool) []codemap.Dependency {
+	stems := map[string]string{}
+	for _, f := range files {
+		if tsfile.IsSource(f.Path) {
+			stems[tsfile.Stem(f.Path)] = f.Path
+		}
+	}
+	var deps []codemap.Dependency
+	for _, f := range files {
+		from := codemap.Module(f.Path, nil)
+		for _, im := range f.Decls.Imports {
+			named, ok := tsfile.ModulePath(f.Path, im.Module)
+			if !ok || (im.Test && !tests) {
+				continue
+			}
+			file, found := stems[named]
+			if !found {
+				file, found = stems[named+"/index"]
+			}
+			if to := codemap.Module(file, nil); found && to != from {
+				deps = append(deps, codemap.Dependency{From: from, To: to, File: f.Path, Item: "import", Line: im.Line, Ignored: im.Ignored})
+			}
+		}
+	}
+	return deps
 }
 
 // dependencies lists what the modules of one crate's library depend on

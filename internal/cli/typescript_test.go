@@ -164,14 +164,15 @@ func TestCheckReportsTypeScriptWrappers(t *testing.T) {
 	// save wraps encode; fetchRow wraps the file's own loadRow, not the
 	// other file's, which it does not import. A class method may be what
 	// an interface asks for: no wrapper.
-	testutil.Lines(t, "candidates", candidateLines(decode(t, stdout)), []string{
+	testutil.Lines(t, "wrappers", candidateLines(decode(t, stdout), "pass-through"), []string{
 		"typescript pass-through [src/codec/parse.ts fetchRow]",
 		"typescript pass-through [src/codec/parse.ts save]",
 	})
 }
 
 // Module cycles are found among a Rust crate's modules; TypeScript calls
-// in the crate's directory (a Tauri app's frontend) are none of them.
+// in the crate's directory (a Tauri app's frontend) are none of them, but
+// close a cycle of TypeScript directories.
 func TestTypeScriptCallsCloseNoRustCycle(t *testing.T) {
 	root := repo(t, map[string]string{
 		"Cargo.toml":         "[package]\nname = \"app\"\n",
@@ -181,13 +182,11 @@ func TestTypeScriptCallsCloseNoRustCycle(t *testing.T) {
 		"src/codec/parse.ts": tsParse,
 	})
 
-	_, stdout, stderr := run("check", "--format", "json", root)
+	_, stdout, _ := run("check", "--format", "json", root)
 
-	for _, c := range decode(t, stdout).Candidates {
-		if c.Kind == "dependency-cycle" {
-			t.Errorf("reported a cycle through %+v; stderr: %s", c.Occurrences, stderr)
-		}
-	}
+	testutil.Lines(t, "cycles", candidateLines(decode(t, stdout), "dependency-cycle"), []string{
+		"typescript dependency-cycle [src/codec/parse.ts save, src/store/load.ts loadRow]",
+	})
 }
 
 func TestCheckReportsTypeScriptParameterGroupsAndStringKinds(t *testing.T) {

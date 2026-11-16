@@ -196,6 +196,11 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 			if n.HasError() {
 				continue
 			}
+			if source := n.ChildByFieldName("source"); n.Kind() == "import_statement" && source != nil && !typesOnly(n) {
+				p.decls.Imports = append(p.decls.Imports, unit.Import{
+					Module: strings.Trim(source.Utf8Text(src), `"'`), Line: syntax.Line(n.StartPosition()), Test: p.test,
+				})
+			}
 			from := len(p.units)
 			p.declaration(n, exported)
 			for j := from; j < len(p.units); j++ {
@@ -261,6 +266,25 @@ func wholeImports(root *sitter.Node, src []byte) []string {
 	}
 	walk(root)
 	return out
+}
+
+// typesOnly reports whether an import statement imports types only
+// (import type { A }, import { type A, type B }), which compiling removes.
+func typesOnly(n *sitter.Node) bool {
+	if hasChild(n, "type") {
+		return true
+	}
+	clause := n.NamedChild(0)
+	if clause == nil || clause.Kind() != "import_clause" || clause.NamedChildCount() != 1 || clause.NamedChild(0).Kind() != "named_imports" {
+		return false // import "./x", or a default or namespace import
+	}
+	names := clause.NamedChild(0)
+	for i := uint(0); i < names.NamedChildCount(); i++ {
+		if !hasChild(names.NamedChild(i), "type") {
+			return false
+		}
+	}
+	return names.NamedChildCount() > 0
 }
 
 // hasNamespaceImport reports whether an import statement imports its

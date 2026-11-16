@@ -226,3 +226,60 @@ func TestACycleThroughATraitAndADirectCallIsTheDirectCall(t *testing.T) {
 		}
 	}
 }
+
+// wantSites fails the test unless the report's first cycle closes at
+// sites, each file:unit:line.
+func wantSites(t *testing.T, r cycleReport, sites string) {
+	t.Helper()
+	var got []string
+	for _, o := range r.Candidates[0].Occurrences {
+		got = append(got, fmt.Sprintf("%s:%s:%d", o.File, o.Name, o.StartLine))
+	}
+	if strings.Join(got, " ") != sites {
+		t.Errorf("occurrences = %s, want %s", strings.Join(got, " "), sites)
+	}
+}
+
+// TypeScript directories calling each other are a cycle, as Rust modules
+// are: the calls each way close it.
+func TestCheckReportsTypeScriptDirectoriesCallingEachOther(t *testing.T) {
+	r := wantCycleBetween(t, "src/codec -> src/store, src/store -> src/codec", repo(t, map[string]string{
+		"src/store/load.ts":  tsLoad,
+		"src/codec/parse.ts": tsParse,
+	}))
+	wantSites(t, r, "src/codec/parse.ts:save:10 src/store/load.ts:loadRow:4")
+}
+
+// An import is a dependency whether or not the file calls what it
+// imports: a type or a constant from a directory that calls back closes
+// a cycle, at the import's line.
+func TestCheckReportsATypeScriptCycleThroughAnImport(t *testing.T) {
+	r := wantCycleBetween(t, "src/api -> src/db, src/db -> src/api", repo(t, map[string]string{
+		"src/api/routes.ts": "import { connect } from \"../db/client\";\n\nexport const LIMIT = 10;\n\nexport function serve() {\n  return connect();\n}\n",
+		"src/db/client.ts":  "import type { Row } from \"./row\";\nimport { LIMIT } from \"../api/routes\";\n\nexport function connect(): Row[] {\n  return new Array(LIMIT);\n}\n",
+		"src/db/row.ts":     "export interface Row {\n  id: string;\n}\n",
+	}))
+	wantSites(t, r, "src/api/routes.ts:serve:6 src/db/client.ts:import:2")
+}
+
+// What closes no TypeScript cycle: files of one directory, a barrel
+// re-exporting a directory below it, a dynamic import (loaded later, as
+// code breaking a cycle does), an import of types only (compiled away), a
+// test's import, an import marked ddslop:ignore, and a module of no file
+// of ours.
+func TestCheckReportsNoTypeScriptCycleWithoutOne(t *testing.T) {
+	wantCycles(t, 0, "no cycle", repo(t, map[string]string{
+		"src/index.ts":          "export * from \"./db/client\";\nexport { serve } from \"./api/routes\";\n",
+		"src/version.ts":        "export const VERSION = \"1\";\n",
+		"src/db/client.ts":      "import { VERSION } from \"..\";\nimport { helper } from \"./helper\";\n\nexport function connect() {\n  return helper(VERSION);\n}\n",
+		"src/db/helper.ts":      "import { connect } from \"./client\";\n\nexport function helper(v: string) {\n  return v;\n}\n\nexport function again() {\n  return connect();\n}\n",
+		"src/api/routes.ts":     "import { connect } from \"../db/client\";\nimport { z } from \"zod\";\n\nexport async function serve() {\n  const { audit } = await import(\"../audit/log\");\n  audit();\n  return connect();\n}\n",
+		"src/audit/log.ts":      "import { serve } from \"../api/routes\";\n\nexport function audit() {\n  return 1;\n}\n\nexport const restart = () => serve;\n",
+		"src/db/client.test.ts": "import { serve } from \"../api/routes\";\n\nserve();\n",
+		"src/jobs/run.ts":       "// ddslop:ignore the job reads the api's limit on purpose\nimport { serve } from \"../api/routes\";\n\nexport function run() {\n  return 1;\n}\n",
+		"src/api/jobs.ts":       "import { run } from \"../jobs/run\";\n\nexport function schedule() {\n  return run();\n}\n",
+		"src/model/user.ts":     "import type { Db } from \"../store/db\";\nimport { type Conn, type Pool } from \"../store/pool\";\n\nexport function makeUser(db: Db, c: Conn, p: Pool) {\n  return { db, c, p };\n}\n",
+		"src/store/db.ts":       "import { makeUser } from \"../model/user\";\n\nexport interface Db {\n  id: string;\n}\n\nexport function load(db: Db) {\n  return makeUser(db, 1, 2);\n}\n",
+		"src/store/pool.ts":     "export type Conn = number;\nexport type Pool = number;\n",
+	}))
+}

@@ -15,9 +15,9 @@ import (
 // reviewable.
 const IgnoreMarker = "ddslop:ignore"
 
-// MarkIgnored marks the units, structs, enums, constants, literal leaves
-// and forms that start on a line a ddslop:ignore comment applies to (see
-// Ignored).
+// MarkIgnored marks the units, structs, enums, constants, imports,
+// literal leaves and forms that start on a line a ddslop:ignore comment
+// applies to (see Ignored).
 func MarkIgnored(root *sitter.Node, src []byte, units []unit.Unit, decls *unit.Decls) error {
 	lines, err := Ignored(root, src)
 	if err != nil || len(lines) == 0 {
@@ -36,16 +36,26 @@ func MarkIgnored(root *sitter.Node, src []byte, units []unit.Unit, decls *unit.D
 			u.Forms[j].Ignored = lines[u.Forms[j].Line]
 		}
 	}
-	for i := range decls.Structs {
-		decls.Structs[i].Ignored = lines[decls.Structs[i].StartLine]
-	}
-	for i := range decls.Enums {
-		decls.Enums[i].Ignored = lines[decls.Enums[i].StartLine]
-	}
-	for i := range decls.Consts {
-		decls.Consts[i].Ignored = lines[decls.Consts[i].Line]
-	}
+	markDecls(decls, lines)
 	return nil
+}
+
+// markDecls marks the declarations starting on an ignored line.
+// ddslop:ignore one call per kind of declaration: the same shape over different types
+func markDecls(decls *unit.Decls, lines map[int]bool) {
+	mark(decls.Structs, lines, func(s *unit.Struct) (int, *bool) { return s.StartLine, &s.Ignored })
+	mark(decls.Enums, lines, func(e *unit.Enum) (int, *bool) { return e.StartLine, &e.Ignored })
+	mark(decls.Consts, lines, func(c *unit.Const) (int, *bool) { return c.Line, &c.Ignored })
+	mark(decls.Imports, lines, func(im *unit.Import) (int, *bool) { return im.Line, &im.Ignored })
+}
+
+// mark marks each declaration starting on an ignored line, by its line
+// and its Ignored field.
+func mark[T any](decls []T, lines map[int]bool, at func(*T) (int, *bool)) {
+	for i := range decls {
+		line, ignored := at(&decls[i])
+		*ignored = lines[line]
+	}
 }
 
 // Ignored returns the lines ddslop:ignore comments in the syntax tree at
