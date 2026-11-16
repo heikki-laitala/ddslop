@@ -310,3 +310,95 @@ enum C { Queued = 'queued', Done = "done" }
 		t.Errorf("variants = %s, want %s", strings.Join(got, " "), want)
 	}
 }
+
+func TestUnitsRecordCallsAndWhatAWrapperForwardsTo(t *testing.T) {
+	src := `import { readFile } from "node:fs/promises";
+import { verify as verifyToken } from "../auth/verify.js";
+import * as db from "./db";
+import open from "./open";
+
+export class Store {
+  visible(principal: string, tokenId: number): boolean {
+    return this.inNamespace(principal, tokenId);
+  }
+  delegate(x: number) {
+    return this.inner.get(x);
+  }
+}
+
+export async function read(path: string) {
+  return await readFile(path);
+}
+
+export function check(token: string) {
+  return verifyToken(token);
+}
+
+export const load = (path: string) => open(path);
+
+export function query(sql: string, ...args: unknown[]) {
+  return db.query(sql, ...args);
+}
+
+function reordered(a: number, b: number) {
+  return add(b, a);
+}
+
+function logged(x: number) {
+  log(x);
+  return add(x);
+}
+
+function pick(items: Item[]) {
+  return items.map((item) => helper(item));
+}
+`
+	units, _, err := Parse("src/store/store.ts", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forwards, calls []string
+	for _, u := range units {
+		if u.Forwards != "" {
+			forwards = append(forwards, u.Name+" -> "+u.Forwards)
+		}
+		for _, c := range u.Calls {
+			calls = append(calls, fmt.Sprintf("%s:%d:%s:%s:%s", u.Name, c.Kind, c.Qualifier, c.Field, c.Name))
+		}
+	}
+	// A rest parameter, reordered arguments or a second statement make no
+	// wrapper; an awaited call does.
+	wantForwards := "Store.visible -> this.inNamespace\nread -> readFile\ncheck -> verifyToken\nload -> open"
+	if strings.Join(forwards, "\n") != wantForwards {
+		t.Errorf("wrappers:\n%s\nwant:\n%s", strings.Join(forwards, "\n"), wantForwards)
+	}
+	// An imported function is a path call qualified by its module as
+	// written, under the name it is exported as; one through a namespace
+	// import too. A call on this is a self call, one on a field of this a
+	// method call on that field, and one on anything else a method call.
+	want := []string{
+		fmt.Sprintf("Store.visible:%d:self::inNamespace", unit.MethodCall),
+		fmt.Sprintf("Store.delegate:%d::inner:get", unit.MethodCall),
+		fmt.Sprintf("read:%d:node:fs/promises::readFile", unit.PathCall),
+		fmt.Sprintf("check:%d:../auth/verify.js::verify", unit.PathCall),
+		fmt.Sprintf("load:%d:./open::open", unit.PathCall),
+		fmt.Sprintf("query:%d:./db::query", unit.PathCall),
+		fmt.Sprintf("reordered:%d:::add", unit.FreeCall),
+		fmt.Sprintf("logged:%d:::log", unit.FreeCall),
+		fmt.Sprintf("logged:%d:::add", unit.FreeCall),
+		fmt.Sprintf("pick:%d:::map", unit.MethodCall),
+		fmt.Sprintf("pick:%d:::helper", unit.FreeCall),
+	}
+	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(calls, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// A class method may implement an interface, which TypeScript checks by
+// shape alone: it may be called without its name being written.
+func TestClassMembersMayBeCalledThroughAnInterface(t *testing.T) {
+	u := unitNamed(t, "a.ts", store, "Store.load")
+	if !u.ViaInterface() || unitNamed(t, "a.ts", store, "loadRow").ViaInterface() {
+		t.Error("want class members, and only them, callable through an interface")
+	}
+}

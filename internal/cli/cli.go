@@ -975,7 +975,8 @@ func wordCounts(files []index.File) map[string]int {
 // internalCrates reports, for a file, whether its crate or package serves
 // only the analysed code (see rust.Unpublished and golang.Internal). The
 // Rust workspace manifest is the one at root. TypeScript code is never
-// known to be internal: its calls are not recorded.
+// known to be internal: calls through package imports, such as another
+// workspace package's, are not followed.
 func internalCrates(root string, files []index.File) func(file string) bool {
 	workspace := manifest(root, ".")
 	libraries := packages(root, files).Libraries
@@ -1282,7 +1283,7 @@ func languageOf(path string) string {
 	switch {
 	case strings.HasSuffix(path, ".go"):
 		return "go"
-	case slices.ContainsFunc(typescript.Extensions, func(ext string) bool { return strings.HasSuffix(path, ext) }):
+	case typescript.IsSource(path):
 		return "typescript"
 	}
 	return "rust"

@@ -87,7 +87,7 @@ func InCrate(name string, crates *Packages) Grouping {
 // Crate returns the Rust crate a file belongs to, "." for a crate at the
 // repository root, or "" for a file of another language.
 func Crate(file string, crates *Packages) string {
-	if strings.HasSuffix(file, ".go") {
+	if !strings.HasSuffix(file, ".rs") {
 		return ""
 	}
 	name, _ := rustModule(filepath.ToSlash(file), crates)
@@ -132,14 +132,14 @@ func packageOf(file string, crates *Packages) (string, bool) {
 	}
 }
 
-// Module returns the module a file belongs to: a Go file's package
+// Module returns the module a file belongs to: a Go or TypeScript file's
 // directory, or a Rust file's crate with the module directly under it
 // ("acme_ledger::store"). crates maps a crate directory to the name code
 // uses for it; a directory missing there is named after itself, dashes as
 // underscores.
 func Module(file string, crates *Packages) string {
 	file = filepath.ToSlash(file)
-	if strings.HasSuffix(file, ".go") {
+	if !strings.HasSuffix(file, ".rs") {
 		return path.Dir(file)
 	}
 	return moduleName(rustModule(file, crates))

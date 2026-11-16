@@ -1288,7 +1288,7 @@ func closing(stmt *sitter.Node, name string, src []byte) string {
 // borrowed: fn f(a, b) { g(a, &b) }. Constructors (Self(x), Some(x)) and
 // calls on fields (self.inner.get(x)) do not count, and nor do functions
 // without parameters besides self.
-// ddslop:ignore the Go adapter's algorithm over Rust's node kinds; one table-driven home on a third language
+// ddslop:ignore the Go adapter's algorithm over Rust's node kinds; each changes with its own grammar
 func forwards(fn *sitter.Node, src []byte) string {
 	params, body := fn.ChildByFieldName("parameters"), fn.ChildByFieldName("body")
 	if params == nil || body == nil || body.NamedChildCount() != 1 {

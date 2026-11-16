@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/heikki-laitala/ddslop/internal/clone"
+	"github.com/heikki-laitala/ddslop/internal/lang/typescript"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
@@ -92,11 +93,15 @@ type Inputs struct {
 }
 
 // Build resolves every unit's calls. A call finds only functions of its
-// own language: each language, told by file extension, has its own index.
+// own language: each language, told by file extension, has its own index,
+// all of TypeScript's extensions one.
 func Build(in Inputs, units []unit.Unit) *Graph {
 	langs := map[string]*index{}
 	indexOf := func(file string) *index {
 		ext := filepath.Ext(file)
+		if typescript.IsSource(file) {
+			ext = ".ts"
+		}
 		if langs[ext] == nil {
 			langs[ext] = &index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{}, owners: map[string]bool{},
 				impls: map[string][]string{}, rustModules: map[string]map[string]bool{},
@@ -277,6 +282,9 @@ func (r *callResolver) resolveCall(c unit.Call) (int, bool, bool) {
 // by its method name alone (see Graph.ByName), and whether through a
 // value of a trait type (see Graph.Dispatched).
 func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) (int, bool, bool) {
+	if typescript.IsSource(caller.File) {
+		return ix.resolveTypeScript(units, caller, owner, c), false, false
+	}
 	if c.Kind != unit.MethodCall || c.Qualifier == "self" {
 		return ix.resolveNamed(units, caller, owner, c), false, false
 	}
@@ -732,6 +740,46 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 		return -1 // an outside crate, such as tokio
 	}
 	return only(units, ix.free[target], func(u unit.Unit) bool { return ix.libraries.CrateOf(u.File) == dir })
+}
+
+// resolveTypeScript resolves a TypeScript call. A name the file does not
+// import is its own function's, or a global's; an imported one (a path
+// call qualified by its module) is the function of that name in the file
+// a relative module path names, or in its index file, never a package's;
+// a call on this is the caller's class's method. Without types, the name
+// of any other method says nothing: it is not resolved.
+func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) int {
+	sameFile := func(u unit.Unit) bool { return u.File == caller.File }
+	switch {
+	case c.Kind == unit.FreeCall:
+		return only(units, ix.free[c.Name], sameFile)
+	case c.Kind == unit.PathCall:
+		module, ok := relativeModule(caller.File, c.Qualifier)
+		if !ok {
+			return -1
+		}
+		return only(units, ix.free[c.Name], func(u unit.Unit) bool {
+			stem := strings.TrimSuffix(filepath.ToSlash(u.File), filepath.Ext(u.File))
+			return stem == module || stem == module+"/index"
+		})
+	case c.Qualifier == "self" && owner != "":
+		return only(units, ix.owned[owner+"::"+c.Name], sameFile)
+	}
+	return -1
+}
+
+// relativeModule returns the file, without extension, a relative module
+// path ("./store", "../auth/verify.js", "..") names from the file
+// importing it.
+func relativeModule(file, module string) (string, bool) {
+	if module != "." && module != ".." && !strings.HasPrefix(module, "./") && !strings.HasPrefix(module, "../") {
+		return "", false
+	}
+	switch filepath.Ext(module) {
+	case ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts":
+		module = strings.TrimSuffix(module, filepath.Ext(module))
+	}
+	return filepath.ToSlash(filepath.Join(filepath.Dir(file), filepath.FromSlash(module))), true
 }
 
 // pick chooses among candidates the one in the caller's file, else the

@@ -61,9 +61,9 @@ func TestCheckReportsCopiesInTypeScriptCode(t *testing.T) {
 	}
 }
 
-// TypeScript calls are not recorded yet, so no exported function is
-// known to be unused, even in an unpublished Rust crate's directory (a
-// Tauri app's frontend).
+// TypeScript calls through package imports are not followed, so no
+// exported function is known to be unused, even in an unpublished Rust
+// crate's directory (a Tauri app's frontend).
 func TestTypeScriptExportsAreNotReportedUnused(t *testing.T) {
 	root := repo(t, map[string]string{
 		"Cargo.toml":    "[package]\nname = \"app\"\npublish = false\n",
@@ -134,5 +134,89 @@ export type Phase = "queued" | "running" | "done";
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("candidates:\n%s\nwant:\n%s\nstderr: %s", strings.Join(got, "\n"), strings.Join(want, "\n"), stderr)
+	}
+}
+
+const (
+	tsLoad = `import { parse } from "../codec/parse";
+
+export function loadRow(id: string, raw: string) {
+  const row = parse(raw);
+  if (!row) {
+    throw new Error("no row " + id);
+  }
+  return row;
+}
+
+export function encode(value: unknown) {
+  return JSON.stringify(value);
+}
+`
+	tsParse = `import { encode } from "../store/load.js";
+
+export function parse(raw: string) {
+  return JSON.parse(raw);
+}
+
+export const fetchRow = (id: string, raw: string) => loadRow(id, raw);
+
+export function save(value: unknown) {
+  return encode(value);
+}
+
+export class Repo {
+  load(id: string, raw: string) {
+    return loadRow(id, raw);
+  }
+}
+
+function loadRow(id: string, raw: string) {
+  return { id, raw };
+}
+`
+)
+
+func TestCheckReportsTypeScriptWrappers(t *testing.T) {
+	root := repo(t, map[string]string{"src/store/load.ts": tsLoad, "src/codec/parse.ts": tsParse})
+
+	_, stdout, stderr := run("check", "--format", "json", root)
+
+	var got []string
+	for _, c := range decode(t, stdout).Candidates {
+		var occs []string
+		for _, o := range c.Occurrences {
+			occs = append(occs, filepath.ToSlash(o.File)+" "+o.Name)
+		}
+		got = append(got, fmt.Sprintf("%s %s [%s]", c.Language, c.Kind, strings.Join(occs, ", ")))
+	}
+	// save wraps encode; fetchRow wraps the file's own loadRow, not the
+	// other file's, which it does not import. A class method may be what
+	// an interface asks for: no wrapper.
+	want := []string{
+		"typescript pass-through [src/codec/parse.ts fetchRow]",
+		"typescript pass-through [src/codec/parse.ts save]",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("candidates:\n%s\nwant:\n%s\nstderr: %s", strings.Join(got, "\n"), strings.Join(want, "\n"), stderr)
+	}
+}
+
+// Module cycles are found among a Rust crate's modules; TypeScript calls
+// in the crate's directory (a Tauri app's frontend) are none of them.
+func TestTypeScriptCallsCloseNoRustCycle(t *testing.T) {
+	root := repo(t, map[string]string{
+		"Cargo.toml":         "[package]\nname = \"app\"\n",
+		"src/lib.rs":         "pub mod store;\n",
+		"src/store.rs":       "pub fn get() {}\n",
+		"src/store/load.ts":  tsLoad,
+		"src/codec/parse.ts": tsParse,
+	})
+
+	_, stdout, stderr := run("check", "--format", "json", root)
+
+	for _, c := range decode(t, stdout).Candidates {
+		if c.Kind == "dependency-cycle" {
+			t.Errorf("reported a cycle through %+v; stderr: %s", c.Occurrences, stderr)
+		}
 	}
 }

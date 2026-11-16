@@ -1265,3 +1265,44 @@ func TestEachPlacedTargetIsACrateOfItsOwn(t *testing.T) {
 		t.Errorf("CrateOf = %s and %s, want two crates apart from each other and the library", admin, worker)
 	}
 }
+
+func TestBuildResolvesTypeScriptCalls(t *testing.T) {
+	units := []unit.Unit{
+		fn("src/store/store.ts", "Store.visible", method("self", "inNamespace")),
+		fn("src/store/store.ts", "Store.inNamespace"),
+		fn("src/store/store.ts", "check", unit.Call{Kind: unit.PathCall, Qualifier: "../auth/verify.js", Name: "verify"}),
+		fn("src/auth/verify.ts", "verify"),
+		fn("src/web/page.tsx", "Page", unit.Call{Kind: unit.PathCall, Qualifier: "../store/load", Name: "load"}),
+		fn("src/store/load/index.ts", "load"),
+		fn("src/other/load.ts", "load"),
+		fn("src/store/x/a.ts", "barrel", unit.Call{Kind: unit.PathCall, Qualifier: "..", Name: "open"}),
+		fn("src/store/index.ts", "open"),
+		// a package's function is none of ours, whatever its name
+		fn("src/store/store.ts", "read", unit.Call{Kind: unit.PathCall, Qualifier: "node:fs/promises", Name: "readFile"}),
+		fn("src/fs/readFile.ts", "readFile"),
+		// a name the file does not import is its own, or a global
+		fn("src/store/store.ts", "logged", unit.Call{Kind: unit.FreeCall, Name: "add"}, unit.Call{Kind: unit.FreeCall, Name: "log"}),
+		fn("src/store/store.ts", "add"),
+		fn("src/math/add.ts", "add"),
+		fn("src/store/log.ts", "log"),
+		// without types, a method's name alone says nothing
+		fn("src/store/store.ts", "Store.delegate", unit.Call{Kind: unit.MethodCall, Field: "inner", Name: "get"}, method("", "fetchUser")),
+		fn("src/store/api.ts", "Api.fetchUser"),
+		fn("src/cache.ts", "Cache.get"),
+		fn("src/list.ts", "List.map"),
+	}
+	g := Build(Inputs{}, units)
+	for caller, want := range map[string]string{
+		"src/store/store.ts Store.visible":  "[src/store/store.ts Store.inNamespace]",
+		"src/store/store.ts check":          "[src/auth/verify.ts verify]",
+		"src/web/page.tsx Page":             "[src/store/load/index.ts load]",
+		"src/store/x/a.ts barrel":           "[src/store/index.ts open]",
+		"src/store/store.ts read":           "[]",
+		"src/store/store.ts logged":         "[src/store/store.ts add]",
+		"src/store/store.ts Store.delegate": "[]",
+	} {
+		if got := callees(g, caller); got != want {
+			t.Errorf("%s calls %s, want %s", caller, got, want)
+		}
+	}
+}

@@ -311,8 +311,11 @@ package. Pass-through wrappers work the same way as in Rust; Go methods
 are left out, since they may satisfy an interface. The rule "the
 arguments are the parameters, in order, as is or borrowed" lives once in
 `syntax.PassesOn`; the per-grammar rest of wrapper detection and of the
-grammar hooks stays per adapter until a third language (extract on the
-third occurrence), marked `ddslop:ignore` in ddslop's own code. Go functions also
+grammar hooks (call classification) stays per adapter, marked
+`ddslop:ignore` in ddslop's own code: with TypeScript as the third
+language, what the three share is their shape, as each changes with its
+own grammar (borrows and `Self(x)` in Rust, `&x` and variadics in Go,
+arrow and rest parameters in TypeScript). Go functions also
 record their parameters (a `context.Context` left out: Go passes it
 explicitly and never stores it in a struct, so it is never part of a
 parameter object) and their switches on strings (`case "a", "b":`), so
@@ -422,10 +425,31 @@ any value with `const`, and on Hono and tRPC counting every one reported
 140 groups of call results (`const root = createRoot(el)`, one router
 per example) where 17 copied values remained. Next.js route options
 (`export const dynamic = ...` in page, layout and route files) are left
-out: the framework asks every route for them. No calls
-are recorded yet, so no TypeScript code counts as internal to the
-analysed code, and none is reported unused, even inside an unpublished
-Rust crate's directory (a Tauri app's frontend). On three open-source
+out: the framework asks every route for them.
+
+TypeScript calls are recorded from the file's imports: an imported
+function (`import { verify as check } from "../auth/verify.js"`) is a
+path call qualified by its module as written, under its exported name,
+and so is one through a namespace import (`db.query`); another plain
+name is a free call, a call on `this` a self call, one on a field of
+`this` a method call on that field. They resolve without types: a free
+call to the caller's file's function (a name a file does not import is
+its own, or a global), a relative import to the function of that name in
+the file it names, extension or not, or in its `index` file, and a self
+call to the class's method. A package's import (`node:fs`, `@acme/db`)
+resolves to nothing, even a workspace package's, and nor does any other
+method call: JavaScript's own method names (`map`, `get`, `then`) are
+too many to tell from the code's. Wrappers work as in Go, an awaited
+call included (`return await load(id)`); class members are left out,
+as they may implement an interface, which TypeScript checks by shape.
+All TypeScript extensions share one call index, so a `.tsx` component
+calls a `.ts` helper. Calls through packages are not followed, so no
+TypeScript code counts as internal to the analysed code and none is
+reported unused; and as module cycles are found among a Rust crate's
+modules, TypeScript files in a crate's directory (a Tauri app's
+frontend) are none of its modules. On Hono, Excalidraw and tRPC, 7
+wrappers, all passing their parameters on unchanged; most narrow the
+types (`createHTTPHandler` calling `createHandler`). On three open-source
 TypeScript codebases (Hono, Excalidraw, tRPC; 95k to 230k lines, 2 to 4
 seconds each), the copies found were real: adapters vendored twice, undo
 and redo actions, per-shape geometry.

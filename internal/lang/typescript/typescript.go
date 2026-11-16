@@ -55,9 +55,11 @@ var functionKinds = map[string]bool{
 
 // grammar describes TypeScript to the shared flattening (see
 // syntax.Grammar) for one unit: fn is the unit's own function, whose
-// returns are the unit's.
+// returns are the unit's, and imports the names its file imports, to
+// tell calls apart.
 type grammar struct {
-	fn [2]uint
+	fn      [2]uint
+	imports map[string]imported
 }
 
 // Prefix keeps TypeScript's symbols apart from other languages'
@@ -98,9 +100,13 @@ func (grammar) Binds(string) bool { return true }
 
 func (grammar) Statements(kind string) bool { return kind == "statement_block" }
 
-// Visit counts early returns outside nested functions.
+// Visit records calls and counts early returns outside nested functions.
 func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	switch {
+	case n.Kind() == "call_expression":
+		if c, ok := g.call(n, s.Src); ok {
+			s.Calls = append(s.Calls, c)
+		}
 	case n.Kind() == "return_statement":
 		if s.Closures == 0 {
 			s.Exits++
@@ -122,6 +128,7 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var marked error
 	p := &parser{file: file, src: src, test: IsTestPath(file)}
 	err := syntax.Parse(languageOf(file), src, func(root *sitter.Node) {
+		p.imports = imports(root, src)
 		for i := uint(0); i < root.NamedChildCount(); i++ {
 			n, exported := root.NamedChild(i), false
 			if d := n.ChildByFieldName("declaration"); n.Kind() == "export_statement" && d != nil {
@@ -147,11 +154,12 @@ func languageOf(file string) *sitter.Language {
 
 // parser collects a file's units and declarations.
 type parser struct {
-	file  string
-	src   []byte
-	test  bool
-	units []unit.Unit
-	decls unit.Decls
+	file    string
+	src     []byte
+	test    bool
+	imports map[string]imported
+	units   []unit.Unit
+	decls   unit.Decls
 }
 
 // declaration records the units and declarations of a top-level
@@ -351,7 +359,9 @@ func (p *parser) members(class *sitter.Node, exported bool) {
 		if member == nil || (m.Kind() != "method_definition" && !isFunction(fn)) {
 			continue
 		}
-		p.units = append(p.units, p.unit(name.Utf8Text(p.src)+"."+member.Utf8Text(p.src), m, fn, exported && !isPrivate(m, member)))
+		u := p.unit(name.Utf8Text(p.src)+"."+member.Utf8Text(p.src), m, fn, exported && !isPrivate(m, member))
+		u.Dispatched = true // it may implement an interface, which TypeScript checks by shape
+		p.units = append(p.units, u)
 	}
 }
 
@@ -376,7 +386,7 @@ func isPrivate(m, name *sitter.Node) bool {
 
 // unit makes a unit of the declaration n, whose own function is fn.
 func (p *parser) unit(name string, n, fn *sitter.Node, public bool) unit.Unit {
-	s := syntax.Flatten(n, p.src, grammar{fn: syntax.Span(fn)})
+	s := syntax.Flatten(n, p.src, grammar{fn: syntax.Span(fn), imports: p.imports})
 	return unit.Unit{
 		File:      p.file,
 		Name:      name,
@@ -389,6 +399,8 @@ func (p *parser) unit(name string, n, fn *sitter.Node, public bool) unit.Unit {
 		Seq:       s.Seq,
 		SeqLines:  s.Lines,
 		Blocks:    s.Blocks,
+		Calls:     s.Calls,
+		Forwards:  forwards(fn, p.src),
 		Public:    public,
 	}
 }
@@ -402,6 +414,11 @@ func IsTestPath(file string) bool {
 	stem := strings.TrimSuffix(base, path.Ext(base))
 	return strings.HasSuffix(stem, ".test") || strings.HasSuffix(stem, ".spec") ||
 		slices.Contains(strings.Split(path.Dir(slashed), "/"), "__tests__")
+}
+
+// IsSource reports whether a file is TypeScript source, by its extension.
+func IsSource(file string) bool {
+	return slices.ContainsFunc(Extensions, func(ext string) bool { return strings.HasSuffix(file, ext) })
 }
 
 // IsDeclarationFile reports whether a file only declares types for code
