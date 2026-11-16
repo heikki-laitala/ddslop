@@ -448,6 +448,12 @@ func TestRootImportsAreTheRootsOwn(t *testing.T) {
 			"pub fn f() -> u8 { crate::public_make() }\n",
 			"src/foo.rs", "pub fn make() -> u8 { 2 }\n")))
 	})
+	t.Run("a chained re-export passes an inline module's type of that name", func(t *testing.T) {
+		wantCycleBetween(t, "child -> foo, foo -> child", repo(t, crate(
+			"mod child;\nmod foo;\nmod nested {\n    pub struct X;\n}\npub use foo::X;\npub use X as Y;\n",
+			"pub fn f() -> u8 { let _y: Option<crate::Y> = None; 1 }\n",
+			"src/foo.rs", "pub struct X;\npub fn g() -> u8 { crate::child::f() }\n")))
+	})
 	t.Run("a macro the root imports is its module's", func(t *testing.T) {
 		wantCycles(t, 0, "child invokes the macro the root imports from macros", repo(t, crate(
 			"#[macro_use]\nmod macros;\nmod child;\npub(crate) use macros::one;\npub fn run() -> u8 { child::f() }\n",

@@ -307,16 +307,16 @@ func importedModule(crate, path string, facts CrateFacts, depth int) string {
 		return ""
 	}
 	first := strings.TrimPrefix(segments[0], "r#")
-	switch {
-	case facts.Modules[moduleName(crate, first)]:
+	// A name the root's own scope imports is that import, though a type
+	// of an inline module may share it: the root cannot both import and
+	// define a name in one namespace.
+	if facts.Modules[moduleName(crate, first)] {
 		return moduleName(crate, first)
-	case facts.RootItems[first]:
-		return moduleName(crate, "")
 	}
 	if next, ok := facts.RootImports[first]; ok && depth < maxReexports {
 		return importedModule(crate, next, facts, depth+1)
 	}
-	if inCrate {
+	if inCrate || facts.RootItems[first] {
 		return moduleName(crate, "")
 	}
 	return ""
