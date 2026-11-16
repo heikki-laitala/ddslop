@@ -20,6 +20,7 @@ type targetReport struct {
 			File      string `json:"file"`
 			Name      string `json:"name"`
 			StartLine int    `json:"start_line"`
+			EndLine   int    `json:"end_line"`
 		} `json:"target"`
 		Suggestion struct {
 			Action string `json:"action"`
@@ -32,13 +33,16 @@ type targetReport struct {
 
 func (r targetReport) count() int { return len(r.Candidates) }
 
-// first describes the report's first candidate as its kind, action and
-// occurrences, each as file:start-end name.
+// first describes the report's first candidate as its kind, action,
+// occurrences and any target, each as file:start-end name.
 func (r targetReport) first() string {
 	c := r.Candidates[0]
 	parts := []string{c.Kind, c.Suggestion.Action}
 	for _, o := range c.Occurrences {
 		parts = append(parts, fmt.Sprintf("%s:%d-%d %s", filepath.ToSlash(o.File), o.StartLine, o.EndLine, o.Name))
+	}
+	if g := c.Target; g != nil {
+		parts = append(parts, fmt.Sprintf("target %s:%d-%d %s", filepath.ToSlash(g.File), g.StartLine, g.EndLine, g.Name))
 	}
 	return strings.Join(parts, " ")
 }
@@ -70,20 +74,13 @@ func TestCheckReportsConstantValuesWrittenInline(t *testing.T) {
 	})
 
 	r := oneCandidate[targetReport](t, root)
-	c := r.Candidates[0]
-	// The constant, then its inline use.
-	if got, want := r.first(), "inlined-constant reuse-existing src/gate.rs:1-1 LEDGER_UNAVAILABLE src/api.rs:2-2 refuse"; got != want {
+	// The constant, then its inline use; the constant is the target.
+	if got, want := r.first(), "inlined-constant reuse-existing src/gate.rs:1-1 LEDGER_UNAVAILABLE src/api.rs:2-2 refuse target src/gate.rs:1-1 LEDGER_UNAVAILABLE"; got != want {
 		t.Errorf("candidate = %s, want %s", got, want)
 	}
-	if c.Target == nil || filepath.ToSlash(c.Target.File) != "src/gate.rs" || c.Target.Name != "LEDGER_UNAVAILABLE" || c.Target.StartLine != 1 {
-		t.Errorf("target = %+v, want the constant src/gate.rs:1 LEDGER_UNAVAILABLE", c.Target)
+	if n := r.Candidates[0].Score.DuplicatedNodes; n != 1 {
+		t.Errorf("duplicated nodes = %d, want 1 per inline use", n)
 	}
-	if c.Score.DuplicatedNodes != 1 {
-		t.Errorf("duplicated nodes = %d, want 1 per inline use", c.Score.DuplicatedNodes)
-	}
-
 	_, text, _ := run("check", "--format", "text", root)
-	if !strings.Contains(text, "target: src/gate.rs:1-1 LEDGER_UNAVAILABLE") {
-		t.Errorf("text output does not show the target:\n%s", text)
-	}
+	wantContains(t, text, "target: src/gate.rs:1-1 LEDGER_UNAVAILABLE")
 }

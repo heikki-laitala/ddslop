@@ -15,7 +15,9 @@ func path(qualifier, name string) unit.Call {
 }
 
 func method(receiver, name string) unit.Call {
-	return unit.Call{Kind: unit.MethodCall, Qualifier: receiver, Name: name}
+	c := path(receiver, name)
+	c.Kind = unit.MethodCall
+	return c
 }
 
 func fn(file, name string, calls ...unit.Call) unit.Unit {
@@ -36,6 +38,15 @@ func callees(g *Graph, name string) string {
 	return "no unit " + name
 }
 
+// wantCallees fails the test unless the unit named caller ("file name")
+// calls want, as callees writes them.
+func wantCallees(t *testing.T, g *Graph, caller, want string) {
+	t.Helper()
+	if got := callees(g, caller); got != want {
+		t.Errorf("%s calls %s,\nwant %s", caller, got, want)
+	}
+}
+
 func TestFreeCallsPreferSameFileThenCrate(t *testing.T) {
 	g := Build(Inputs{}, []unit.Unit{
 		fn("a/src/x.rs", "helper"),
@@ -54,9 +65,7 @@ func TestFreeCallsPreferSameFileThenCrate(t *testing.T) {
 		"c/src/q.rs ambiguous_everywhere": "[]",
 	}
 	for caller, want := range cases {
-		if got := callees(g, caller); got != want {
-			t.Errorf("%s calls %s, want %s", caller, got, want)
-		}
+		wantCallees(t, g, caller, want)
 	}
 	if g.Calls != 4 || g.Resolved != 2 {
 		t.Errorf("calls = %d, resolved = %d; want 4 and 2", g.Calls, g.Resolved)
@@ -74,10 +83,7 @@ func TestPathCalls(t *testing.T) {
 			path("Self", "finish"), path("crate::util", "log"), path("Missing", "nothing")),
 	})
 
-	want := "[a/src/acc.rs Accounts::create a/src/end.rs Endpoint<P>::priced a/src/led.rs Ledger::finish a/src/util.rs log]"
-	if got := callees(g, "a/src/led.rs Ledger::create"); got != want {
-		t.Errorf("Ledger::create calls %s, want %s", got, want)
-	}
+	wantCallees(t, g, "a/src/led.rs Ledger::create", "[a/src/acc.rs Accounts::create a/src/end.rs Endpoint<P>::priced a/src/led.rs Ledger::finish a/src/util.rs log]")
 }
 
 func TestMethodCalls(t *testing.T) {
@@ -92,10 +98,7 @@ func TestMethodCalls(t *testing.T) {
 	})
 
 	// self.audit is Ledger's own; get is ambiguous; settle_window is unique.
-	want := "[a/src/led.rs Ledger::audit a/src/rare.rs Rare::settle_window]"
-	if got := callees(g, "a/src/led.rs Ledger::create"); got != want {
-		t.Errorf("Ledger::create calls %s, want %s", got, want)
-	}
+	wantCallees(t, g, "a/src/led.rs Ledger::create", "[a/src/led.rs Ledger::audit a/src/rare.rs Rare::settle_window]")
 }
 
 func TestEntriesAreNonTestTraitImplementations(t *testing.T) {
@@ -142,10 +145,7 @@ func TestPathCallsOnUnknownTypesDoNotFallBackToFreeFunctions(t *testing.T) {
 	})
 
 	// Utc is a type defined elsewhere; crate::util and super are modules.
-	want := "[a/src/util.rs log]"
-	if got := callees(g, "a/src/h.rs handler"); got != want {
-		t.Errorf("handler calls %s, want %s", got, want)
-	}
+	wantCallees(t, g, "a/src/h.rs handler", "[a/src/util.rs log]")
 }
 
 func TestStandardMethodNamesAreNotResolvedByUniqueness(t *testing.T) {
@@ -160,12 +160,8 @@ func TestStandardMethodNamesAreNotResolvedByUniqueness(t *testing.T) {
 
 	// x.as_ref() and v.len() are most likely std methods; settle_window is
 	// unique to this codebase. self.as_ref() is still the caller's own.
-	if got := callees(g, "a/src/h.rs Handler::run"); got != "[a/src/rare.rs Rare::settle_window]" {
-		t.Errorf("Handler::run calls %s, want only Rare::settle_window", got)
-	}
-	if got := callees(g, "a/src/id.rs ModelId::show"); got != "[a/src/id.rs ModelId::as_ref]" {
-		t.Errorf("ModelId::show calls %s, want its own as_ref", got)
-	}
+	wantCallees(t, g, "a/src/h.rs Handler::run", "[a/src/rare.rs Rare::settle_window]")
+	wantCallees(t, g, "a/src/id.rs ModelId::show", "[a/src/id.rs ModelId::as_ref]")
 }
 
 func local(file, name string, declared string, calls ...unit.Call) unit.Unit {
@@ -182,9 +178,7 @@ func TestCallsToLocalClosuresAreNotResolved(t *testing.T) {
 		local("a/src/api.rs", "capacity_of", "unsigned", free("unsigned")),
 	})
 
-	if got := callees(g, "a/src/api.rs capacity_of"); got != "[]" {
-		t.Errorf("capacity_of calls %s, want nothing: unsigned is its own closure", got)
-	}
+	wantCallees(t, g, "a/src/api.rs capacity_of", "[]")
 }
 
 func TestBareCallsLeaveTheCrateOnlyThroughImports(t *testing.T) {
@@ -206,10 +200,7 @@ func TestBareCallsLeaveTheCrateOnlyThroughImports(t *testing.T) {
 
 	// split_qualified_name and decode come from workspace crates; channel is
 	// tokio's; fill is not imported, so it is not some other crate's fill.
-	want := "[crates/translation-protocol/src/lib.rs split_qualified_name crates/token-credentials/src/lib.rs decode]"
-	if got := callees(g, "crates/translation/src/a.rs encode"); got != want {
-		t.Errorf("encode calls %s, want %s", got, want)
-	}
+	wantCallees(t, g, "crates/translation/src/a.rs encode", "[crates/translation-protocol/src/lib.rs split_qualified_name crates/token-credentials/src/lib.rs decode]")
 }
 
 func TestModulePathCallsStayInTheirCrate(t *testing.T) {
@@ -223,9 +214,7 @@ func TestModulePathCallsStayInTheirCrate(t *testing.T) {
 
 	// token_credentials is a workspace crate; serde_json is not, and the
 	// router has no to_value of its own.
-	if got := callees(g, "services/acme-router/src/api.rs handle"); got != "[crates/token-credentials/src/lib.rs decode]" {
-		t.Errorf("handle calls %s, want only token_credentials' decode", got)
-	}
+	wantCallees(t, g, "services/acme-router/src/api.rs handle", "[crates/token-credentials/src/lib.rs decode]")
 }
 
 func TestCrateNamesComeFromInputsNotDirectories(t *testing.T) {
@@ -242,10 +231,7 @@ func TestCrateNamesComeFromInputsNotDirectories(t *testing.T) {
 			path("acme_token_credentials", "is_canonical_key_id"), free("decode")),
 	})
 
-	want := "[crates/token-credentials/src/lib.rs is_canonical_key_id crates/token-credentials/src/lib.rs decode]"
-	if got := callees(g, "services/acme-ledger/src/a.rs check"); got != want {
-		t.Errorf("check calls %s, want %s", got, want)
-	}
+	wantCallees(t, g, "services/acme-ledger/src/a.rs check", "[crates/token-credentials/src/lib.rs is_canonical_key_id crates/token-credentials/src/lib.rs decode]")
 }
 
 func TestOtherCratesMethodsNeedADependency(t *testing.T) {
@@ -261,9 +247,7 @@ func TestOtherCratesMethodsNeedADependency(t *testing.T) {
 	})
 
 	// .then() could be any type's; the router's Location is out of reach.
-	if got := callees(g, "ledger/src/api.rs handle"); got != "[translation/src/engine.rs Engine::encode_frames]" {
-		t.Errorf("handle calls %s, want only the translation crate's encode_frames", got)
-	}
+	wantCallees(t, g, "ledger/src/api.rs handle", "[translation/src/engine.rs Engine::encode_frames]")
 }
 
 func TestBuildResolvesGoCalls(t *testing.T) {
@@ -286,9 +270,7 @@ func TestBuildResolvesGoCalls(t *testing.T) {
 		"store/check.go Check":         "[internal/auth/auth.go Verify]",
 		"store/decode.go Decode":       "[]",
 	} {
-		if got := callees(g, caller); got != want {
-			t.Errorf("%s calls %s, want %s", caller, got, want)
-		}
+		wantCallees(t, g, caller, want)
 	}
 }
 
@@ -322,12 +304,8 @@ func TestGoStandardLibraryMethodsAreNotGuessed(t *testing.T) {
 		fn("api/store.go", "cache.fetchCached"),
 	}
 	g := Build(Inputs{}, units)
-	if got := callees(g, "api/auth.go writeError"); got != "[]" {
-		t.Errorf("Go w.Header() resolved to %s, want nothing", got)
-	}
-	if got := callees(g, "api/cache.go lookup"); got != "[api/store.go cache.fetchCached]" {
-		t.Errorf("c.fetchCached() resolved to %s, want the one fetchCached method", got)
-	}
+	wantCallees(t, g, "api/auth.go writeError", "[]")
+	wantCallees(t, g, "api/cache.go lookup", "[api/store.go cache.fetchCached]")
 }
 
 func TestCalleesFoundOnlyByMethodNameAreMarked(t *testing.T) {
@@ -375,9 +353,7 @@ func TestFilesUnderARootCrateShareOneCrate(t *testing.T) {
 		fn("src/store/pg.rs", "save", free("helper")),
 	})
 
-	if got, want := callees(g, "src/store/pg.rs save"), "[src/util.rs helper]"; got != want {
-		t.Errorf("save calls %s, want %s", got, want)
-	}
+	wantCallees(t, g, "src/store/pg.rs save", "[src/util.rs helper]")
 }
 
 func TestGoPackagesUnderSrcStayApart(t *testing.T) {
@@ -412,15 +388,15 @@ func TestCallsStayInTheirLanguage(t *testing.T) {
 		"src/lib.rs run": "[]",
 		"main.go start":  "[]",
 	} {
-		if got := callees(g, caller); got != want {
-			t.Errorf("%s calls %s, want %s", caller, got, want)
-		}
+		wantCallees(t, g, caller, want)
 	}
 }
 
 // typed is a Go method call on an operand of a known type.
 func typed(typ, name string) unit.Call {
-	return unit.Call{Kind: unit.MethodCall, Type: typ, Name: name}
+	c := method("", name)
+	c.Type = typ
+	return c
 }
 
 func TestGoMethodCallsResolveByTheOperandsType(t *testing.T) {
@@ -451,10 +427,7 @@ func TestGoMethodCallsResolveByTheOperandsType(t *testing.T) {
 		"api": {"Server.store": {Type: "example.com/app/internal/store.Store"}},
 	}, Modules: map[string]string{".": "example.com/app"}}
 	g := Build(in, units)
-	want := "[internal/store/db.go DB.Load api/cache.go Cache.Fill internal/store/store.go Store.Save api/file.go File.Flush config.go Config.Read]"
-	if got := callees(g, "api/server.go Server.Get"); got != want {
-		t.Errorf("Server.Get calls %s,\nwant %s", got, want)
-	}
+	wantCallees(t, g, "api/server.go Server.Get", "[internal/store/db.go DB.Load api/cache.go Cache.Fill internal/store/store.go Store.Save api/file.go File.Flush config.go Config.Read]")
 	if got, want := fmt.Sprint(g.ByName[0]), "[false false false true false]"; got != want {
 		t.Errorf("ByName = %s, want %s: only the interface's call is a guess", got, want)
 	}
@@ -495,10 +468,7 @@ func TestGoMethodCallsOnACallsResultResolveByItsResultType(t *testing.T) {
 	}
 	in := Inputs{Modules: map[string]string{".": "example.com/app"}, Crates: map[string]string{"internal/store": "store"}}
 	g := Build(in, units)
-	want := "[internal/store/open.go Open internal/store/db.go DB.Save internal/store/db.go DB.Flush api/job.go job.Run]"
-	if got := callees(g, "api/server.go Server.Get"); got != want {
-		t.Errorf("Server.Get calls %s,\nwant %s", got, want)
-	}
+	wantCallees(t, g, "api/server.go Server.Get", "[internal/store/open.go Open internal/store/db.go DB.Save internal/store/db.go DB.Flush api/job.go job.Run]")
 	if got, want := fmt.Sprint(g.ByName[0]), "[false false false true]"; got != want {
 		t.Errorf("ByName = %s, want %s: only the call on an unresolved result is a guess", got, want)
 	}
@@ -515,9 +485,7 @@ func TestGoGuessedProducersTypeNothing(t *testing.T) {
 		fn("api/db.go", "DB.Save"),
 		fn("api/other.go", "Other.Save"),
 	})
-	if got, want := callees(g, "api/server.go Server.Get"), "[api/conn.go conn.Open]"; got != want {
-		t.Errorf("Server.Get calls %s, want %s: Save on a guessed result stays unresolved", got, want)
-	}
+	wantCallees(t, g, "api/server.go Server.Get", "[api/conn.go conn.Open]")
 }
 
 func TestRustMethodCallsResolveByTheOperandsType(t *testing.T) {
@@ -534,10 +502,7 @@ func TestRustMethodCallsResolveByTheOperandsType(t *testing.T) {
 		fn("a/src/thing.rs", "Thing::frobnicate"),
 	}
 	g := Build(Inputs{Fields: map[string]map[string]FieldType{"a": {"Server.db": {Type: "Database", File: "a/src/server.rs"}}}}, units)
-	want := "[a/src/store.rs Store::save a/src/db.rs Database::query a/src/thing.rs Thing::frobnicate]"
-	if got := callees(g, "a/src/server.rs Server::run"); got != want {
-		t.Errorf("Server::run calls %s,\nwant %s", got, want)
-	}
+	wantCallees(t, g, "a/src/server.rs Server::run", "[a/src/store.rs Store::save a/src/db.rs Database::query a/src/thing.rs Thing::frobnicate]")
 	if got, want := fmt.Sprint(g.ByName[0]), "[false false false]"; got != want {
 		t.Errorf("ByName = %s, want %s: every call is typed", got, want)
 	}
@@ -558,9 +523,7 @@ func TestRustTypedCallsReachImportedCrates(t *testing.T) {
 		Crates:  map[string]string{"a": "a", "b": "b", "c": "c"},
 	}
 	g := Build(in, units)
-	if got, want := callees(g, "a/src/server.rs Server::run"), "[b/src/client.rs Client::send]"; got != want {
-		t.Errorf("Server::run calls %s, want %s", got, want)
-	}
+	wantCallees(t, g, "a/src/server.rs Server::run", "[b/src/client.rs Client::send]")
 	if !slices.Equal(g.ByName[0], []bool{false}) {
 		t.Errorf("ByName = %v, want a named call", g.ByName[0])
 	}
@@ -604,10 +567,7 @@ func TestRustTypedCallsTellOutsideCratesByThePath(t *testing.T) {
 		Crates:  map[string]string{"a": "a", "b": "b"},
 	}
 	g := Build(in, units)
-	want := "[a/src/store.rs Store::save b/src/ledger.rs Ledger::post a/src/queue.rs Queue::push]"
-	if got := callees(g, "a/src/server.rs Server::run"); got != want {
-		t.Errorf("Server::run calls %s,\nwant %s", got, want)
-	}
+	wantCallees(t, g, "a/src/server.rs Server::run", "[a/src/store.rs Store::save b/src/ledger.rs Ledger::post a/src/queue.rs Queue::push]")
 }
 
 // A path naming a workspace crate stays in that crate, even when the
@@ -624,10 +584,7 @@ func TestRustQualifiedTypesStayInTheirCrate(t *testing.T) {
 		Imports: map[string]map[string]string{"a/src/server.rs": {"Client": "b::Client"}},
 		Crates:  map[string]string{"a": "a", "b": "b"},
 	}
-	want := "[b/src/client.rs Client::send a/src/client.rs Client::close]"
-	if got := callees(Build(in, units), "a/src/server.rs Server::run"); got != want {
-		t.Errorf("Server::run calls %s,\nwant %s", got, want)
-	}
+	wantCallees(t, Build(in, units), "a/src/server.rs Server::run", "[b/src/client.rs Client::send a/src/client.rs Client::close]")
 }
 
 // model::Client may name a child module of the caller's crate: a root
@@ -639,9 +596,7 @@ func TestRustRelativeModulePathsStayInTheCallersCrate(t *testing.T) {
 		fn("a/src/model/client.rs", "Client::send"),
 		fn("a/src/model/client.rs", "Client::close"),
 	}
-	if got, want := callees(Build(Inputs{Crates: map[string]string{"a": "a"}}, units), "a/src/lib.rs Server::run"), "[a/src/model/client.rs Client::send]"; got != want {
-		t.Errorf("Server::run calls %s, want %s", got, want)
-	}
+	wantCallees(t, Build(Inputs{Crates: map[string]string{"a": "a"}}, units), "a/src/lib.rs Server::run", "[a/src/model/client.rs Client::send]")
 }
 
 // A module of only types has no units, but its file still names it.
@@ -651,9 +606,7 @@ func TestRustModulesOfOnlyTypesKeepPathsInTheCrate(t *testing.T) {
 		fn("a/src/client.rs", "Client::send"), // model.rs declares Client; client.rs implements it
 	}
 	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/lib.rs", "a/src/model.rs", "a/src/client.rs"}}
-	if got, want := callees(Build(in, units), "a/src/lib.rs Server::run"), "[a/src/client.rs Client::send]"; got != want {
-		t.Errorf("Server::run calls %s, want %s", got, want)
-	}
+	wantCallees(t, Build(in, units), "a/src/lib.rs Server::run", "[a/src/client.rs Client::send]")
 }
 
 // The adapter qualifies every imported type, so a bare type name is the
@@ -668,9 +621,7 @@ func TestRustBareTypesStayInTheCallersCrate(t *testing.T) {
 		Imports: map[string]map[string]string{"a/src/other.rs": {"Thing": "b::Thing"}}, // a depends on b
 		Crates:  map[string]string{"a": "a", "b": "b"},
 	}
-	if got := callees(Build(in, units), "a/src/server.rs Server::run"); got != "[]" {
-		t.Errorf("Server::run calls %s, want nothing: b's Client is not in scope", got)
-	}
+	wantCallees(t, Build(in, units), "a/src/server.rs Server::run", "[]")
 }
 
 // A Rust value built by a call takes the producer's result type, read in
@@ -691,10 +642,7 @@ func TestRustCallsOnACallsResultResolveInTheProducersCrate(t *testing.T) {
 		Imports: map[string]map[string]string{"a/src/server.rs": {"Store": "b::Store"}},
 		Crates:  map[string]string{"a": "a", "b": "b"},
 	}
-	want := "[b/src/store.rs Store::new b/src/store.rs Store::save b/src/store.rs Store::flush]"
-	if got := callees(Build(in, units), "a/src/server.rs Server::run"); got != want {
-		t.Errorf("Server::run calls %s,\nwant %s", got, want)
-	}
+	wantCallees(t, Build(in, units), "a/src/server.rs Server::run", "[b/src/store.rs Store::new b/src/store.rs Store::save b/src/store.rs Store::flush]")
 }
 
 // A Rust result type keeps its path: crate:: is the producer's crate, and
@@ -715,10 +663,7 @@ func TestRustResultPathsResolveFromTheProducer(t *testing.T) {
 		Crates:    map[string]string{"a": "a", "b": "b"},
 		RustFiles: []string{"a/src/server.rs", "b/src/db.rs"},
 	}
-	want := "[b/src/db.rs Db::connect b/src/db.rs Db::query]"
-	if got := callees(Build(in, units), "a/src/server.rs Server::run"); got != want {
-		t.Errorf("Server::run calls %s,\nwant %s", got, want)
-	}
+	wantCallees(t, Build(in, units), "a/src/server.rs Server::run", "[b/src/db.rs Db::connect b/src/db.rs Db::query]")
 }
 
 // A value's type may come from a crate the caller does not depend on:
@@ -736,10 +681,7 @@ func TestRustResultTypesNeedNoDirectDependency(t *testing.T) {
 		Imports: map[string]map[string]string{"a/src/run.rs": {"make_c": "b::make_c"}},
 		Crates:  map[string]string{"a": "a", "b": "b", "c": "c", "d": "d"},
 	}
-	want := "[b/src/lib.rs make_c c/src/widget.rs Widget::spin]"
-	if got := callees(Build(in, units), "a/src/run.rs run"); got != want {
-		t.Errorf("run calls %s, want %s", got, want)
-	}
+	wantCallees(t, Build(in, units), "a/src/run.rs run", "[b/src/lib.rs make_c c/src/widget.rs Widget::spin]")
 }
 
 // A result adapter the repository does not define (anyhow's context) is
@@ -763,10 +705,7 @@ func TestRustResultAdaptersAreLookedThroughUnlessTheyAreOurs(t *testing.T) {
 		fn("a/src/widget.rs", "Widget::render"),
 	}
 	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/run.rs"}}
-	want := "[a/src/db.rs Db::connect a/src/db.rs Db::query a/src/wrapper.rs Wrapper::make a/src/wrapper.rs Wrapper::unwrap a/src/widget.rs Widget::render]"
-	if got := callees(Build(in, units), "a/src/run.rs run"); got != want {
-		t.Errorf("run calls %s,\nwant %s", got, want)
-	}
+	wantCallees(t, Build(in, units), "a/src/run.rs run", "[a/src/db.rs Db::connect a/src/db.rs Db::query a/src/wrapper.rs Wrapper::make a/src/wrapper.rs Wrapper::unwrap a/src/widget.rs Widget::render]")
 }
 
 // std::fs::read names the standard library, not the crate's own read: a
@@ -784,9 +723,7 @@ func TestRustOutsideModulePathsResolveToNothing(t *testing.T) {
 		fn("a/src/tls.rs", "load"),
 	}
 	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/store.rs", "a/src/tls.rs"}}
-	if got, want := callees(Build(in, units), "a/src/store.rs password"), "[a/src/tls.rs load]"; got != want {
-		t.Errorf("password calls %s, want %s: std and tokio are no modules of the crate", got, want)
-	}
+	wantCallees(t, Build(in, units), "a/src/store.rs password", "[a/src/tls.rs load]")
 }
 
 // The adapter writes an imported root as its import's path: crate::util
@@ -799,9 +736,7 @@ func TestRustExpandedModulePathsResolve(t *testing.T) {
 		fn("b/src/lib.rs", "post"),
 	}
 	in := Inputs{Crates: map[string]string{"a": "a", "b": "b"}, RustFiles: []string{"a/src/run.rs", "a/src/util.rs", "b/src/lib.rs"}}
-	if got, want := callees(Build(in, units), "a/src/run.rs run"), "[a/src/util.rs log b/src/lib.rs post]"; got != want {
-		t.Errorf("run calls %s, want %s", got, want)
-	}
+	wantCallees(t, Build(in, units), "a/src/run.rs run", "[a/src/util.rs log b/src/lib.rs post]")
 }
 
 // A relative module path names a child of the caller's module: from the
@@ -816,12 +751,8 @@ func TestRustRelativeModulePathsNameChildModules(t *testing.T) {
 	}
 	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/lib.rs", "a/src/foo.rs", "a/src/foo/bar.rs"}}
 	g := Build(in, units)
-	if got, want := callees(g, "a/src/lib.rs root"), "[a/src/foo.rs load]"; got != want {
-		t.Errorf("root calls %s, want %s: bar is no module of the crate root", got, want)
-	}
-	if got, want := callees(g, "a/src/foo.rs inside"), "[a/src/foo/bar.rs write]"; got != want {
-		t.Errorf("inside calls %s, want %s: bar is foo's child", got, want)
-	}
+	wantCallees(t, g, "a/src/lib.rs root", "[a/src/foo.rs load]")
+	wantCallees(t, g, "a/src/foo.rs inside", "[a/src/foo/bar.rs write]")
 }
 
 // Type::f on a path keeps to the type's crate: chrono::Utc::now is not
@@ -839,9 +770,7 @@ func TestRustTypePathCallsKeepToTheirCrate(t *testing.T) {
 		Crates:    map[string]string{"a": "a", "b": "b"},
 		RustFiles: []string{"a/src/run.rs", "a/src/clock.rs", "a/src/ledger.rs", "b/src/ledger.rs"},
 	}
-	if got, want := callees(Build(in, units), "a/src/run.rs run"), "[a/src/clock.rs Clock::now b/src/ledger.rs Ledger::open]"; got != want {
-		t.Errorf("run calls %s, want %s", got, want)
-	}
+	wantCallees(t, Build(in, units), "a/src/run.rs run", "[a/src/clock.rs Clock::now b/src/ledger.rs Ledger::open]")
 }
 
 // Targets records calls resolved by name or type; a guess by the method
@@ -877,9 +806,7 @@ func TestRustModulePathsPickTheNamedModulesFunction(t *testing.T) {
 		"a/src/config.rs load":    "[a/src/store.rs endpoint a/src/config/inner.rs endpoint]",
 		"a/src/api.rs reexported": "[a/src/store/helpers.rs helper]",
 	} {
-		if got := callees(g, caller); got != want {
-			t.Errorf("%s calls %s, want %s", caller, got, want)
-		}
+		wantCallees(t, g, caller, want)
 	}
 }
 
@@ -919,9 +846,7 @@ func TestRustInlineModulesResolve(t *testing.T) {
 		"a/src/lib.rs root":  "[a/src/lib.rs f a/src/lib.rs g]",
 		"a/src/api.rs serve": "[a/src/lib.rs f]",
 	} {
-		if got := callees(g, caller); got != want {
-			t.Errorf("%s calls %s, want %s", caller, got, want)
-		}
+		wantCallees(t, g, caller, want)
 	}
 }
 
@@ -936,80 +861,103 @@ func TestRustModulePathFallbackSkipsTheCallersOwnFunction(t *testing.T) {
 		{File: "a/src/lib.rs", Name: "marker", Module: "inner"},
 	}
 	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/lib.rs", "a/src/other.rs"}}
-	if got := callees(Build(in, units), "a/src/lib.rs root"); got != "[]" {
-		t.Errorf("root calls %s, want nothing: two functions named f, neither inner's", got)
-	}
+	wantCallees(t, Build(in, units), "a/src/lib.rs root", "[]")
 }
 
-// A Rust field chain is followed through the struct declarations: from
-// self, a typed variable or a call's result, each field's type in turn.
-func TestRustFieldChainsResolve(t *testing.T) {
-	units := []unit.Unit{
-		fn("a/src/server.rs", "Server::run",
-			unit.Call{Kind: unit.MethodCall, Field: "ctx.db", Name: "query"},               // self.ctx.db.query()
-			unit.Call{Kind: unit.MethodCall, Type: "Request", Field: "store", Name: "get"}, // req.store.get()
-			unit.Call{Kind: unit.PathCall, Qualifier: "Made", Name: "make"},                // Made::make()
-			unit.Call{Kind: unit.MethodCall, From: 3, Field: "inner", Name: "run"},         // .inner.run()
-			unit.Call{Kind: unit.MethodCall, Field: "ctx.missing", Name: "query"}),         // an unknown field: nothing
-		{File: "a/src/made.rs", Name: "Made::make", Results: []string{"Made", "Made"}},
-		fn("a/src/db.rs", "Db::query"), fn("a/src/other.rs", "Other::query"),
-		fn("a/src/store.rs", "Store::get"), fn("a/src/other.rs", "Other::get"),
-		fn("a/src/inner.rs", "Inner::run"), fn("a/src/other.rs", "Other::run"),
-	}
-	in := Inputs{
-		Crates:    map[string]string{"a": "a"},
-		RustFiles: []string{"a/src/server.rs"},
-		Fields: map[string]map[string]FieldType{"a": {
-			"Server.ctx":    {Type: "crate::context::Context", File: "a/src/server.rs"},
-			"Context.db":    {Type: "Db", File: "a/src/context.rs"},
-			"Request.store": {Type: "Store", File: "a/src/request.rs"},
-			"Made.inner":    {Type: "Inner", File: "a/src/made.rs"},
-		}},
-	}
-	want := "[a/src/db.rs Db::query a/src/store.rs Store::get a/src/made.rs Made::make a/src/inner.rs Inner::run]"
-	if got := callees(Build(in, units), "a/src/server.rs Server::run"); got != want {
-		t.Errorf("Server::run calls %s,\nwant %s", got, want)
-	}
-}
-
-// A field's type is read where its struct is declared: db::Db written in
-// server.rs is server::db's Db, not a root db module's.
-func TestRustFieldTypesKeepTheirDeclaringModule(t *testing.T) {
-	units := []unit.Unit{
-		fn("a/src/server.rs", "Server::run", unit.Call{Kind: unit.MethodCall, Field: "db", Name: "query"}),
-		fn("a/src/server/db.rs", "Db::query"),
-		fn("a/src/db.rs", "Db::query"), // a root db module's Db: not this one
-	}
-	in := Inputs{
-		Crates:    map[string]string{"a": "a"},
-		RustFiles: []string{"a/src/server.rs", "a/src/server/db.rs", "a/src/db.rs"},
-		Fields:    map[string]map[string]FieldType{"a": {"Server.db": {Type: "db::Db", File: "a/src/server.rs"}}},
-	}
-	if got, want := callees(Build(in, units), "a/src/server.rs Server::run"), "[a/src/server/db.rs Db::query]"; got != want {
-		t.Errorf("Server::run calls %s, want %s", got, want)
-	}
-}
-
-// Looking through a result adapter keeps the fields before it:
-// make().inner.unwrap().run() runs on inner's type, never on make()'s.
-func TestRustAdaptersKeepTheFieldPathBeforeThem(t *testing.T) {
-	units := []unit.Unit{
-		fn("a/src/run.rs", "go",
-			unit.Call{Kind: unit.PathCall, Qualifier: "Made", Name: "make"},
-			unit.Call{Kind: unit.MethodCall, From: 1, Field: "inner", Name: "unwrap", Adapts: 2},
-			unit.Call{Kind: unit.MethodCall, From: 2, Name: "run"}),
-		{File: "a/src/made.rs", Name: "Made::make", Results: []string{"Made", "Made"}},
-		fn("a/src/made.rs", "Made::run"), // make()'s own run: never this
-		fn("a/src/inner.rs", "Inner::run"),
-	}
-	in := Inputs{
-		Crates:    map[string]string{"a": "a"},
-		RustFiles: []string{"a/src/run.rs"},
-		// inner: Option<Inner>: unwrap() takes Inner out of the field.
-		Fields: map[string]map[string]FieldType{"a": {"Made.inner": {Type: "Option", Unwrapped: "Inner", File: "a/src/made.rs"}}},
-	}
-	if got, want := callees(Build(in, units), "a/src/run.rs go"), "[a/src/made.rs Made::make a/src/inner.rs Inner::run]"; got != want {
-		t.Errorf("go calls %s, want %s", got, want)
+// Rust calls through fields follow the struct declarations of crate a,
+// each field's type read where its struct is declared.
+func TestRustCallsThroughFieldsResolve(t *testing.T) {
+	for name, tc := range map[string]struct {
+		units     []unit.Unit
+		rustFiles []string
+		fields    map[string]FieldType
+		caller    string
+		want      string
+	}{
+		// A field chain is followed through the struct declarations: from
+		// self, a typed variable or a call's result, each field's type in
+		// turn.
+		"field chains": {
+			units: []unit.Unit{
+				fn("a/src/server.rs", "Server::run",
+					unit.Call{Kind: unit.MethodCall, Field: "ctx.db", Name: "query"},               // self.ctx.db.query()
+					unit.Call{Kind: unit.MethodCall, Type: "Request", Field: "store", Name: "get"}, // req.store.get()
+					unit.Call{Kind: unit.PathCall, Qualifier: "Made", Name: "make"},                // Made::make()
+					unit.Call{Kind: unit.MethodCall, From: 3, Field: "inner", Name: "run"},         // .inner.run()
+					unit.Call{Kind: unit.MethodCall, Field: "ctx.missing", Name: "query"}),         // an unknown field: nothing
+				{File: "a/src/made.rs", Name: "Made::make", Results: []string{"Made", "Made"}},
+				fn("a/src/db.rs", "Db::query"), fn("a/src/other.rs", "Other::query"),
+				fn("a/src/store.rs", "Store::get"), fn("a/src/other.rs", "Other::get"),
+				fn("a/src/inner.rs", "Inner::run"), fn("a/src/other.rs", "Other::run"),
+			},
+			rustFiles: []string{"a/src/server.rs"},
+			fields: map[string]FieldType{
+				"Server.ctx":    {Type: "crate::context::Context", File: "a/src/server.rs"},
+				"Context.db":    {Type: "Db", File: "a/src/context.rs"},
+				"Request.store": {Type: "Store", File: "a/src/request.rs"},
+				"Made.inner":    {Type: "Inner", File: "a/src/made.rs"},
+			},
+			caller: "a/src/server.rs Server::run",
+			want:   "[a/src/db.rs Db::query a/src/store.rs Store::get a/src/made.rs Made::make a/src/inner.rs Inner::run]",
+		},
+		// db::Db written in server.rs is server::db's Db, not a root db
+		// module's.
+		"a field type keeps its declaring module": {
+			units: []unit.Unit{
+				fn("a/src/server.rs", "Server::run", unit.Call{Kind: unit.MethodCall, Field: "db", Name: "query"}),
+				fn("a/src/server/db.rs", "Db::query"),
+				fn("a/src/db.rs", "Db::query"), // a root db module's Db: not this one
+			},
+			rustFiles: []string{"a/src/server.rs", "a/src/server/db.rs", "a/src/db.rs"},
+			fields:    map[string]FieldType{"Server.db": {Type: "db::Db", File: "a/src/server.rs"}},
+			caller:    "a/src/server.rs Server::run",
+			want:      "[a/src/server/db.rs Db::query]",
+		},
+		// Looking through a result adapter keeps the fields before it:
+		// make().inner.unwrap().run() runs on inner's type, never on
+		// make()'s.
+		"an adapter keeps the field path before it": {
+			units: []unit.Unit{
+				fn("a/src/run.rs", "go",
+					unit.Call{Kind: unit.PathCall, Qualifier: "Made", Name: "make"},
+					unit.Call{Kind: unit.MethodCall, From: 1, Field: "inner", Name: "unwrap", Adapts: 2},
+					unit.Call{Kind: unit.MethodCall, From: 2, Name: "run"}),
+				{File: "a/src/made.rs", Name: "Made::make", Results: []string{"Made", "Made"}},
+				fn("a/src/made.rs", "Made::run"), // make()'s own run: never this
+				fn("a/src/inner.rs", "Inner::run"),
+			},
+			rustFiles: []string{"a/src/run.rs"},
+			// inner: Option<Inner>: unwrap() takes Inner out of the field.
+			fields: map[string]FieldType{"Made.inner": {Type: "Option", Unwrapped: "Inner", File: "a/src/made.rs"}},
+			caller: "a/src/run.rs go",
+			want:   "[a/src/made.rs Made::make a/src/inner.rs Inner::run]",
+		},
+		// self.inner.unwrap().run(), req.inner.context()?.run().
+		"an adapter on a field of self or a typed variable unwraps the field": {
+			units: []unit.Unit{
+				fn("a/src/server.rs", "Server::go",
+					unit.Call{Kind: unit.MethodCall, Field: "inner", Name: "unwrap", Adapts: 2},
+					unit.Call{Kind: unit.MethodCall, From: 1, Name: "run"},
+					unit.Call{Kind: unit.MethodCall, Type: "Request", Field: "inner", Name: "context", Adapts: 1},
+					unit.Call{Kind: unit.MethodCall, From: 3, Result: 1, Name: "stop"}),
+				fn("a/src/inner.rs", "Inner::run"),
+				fn("a/src/inner.rs", "Inner::stop"),
+				fn("a/src/other.rs", "Other::run"),
+				fn("a/src/other.rs", "Other::stop"),
+			},
+			rustFiles: []string{"a/src/server.rs"},
+			fields: map[string]FieldType{
+				"Server.inner":  {Type: "Option", Unwrapped: "Inner", File: "a/src/server.rs"},
+				"Request.inner": {Type: "Result", Unwrapped: "Inner", File: "a/src/server.rs"},
+			},
+			caller: "a/src/server.rs Server::go",
+			want:   "[a/src/inner.rs Inner::run a/src/inner.rs Inner::stop]",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: tc.rustFiles, Fields: map[string]map[string]FieldType{"a": tc.fields}}
+			wantCallees(t, Build(in, tc.units), tc.caller, tc.want)
+		})
 	}
 }
 
@@ -1027,36 +975,7 @@ func TestRustWorkspaceModulePathsPickTheNamedModulesType(t *testing.T) {
 		Imports:   map[string]map[string]string{"a/src/server.rs": {"Db": "b::foo::Db"}},
 		RustFiles: []string{"a/src/server.rs", "b/src/foo.rs", "b/src/bar.rs", "b/src/lib.rs"},
 	}
-	if got, want := callees(Build(in, units), "a/src/server.rs Server::run"), "[b/src/foo.rs Db::query b/src/lib.rs Db::query]"; got != want {
-		t.Errorf("Server::run calls %s, want %s", got, want)
-	}
-}
-
-// An adapter on a field of self or of a typed variable unwraps that
-// field: self.inner.unwrap().run(), req.inner.context()?.run().
-func TestRustAdaptersOnFieldsOfSelfAndVariablesUnwrapTheField(t *testing.T) {
-	units := []unit.Unit{
-		fn("a/src/server.rs", "Server::go",
-			unit.Call{Kind: unit.MethodCall, Field: "inner", Name: "unwrap", Adapts: 2},
-			unit.Call{Kind: unit.MethodCall, From: 1, Name: "run"},
-			unit.Call{Kind: unit.MethodCall, Type: "Request", Field: "inner", Name: "context", Adapts: 1},
-			unit.Call{Kind: unit.MethodCall, From: 3, Result: 1, Name: "stop"}),
-		fn("a/src/inner.rs", "Inner::run"),
-		fn("a/src/inner.rs", "Inner::stop"),
-		fn("a/src/other.rs", "Other::run"),
-		fn("a/src/other.rs", "Other::stop"),
-	}
-	in := Inputs{
-		Crates:    map[string]string{"a": "a"},
-		RustFiles: []string{"a/src/server.rs"},
-		Fields: map[string]map[string]FieldType{"a": {
-			"Server.inner":  {Type: "Option", Unwrapped: "Inner", File: "a/src/server.rs"},
-			"Request.inner": {Type: "Result", Unwrapped: "Inner", File: "a/src/server.rs"},
-		}},
-	}
-	if got, want := callees(Build(in, units), "a/src/server.rs Server::go"), "[a/src/inner.rs Inner::run a/src/inner.rs Inner::stop]"; got != want {
-		t.Errorf("Server::go calls %s, want %s", got, want)
-	}
+	wantCallees(t, Build(in, units), "a/src/server.rs Server::run", "[b/src/foo.rs Db::query b/src/lib.rs Db::query]")
 }
 
 // impl is a method of a trait's implementation.
@@ -1093,9 +1012,7 @@ func TestRustCallsThroughTraitsReachTheirOnlyImplementation(t *testing.T) {
 		{File: "a/src/bin.rs", Trait: "Codec", Type: "Bin"},
 	}}
 	g := Build(in, units)
-	if got, want := callees(g, "a/src/server.rs Server::run"), "[a/src/pg.rs PgStore::get a/src/store.rs Store::describe]"; got != want {
-		t.Errorf("Server::run calls %s, want %s", got, want)
-	}
+	wantCallees(t, g, "a/src/server.rs Server::run", "[a/src/pg.rs PgStore::get a/src/store.rs Store::describe]")
 	if got, want := fmt.Sprint(g.ByName[0]), "[false false]"; got != want {
 		t.Errorf("ByName = %s, want %s", got, want)
 	}
@@ -1106,29 +1023,61 @@ func TestRustCallsThroughTraitsReachTheirOnlyImplementation(t *testing.T) {
 	}
 }
 
-// A concrete type named like a trait is no trait: its own methods. A
-// trait's implementations are those in its crate or crates importing
-// from it; another crate's trait of the name is another trait.
+// A call through a trait reaches that trait's implementations only.
 func TestRustTraitCallsKeepToTheTrait(t *testing.T) {
-	units := []unit.Unit{
-		fn("a/src/server.rs", "Server::run",
-			typed("crate::model::Store", "get"), // the struct
-			typed("dyn Store", "put")),          // the trait
-		fn("a/src/model.rs", "Store::get"),
-		impl("a/src/pg.rs", "PgStore::get", "Store"),
-		impl("a/src/pg.rs", "PgStore::put", "Store"),
-		impl("c/src/disk.rs", "Disk::put", "Store"), // c's own trait Store
-	}
-	in := Inputs{
-		Crates:    map[string]string{"a": "a", "c": "c"},
-		RustFiles: []string{"a/src/server.rs", "a/src/model.rs", "a/src/pg.rs", "c/src/disk.rs"},
-		Impls: []unit.Impl{
-			{File: "a/src/pg.rs", Trait: "Store", Type: "PgStore"},
-			{File: "c/src/disk.rs", Trait: "Store", Type: "Disk"},
+	for name, tc := range map[string]struct {
+		units  []unit.Unit
+		in     Inputs
+		caller string
+		want   string
+	}{
+		// A concrete type named like a trait is no trait: its own methods.
+		// A trait's implementations are those in its crate or crates
+		// importing from it; another crate's trait of the name is another
+		// trait.
+		"a struct and another crate's trait of the name": {
+			units: []unit.Unit{
+				fn("a/src/server.rs", "Server::run",
+					typed("crate::model::Store", "get"), // the struct
+					typed("dyn Store", "put")),          // the trait
+				fn("a/src/model.rs", "Store::get"),
+				impl("a/src/pg.rs", "PgStore::get", "Store"),
+				impl("a/src/pg.rs", "PgStore::put", "Store"),
+				impl("c/src/disk.rs", "Disk::put", "Store"), // c's own trait Store
+			},
+			in: Inputs{
+				Crates:    map[string]string{"a": "a", "c": "c"},
+				RustFiles: []string{"a/src/server.rs", "a/src/model.rs", "a/src/pg.rs", "c/src/disk.rs"},
+				Impls: []unit.Impl{
+					{File: "a/src/pg.rs", Trait: "Store", Type: "PgStore"},
+					{File: "c/src/disk.rs", Trait: "Store", Type: "Disk"},
+				},
+			},
+			caller: "a/src/server.rs Server::run",
+			want:   "[a/src/model.rs Store::get a/src/pg.rs PgStore::put]",
 		},
-	}
-	if got, want := callees(Build(in, units), "a/src/server.rs Server::run"), "[a/src/model.rs Store::get a/src/pg.rs PgStore::put]"; got != want {
-		t.Errorf("Server::run calls %s, want %s", got, want)
+		// An implementation written with the trait's crate path (impl
+		// api::Store for Disk, no use) is one of that crate's trait's.
+		"impls written with the crate path": {
+			units: []unit.Unit{
+				fn("api/src/server.rs", "Server::run", typed("dyn Store", "put")),
+				impl("api/src/mem.rs", "Mem::put", "Store"),
+				impl("disk/src/disk.rs", "Disk::put", "Store"),
+			},
+			in: Inputs{
+				Crates: map[string]string{"api": "api", "disk": "disk"},
+				Impls: []unit.Impl{
+					{File: "api/src/mem.rs", Trait: "Store", TraitPath: "Store", Type: "Mem"},
+					{File: "disk/src/disk.rs", Trait: "Store", TraitPath: "api::Store", Type: "Disk"},
+				},
+			},
+			caller: "api/src/server.rs Server::run",
+			want:   "[]",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			wantCallees(t, Build(tc.in, tc.units), tc.caller, tc.want)
+		})
 	}
 }
 
@@ -1145,31 +1094,9 @@ func TestRustTraitCallsToOtherTraitsMethodsAreGuessed(t *testing.T) {
 		{File: "a/src/concrete.rs", Trait: "Base", Type: "Concrete"},
 	}}
 	g := Build(in, units)
-	if got, want := callees(g, "a/src/server.rs Server::run"), "[a/src/concrete.rs Concrete::base]"; got != want {
-		t.Errorf("Server::run calls %s, want %s", got, want)
-	}
+	wantCallees(t, g, "a/src/server.rs Server::run", "[a/src/concrete.rs Concrete::base]")
 	if got, want := fmt.Sprint(g.ByName[0]), "[true]"; got != want {
 		t.Errorf("ByName = %s, want %s: found by its name", got, want)
-	}
-}
-
-// An implementation written with the trait's crate path (impl
-// api::Store for Disk, no use) is one of that crate's trait's.
-func TestRustTraitImplsWrittenWithTheCratePathCount(t *testing.T) {
-	units := []unit.Unit{
-		fn("api/src/server.rs", "Server::run", typed("dyn Store", "put")),
-		impl("api/src/mem.rs", "Mem::put", "Store"),
-		impl("disk/src/disk.rs", "Disk::put", "Store"),
-	}
-	in := Inputs{
-		Crates: map[string]string{"api": "api", "disk": "disk"},
-		Impls: []unit.Impl{
-			{File: "api/src/mem.rs", Trait: "Store", TraitPath: "Store", Type: "Mem"},
-			{File: "disk/src/disk.rs", Trait: "Store", TraitPath: "api::Store", Type: "Disk"},
-		},
-	}
-	if got := callees(Build(in, units), "api/src/server.rs Server::run"); got != "[]" {
-		t.Errorf("Server::run calls %s, want nothing: two implementations", got)
 	}
 }
 
@@ -1207,9 +1134,7 @@ func TestCratePathsResolveInALibraryMovedOutOfSrc(t *testing.T) {
 		fn("other/src/config.rs", "load"),
 		fn("svc/lib/store/client.rs", "open", path("crate::config", "load"), path("crate", "version")),
 	})
-	if got, want := callees(g, "svc/lib/store/client.rs open"), "[svc/lib/config.rs load svc/lib/core.rs version]"; got != want {
-		t.Errorf("open calls %s, want %s", got, want)
-	}
+	wantCallees(t, g, "svc/lib/store/client.rs open", "[svc/lib/config.rs load svc/lib/core.rs version]")
 }
 
 // A library rooted at its package's top (core.rs) claims only its own
@@ -1244,23 +1169,57 @@ func TestALibraryRootedAtItsPackageTopClaimsOnlyItsFiles(t *testing.T) {
 	}
 }
 
-// A library its manifest roots inside a target directory (autoexamples =
-// false, path = "examples/lib.rs") owns that directory: the configured
-// root wins over the target-directory rules.
-func TestALibraryRootedInATargetDirectoryOwnsIt(t *testing.T) {
-	l := Libraries{
-		Roots:    map[string]string{"svc/examples/lib.rs": "svc"},
-		Packages: map[string]bool{"svc": true},
-	}
-	for file, want := range map[string]bool{
-		"svc/examples/lib.rs":         true,
-		"svc/examples/store.rs":       true,
-		"svc/examples/store/inner.rs": true,
-		"svc/tests/api.rs":            false,
+// Which files a library rooted out of src/ owns.
+func TestALibraryRootedOutOfSrcOwnsTheFilesItsManifestLeavesIt(t *testing.T) {
+	for name, tc := range map[string]struct {
+		libraries Libraries
+		found     map[string]bool
+	}{
+		// A library its manifest roots inside a target directory
+		// (autoexamples = false, path = "examples/lib.rs") owns that
+		// directory: the configured root wins over the target-directory
+		// rules.
+		"rooted in a target directory": {
+			libraries: Libraries{
+				Roots:    map[string]string{"svc/examples/lib.rs": "svc"},
+				Packages: map[string]bool{"svc": true},
+			},
+			found: map[string]bool{
+				"svc/examples/lib.rs":         true,
+				"svc/examples/store.rs":       true,
+				"svc/examples/store/inner.rs": true,
+				"svc/tests/api.rs":            false,
+			},
+		},
+		// A target its manifest places beside a moved library ([[bin]]
+		// path = "tool.rs") is not the library's, nor is the directory of
+		// one below it.
+		"targets placed beside it": {
+			libraries: Libraries{
+				Roots:    map[string]string{"svc/core.rs": "svc"},
+				Packages: map[string]bool{"svc": true},
+				Targets: map[string]string{
+					"svc/tool.rs": "svc/tool.rs", "svc/cli.rs": "svc/tool.rs", "svc/cli/": "svc/tool.rs",
+					"svc/tools/run/main.rs": "svc/tools/run/main.rs", "svc/tools/run/": "svc/tools/run/main.rs",
+				},
+			},
+			found: map[string]bool{
+				"svc/store.rs":          true,
+				"svc/tool.rs":           false,
+				"svc/cli.rs":            false,
+				"svc/cli/args.rs":       false,
+				"svc/tools/run/main.rs": false,
+				"svc/tools/run/cli.rs":  false,
+			},
+		},
 	} {
-		if _, _, _, got := l.Locate(file); got != want {
-			t.Errorf("Locate(%s) found = %v, want %v", file, got, want)
-		}
+		t.Run(name, func(t *testing.T) {
+			for file, want := range tc.found {
+				if _, _, _, got := tc.libraries.Locate(file); got != want {
+					t.Errorf("Locate(%s) found = %v, want %v", file, got, want)
+				}
+			}
+		})
 	}
 }
 
@@ -1278,12 +1237,8 @@ func TestFilesAMovedLibraryRejectsAreAnotherCrate(t *testing.T) {
 		fn("svc/src/cli.rs", "run"),
 		fn("svc/src/main.rs", "main", path("crate::cli", "run")),
 	})
-	if got := callees(g, "svc/core.rs start"); got != "[]" {
-		t.Errorf("the library's crate::cli::run resolved to %s, want nothing: cli is the binary's", got)
-	}
-	if got := callees(g, "svc/src/main.rs main"); got != "[svc/src/cli.rs run]" {
-		t.Errorf("the binary's crate::cli::run resolved to %s, want its own cli", got)
-	}
+	wantCallees(t, g, "svc/core.rs start", "[]")
+	wantCallees(t, g, "svc/src/main.rs main", "[svc/src/cli.rs run]")
 }
 
 // A moved library's package rules are for its Rust files: Go packages in
@@ -1293,31 +1248,6 @@ func TestGoFilesBesideAMovedLibraryKeepTheirPackages(t *testing.T) {
 	for file, want := range map[string]string{"svc/go/api/h.go": "svc/go/api", "svc/go/store/s.go": "svc/go/store"} {
 		if got := l.CrateOf(file); got != want {
 			t.Errorf("CrateOf(%s) = %s, want its Go package %s", file, got, want)
-		}
-	}
-}
-
-// A target its manifest places beside a moved library ([[bin]] path =
-// "tool.rs") is not the library's, nor is the directory of one below it.
-func TestTargetsAManifestPlacesBesideAMovedLibraryAreNotIts(t *testing.T) {
-	l := Libraries{
-		Roots:    map[string]string{"svc/core.rs": "svc"},
-		Packages: map[string]bool{"svc": true},
-		Targets: map[string]string{
-			"svc/tool.rs": "svc/tool.rs", "svc/cli.rs": "svc/tool.rs", "svc/cli/": "svc/tool.rs",
-			"svc/tools/run/main.rs": "svc/tools/run/main.rs", "svc/tools/run/": "svc/tools/run/main.rs",
-		},
-	}
-	for file, want := range map[string]bool{
-		"svc/store.rs":          true,
-		"svc/tool.rs":           false,
-		"svc/cli.rs":            false,
-		"svc/cli/args.rs":       false,
-		"svc/tools/run/main.rs": false,
-		"svc/tools/run/cli.rs":  false,
-	} {
-		if _, _, _, got := l.Locate(file); got != want {
-			t.Errorf("Locate(%s) found = %v, want %v", file, got, want)
 		}
 	}
 }

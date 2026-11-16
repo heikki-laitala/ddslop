@@ -63,10 +63,8 @@ func TestCheckDiffWithoutNewDuplicationExitsZero(t *testing.T) {
 	root := committedRepo(t, map[string]string{"a.rs": users, "b.rs": orders})
 	testutil.WriteFiles(t, root, map[string]string{"c.rs": unrelated})
 
-	stdout, _ := runCode(t, 0, "check", "--format", "json", "--min-nodes", "20", "--diff", "HEAD", root)
-	if n := len(decode(t, stdout).Candidates); n != 0 {
-		t.Errorf("%d candidates, want none: the change adds no duplication", n)
-	}
+	// Exit code 0: no candidate, as the change adds no duplication.
+	runCode(t, 0, "check", "--format", "json", "--min-nodes", "20", "--diff", "HEAD", root)
 }
 
 func TestCheckDiffTextMarksChangedOccurrences(t *testing.T) {

@@ -2371,8 +2371,8 @@ Implemented so far: `main.go`, `internal/cli`, `internal/unit`,
 `internal/lang/rust`, `internal/clone` (which also holds the type and
 constant detectors), `internal/simplify`, `internal/flow`,
 `internal/similarity`, `internal/source`, `internal/index`,
-`internal/baseline`, `internal/integrate` and `internal/report`. The rest
-is planned.
+`internal/baseline`, `internal/integrate`, `internal/report` and
+`internal/testutil`. The rest is planned.
 
 ```text
 main.go              entry point; calls internal/cli (kept at the root so
@@ -2393,6 +2393,7 @@ internal/config/     .ddslop.yaml loading and flag merging
 internal/baseline/   fingerprints, baseline file, suppressions
 internal/source/     file discovery (git ls-files) and diff ranges (git diff)
 internal/index/      SQLite index of extracted units, parallel parsing
+internal/testutil/   assertions and fixtures the packages' tests share
 ```
 
 ```mermaid

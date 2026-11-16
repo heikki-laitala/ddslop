@@ -498,6 +498,7 @@ func TestMapNamesTheCodebasesFormForEachErrorConcern(t *testing.T) {
 	wantContains(t, text, "Idioms", "error-checks: errors.Is/As in 5 of 6", "message 1, e.g. store/s.go:16 F", "error-wrapping: no convention")
 }
 
+// ddslop:ignore caps an idiom's forms as TestMapLimitCapsAFeaturesSteps caps a feature's steps: one shape, two lists
 func TestMapLimitCountsTheFormsItLeavesOut(t *testing.T) {
 	root := repo(t, errorsService)
 	r := limitOne(t, root)

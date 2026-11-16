@@ -20,6 +20,13 @@ type patternCandidate struct {
 	} `json:"suggestion"`
 }
 
+// summary describes the candidate's suggestion and occurrences, the
+// first one in full.
+func (c patternCandidate) summary() string {
+	o := c.Occurrences[0]
+	return fmt.Sprintf("%s %s gof=%q, %d occurrences from %s %d-%d", c.Suggestion.Action, c.Suggestion.Pattern, c.Suggestion.GoF, len(c.Occurrences), o.Name, o.StartLine, o.EndLine)
+}
+
 // numberedCopies checks a crate whose file holds n copies of template,
 // each with the copy's number in both its %d verbs, and stops the test
 // unless check reports one kind candidate, which it returns with the
@@ -63,11 +70,8 @@ func TestCheckProposesAClosureHelperForRepeatedSetupAndTeardown(t *testing.T) {
 }
 
 `, 6)
-	s := c.Suggestion
-	if s.Action != "extract-scope" || s.Pattern != "closure-helper" || s.GoF != "Template Method" || len(c.Occurrences) != 6 {
-		t.Errorf("candidate = %+v", c)
-	}
-	if o := c.Occurrences[0]; o.Name != "write0" || o.StartLine != 2 || o.EndLine != 4 {
-		t.Errorf("first occurrence = %+v, want write0 lines 2-4 (begin to commit)", o)
+	// The first occurrence runs from begin to commit.
+	if got, want := c.summary(), `extract-scope closure-helper gof="Template Method", 6 occurrences from write0 2-4`; got != want {
+		t.Errorf("candidate = %s, want %s", got, want)
 	}
 }

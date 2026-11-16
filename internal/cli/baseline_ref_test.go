@@ -75,6 +75,7 @@ func TestBaselineRefOfAPathTheRefLacksKnowsNothing(t *testing.T) {
 
 // Both trees are analysed with the change's configuration: duplication a
 // change's narrower exclusions bring into view was there before it.
+// ddslop:ignore a ref's configuration, not config_test's exclusions: one shape, two features
 func TestBaselineRefAnalysesTheRefWithTheChangesConfiguration(t *testing.T) {
 	root := committedRepo(t, map[string]string{
 		".ddslop.yaml": "exclude:\n  - gen/**\n",
