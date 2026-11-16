@@ -23,8 +23,12 @@ func (g Group) first() group.Located { return g.Units[0] }
 
 // DuplicatedNodes is how many syntax nodes would disappear if all copies
 // but one were removed.
-func (g Group) DuplicatedNodes() int {
-	return g.Units[0].Nodes * (len(g.Units) - 1)
+func (g Group) DuplicatedNodes() int { return duplicatedNodes(g.Units) }
+
+// duplicatedNodes is how many syntax nodes would disappear if all copies
+// but one were removed.
+func duplicatedNodes[T interface{ Size() int }](copies []T) int {
+	return copies[0].Size() * (len(copies) - 1)
 }
 
 // key identifies a shape. The size is part of it so that a hash collision

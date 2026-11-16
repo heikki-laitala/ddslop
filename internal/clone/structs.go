@@ -24,7 +24,7 @@ func (g StructGroup) first() group.Located { return g.Structs[0] }
 // DuplicatedNodes is how many syntax nodes would disappear if all copies
 // but one were removed.
 func (g StructGroup) DuplicatedNodes() int {
-	return g.Structs[0].Nodes * (len(g.Structs) - 1)
+	return duplicatedNodes(g.Structs)
 }
 
 // Structs groups structs declaring the same field names, in any order,

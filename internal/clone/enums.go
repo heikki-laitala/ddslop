@@ -19,9 +19,7 @@ func (g EnumGroup) first() group.Located { return g.Enums[0] }
 
 // DuplicatedNodes is how many syntax nodes would disappear if all copies
 // but one were removed.
-func (g EnumGroup) DuplicatedNodes() int {
-	return g.Enums[0].Nodes * (len(g.Enums) - 1)
-}
+func (g EnumGroup) DuplicatedNodes() int { return duplicatedNodes(g.Enums) }
 
 // minDistinctVariants is the fewest bare variants (without payloads) that
 // make two enums a copy rather than a coincidence. Measured on a 735k- and
