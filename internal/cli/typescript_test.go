@@ -220,3 +220,79 @@ func TestTypeScriptCallsCloseNoRustCycle(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckReportsTypeScriptParameterGroupsAndStringKinds(t *testing.T) {
+	root := repo(t, map[string]string{
+		"src/billing.ts": `export function charge(tenantId: string, region: string, plan: Plan, amount: number) {
+  return post("/charge", { tenantId, region, plan, amount });
+}
+
+export function refund(tenantId: string, region: string, plan: Plan) {
+  return post("/refund", { tenantId, region, plan });
+}
+
+export const quote = (tenantId: string, region: string, plan: Plan, seats: number) => price(plan, seats) + tax(region, tenantId);
+
+export function invoice(plan: Plan, region: string, tenantId: string, at: Date) {
+  return render(at, plan, region, tenantId);
+}
+
+export class Billing {
+  bill(tenantId: string, region: string, plan: Plan) {
+    return charge(tenantId, region, plan, 0);
+  }
+}
+`,
+		"src/state.ts": `export function label(state: string) {
+  switch (state) {
+    case "queued": return "Waiting";
+    case "running": return "Busy";
+    case "done": return "Finished";
+  }
+  return "";
+}
+
+export function icon(state: string) {
+  switch (state) {
+    case 'queued': return clock();
+    case 'running': return spinner();
+    case 'done': return check();
+  }
+}
+
+export function canCancel(state: string): boolean {
+  switch (state) {
+    case "queued":
+    case "running":
+      return true;
+    case "done":
+      return false;
+  }
+  return false;
+}
+`,
+	})
+
+	_, stdout, stderr := run("check", "--format", "json", root)
+
+	var got []string
+	for _, c := range decode(t, stdout).Candidates {
+		if c.Kind != "parameter-group" && c.Kind != "string-kinds" {
+			continue
+		}
+		var occs []string
+		for _, o := range c.Occurrences {
+			occs = append(occs, o.Name)
+		}
+		got = append(got, fmt.Sprintf("%s %s [%s]", c.Language, c.Kind, strings.Join(occs, ", ")))
+	}
+	// A class method may be what an interface asks for: its parameters
+	// are dictated. Quote style is formatting.
+	want := []string{
+		"typescript parameter-group [charge, refund, quote, invoice]",
+		"typescript string-kinds [label, icon, canCancel]",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("candidates:\n%s\nwant:\n%s\nstderr: %s", strings.Join(got, "\n"), strings.Join(want, "\n"), stderr)
+	}
+}

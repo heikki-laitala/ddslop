@@ -449,7 +449,24 @@ reported unused; and as module cycles are found among a Rust crate's
 modules, TypeScript files in a crate's directory (a Tauri app's
 frontend) are none of its modules. On Hono, Excalidraw and tRPC, 7
 wrappers, all passing their parameters on unchanged; most narrow the
-types (`createHTTPHandler` calling `createHandler`). On three open-source
+types (`createHTTPHandler` calling `createHandler`).
+
+TypeScript functions record their parameters named by one name, each
+with its type as written (`""` when it has none), and their switches on
+strings (`case "a":`, quote style normalised as for unions), so
+parameter groups and string kinds work for TypeScript. A `this`
+parameter only types `this`; destructured and rest parameters (a React
+component's props) bind no one name and are left out; class members
+are left out of parameter groups, as for Go methods. On Excalidraw: 18
+parameter groups, the state a canvas renderer passes along (`appState`,
+`element`, `elementsMap`; `context`, `width`, `height`), and the element
+types switched on in eight functions; on tRPC, query states
+(`"pending"`, `"success"`, `"error"`) switched on in three example
+pages. Signatures a framework dictates are not told apart yet: an
+Express app writing its handlers inline passes them as callbacks, which
+are no units, but named handlers (`export const getUser = (req:
+Request, res: Response, next: NextFunction) => ...`) would group, as
+Go's HTTP handlers did, once measured. On three open-source
 TypeScript codebases (Hono, Excalidraw, tRPC; 95k to 230k lines, 2 to 4
 seconds each), the copies found were real: adapters vendored twice, undo
 and redo actions, per-shape geometry.

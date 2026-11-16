@@ -107,6 +107,8 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		if c, ok := g.call(n, s.Src); ok {
 			s.Calls = append(s.Calls, c)
 		}
+	case n.Kind() == "switch_statement":
+		s.RecordStringMatch(n, caseStrings(n, s.Src))
 	case n.Kind() == "return_statement":
 		if s.Closures == 0 {
 			s.Exits++
@@ -327,6 +329,19 @@ func (p *parser) union(decl, union *sitter.Node) {
 	}
 }
 
+// caseStrings returns the string literals a switch's cases compare with,
+// in double quotes.
+func caseStrings(n *sitter.Node, src []byte) []string {
+	var values []string
+	body := n.ChildByFieldName("body")
+	for i := uint(0); body != nil && i < body.NamedChildCount(); i++ {
+		if value := body.NamedChild(i).ChildByFieldName("value"); value != nil && value.Kind() == "string" {
+			values = append(values, quoted(value.Utf8Text(src)))
+		}
+	}
+	return values
+}
+
 // quoted writes a string literal in double quotes: 'a' and "a" are one
 // variant.
 func quoted(literal string) string { return `"` + strings.Trim(literal, `'"`) + `"` }
@@ -387,6 +402,7 @@ func isPrivate(m, name *sitter.Node) bool {
 // unit makes a unit of the declaration n, whose own function is fn.
 func (p *parser) unit(name string, n, fn *sitter.Node, public bool) unit.Unit {
 	s := syntax.Flatten(n, p.src, grammar{fn: syntax.Span(fn), imports: p.imports})
+	ps, _ := params(fn, p.src)
 	return unit.Unit{
 		File:      p.file,
 		Name:      name,
@@ -401,7 +417,10 @@ func (p *parser) unit(name string, n, fn *sitter.Node, public bool) unit.Unit {
 		Blocks:    s.Blocks,
 		Calls:     s.Calls,
 		Forwards:  forwards(fn, p.src),
-		Public:    public,
+		Params:    ps,
+
+		StringMatches: s.Matches,
+		Public:        public,
 	}
 }
 

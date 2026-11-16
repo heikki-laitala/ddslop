@@ -352,6 +352,10 @@ function logged(x: number) {
 function pick(items: Item[]) {
   return items.map((item) => helper(item));
 }
+
+export function bound(this: Ctx, id: string) {
+  return load(id);
+}
 `
 	units, _, err := Parse("src/store/store.ts", []byte(src))
 	if err != nil {
@@ -367,8 +371,9 @@ function pick(items: Item[]) {
 		}
 	}
 	// A rest parameter, reordered arguments or a second statement make no
-	// wrapper; an awaited call does.
-	wantForwards := "Store.visible -> this.inNamespace\nread -> readFile\ncheck -> verifyToken\nload -> open"
+	// wrapper; an awaited call does, and a this parameter is no argument
+	// to pass on.
+	wantForwards := "Store.visible -> this.inNamespace\nread -> readFile\ncheck -> verifyToken\nload -> open\nbound -> load"
 	if strings.Join(forwards, "\n") != wantForwards {
 		t.Errorf("wrappers:\n%s\nwant:\n%s", strings.Join(forwards, "\n"), wantForwards)
 	}
@@ -388,6 +393,7 @@ function pick(items: Item[]) {
 		fmt.Sprintf("logged:%d:::add", unit.FreeCall),
 		fmt.Sprintf("pick:%d:::map", unit.MethodCall),
 		fmt.Sprintf("pick:%d:::helper", unit.FreeCall),
+		fmt.Sprintf("bound:%d:::load", unit.FreeCall),
 	}
 	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(calls, "\n"), strings.Join(want, "\n"))
@@ -400,5 +406,53 @@ func TestClassMembersMayBeCalledThroughAnInterface(t *testing.T) {
 	u := unitNamed(t, "a.ts", store, "Store.load")
 	if !u.ViaInterface() || unitNamed(t, "a.ts", store, "loadRow").ViaInterface() {
 		t.Error("want class members, and only them, callable through an interface")
+	}
+}
+
+func TestUnitsRecordParametersAndSwitchesOnStrings(t *testing.T) {
+	src := `export function interpret(this: Store, a: number, b?: number, status = "new", tags: string[] = [], { id }: Row, ...rest: string[]) {
+  switch (status) {
+    case "committed":
+      return 1;
+    case 'replayed':
+    case "refused":
+      return 2;
+    default:
+      return 0;
+  }
+}
+
+const small = (kind: string) => {
+  switch (kind) {
+    case "a":
+    case "b":
+      return 1;
+  }
+  return 0;
+};
+`
+	units, _, err := Parse("src/store.ts", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var params []string
+	for _, p := range units[0].Params { // interpret
+		params = append(params, p.Name+": "+p.Type)
+	}
+	// this is no parameter; a type is taken as written, "" when the
+	// parameter has none; destructured and rest parameters bind no one
+	// name.
+	if want := "[a: number b: number status:  tags: string[]]"; fmt.Sprint(params) != want {
+		t.Errorf("params = %v, want %s", params, want)
+	}
+	var matches []string
+	for _, x := range units {
+		for _, m := range x.StringMatches {
+			matches = append(matches, fmt.Sprintf("%s %v %d-%d", x.Name, m.Values, m.StartLine, m.EndLine))
+		}
+	}
+	// Quote style is formatting: 'replayed' is "replayed".
+	if want := `interpret ["committed" "refused" "replayed"] 2-10`; strings.Join(matches, "\n") != want {
+		t.Errorf("string switches:\n%s\nwant:\n%s", strings.Join(matches, "\n"), want)
 	}
 }

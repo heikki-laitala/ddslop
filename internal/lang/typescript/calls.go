@@ -111,10 +111,14 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 // fields (this.inner.get(x)) do not count, and nor do functions without
 // parameters or with a rest or destructured one.
 func forwards(fn *sitter.Node, src []byte) string {
-	names, ok := paramNames(fn, src)
+	ps, plain := params(fn, src)
 	expr := fn.ChildByFieldName("body")
-	if !ok || len(names) == 0 || expr == nil {
+	if !plain || len(ps) == 0 || expr == nil {
 		return ""
+	}
+	names := make([]string, len(ps))
+	for i, p := range ps {
+		names[i] = p.Name
 	}
 	if expr.Kind() == "statement_block" {
 		if expr.NamedChildCount() != 1 {
@@ -149,26 +153,35 @@ func forwards(fn *sitter.Node, src []byte) string {
 	return callee.Utf8Text(src)
 }
 
-// paramNames returns a function's parameter names in order, or false when
-// a parameter is no plain name (a rest or destructured parameter).
-func paramNames(fn *sitter.Node, src []byte) ([]string, bool) {
+// params returns a function's parameters that bind one name, in order,
+// each with its type as written ("" for none), and false when a rest or
+// destructured parameter was left out. A this parameter is no parameter.
+func params(fn *sitter.Node, src []byte) ([]unit.Param, bool) {
 	if p := fn.ChildByFieldName("parameter"); p != nil {
-		return []string{p.Utf8Text(src)}, true // x => g(x)
+		return []unit.Param{{Name: p.Utf8Text(src)}}, true // x => g(x)
 	}
-	params := fn.ChildByFieldName("parameters")
-	if params == nil {
+	list := fn.ChildByFieldName("parameters")
+	if list == nil {
 		return nil, false
 	}
-	var names []string
-	for i := uint(0); i < params.NamedChildCount(); i++ {
-		p := params.NamedChild(i)
-		pattern := p.ChildByFieldName("pattern")
-		if (p.Kind() != "required_parameter" && p.Kind() != "optional_parameter") || pattern == nil || pattern.Kind() != "identifier" {
-			return nil, false
+	var out []unit.Param
+	plain := true
+	for i := uint(0); i < list.NamedChildCount(); i++ {
+		p := list.NamedChild(i)
+		pattern, typ := p.ChildByFieldName("pattern"), p.ChildByFieldName("type")
+		switch {
+		case pattern != nil && pattern.Kind() == "this":
+		case (p.Kind() != "required_parameter" && p.Kind() != "optional_parameter") || pattern == nil || pattern.Kind() != "identifier":
+			plain = false
+		default:
+			param := unit.Param{Name: pattern.Utf8Text(src)}
+			if typ != nil && typ.NamedChild(0) != nil {
+				param.Type = syntax.Compact(typ.NamedChild(0).Utf8Text(src))
+			}
+			out = append(out, param)
 		}
-		names = append(names, pattern.Utf8Text(src))
 	}
-	return names, true
+	return out, plain
 }
 
 // noBorrow: TypeScript passes arguments as they are.

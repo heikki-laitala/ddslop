@@ -9,8 +9,9 @@ it writes the next copy.**
 > detector works for Rust and Go, except setup-teardown, which Go does not
 > need: its `defer` already is the idiom. In TypeScript (`.ts`, `.tsx`,
 > `.mts`, `.cts`) it finds exact, renamed and near-miss copies, copied
-> blocks, types and constants declared again, and wrappers that only
-> pass their parameters on; the other TypeScript detectors are in
+> blocks, types and constants declared again, wrappers that only pass
+> their parameters on, parameters passed together and strings switched
+> on in many functions; unused exports, the map and feature flows are in
 > progress. Files in other languages are not analysed.
 
 Coding agents regenerate rather than reuse. Each session that cannot see
