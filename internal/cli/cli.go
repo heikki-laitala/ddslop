@@ -914,7 +914,16 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		for _, n := range f.TopExports {
 			moduleItems[m][n] = true
 		}
+		declared := map[string]bool{}
+		for _, d := range append(slices.Clone(f.Modules), f.InlineModules...) {
+			declared[strings.TrimPrefix(d, "r#")] = true
+		}
 		for n, path := range f.TopReexports {
+			// A bare path starting at a module the file declares is the
+			// file's own (pub mod inner; pub use inner::X).
+			if first, _, _ := strings.Cut(path, "::"); declared[first] {
+				path = "self::" + path
+			}
 			if strings.HasPrefix(n, "*") {
 				if target, ok := codemap.ReexportPath(f.Path, crates, path); ok {
 					moduleGlobs[m] = append(moduleGlobs[m], target)

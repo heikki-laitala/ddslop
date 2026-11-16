@@ -1975,13 +1975,18 @@ func TopReexports(src []byte) map[string]string {
 	return out
 }
 
-// visible reports whether a declaration is visible outside its module: it
-// carries a visibility, and not pub(self), which keeps it private.
+// visible reports whether a declaration of a top-level module reaches the
+// crate root: pub, pub(crate) or pub(super), or pub(in) crate or super.
+// pub(self) and a path inside the module (pub(in crate::facade)) keep it
+// in the module.
 func visible(n *sitter.Node, src []byte) bool {
 	for i := uint(0); i < n.NamedChildCount(); i++ {
 		if m := n.NamedChild(i); m.Kind() == "visibility_modifier" {
-			v := strings.Join(strings.Fields(m.Utf8Text(src)), "")
-			return v != "pub(self)" && v != "pub(inself)"
+			switch strings.Join(strings.Fields(m.Utf8Text(src)), "") {
+			case "pub", "crate", "pub(crate)", "pub(super)", "pub(incrate)", "pub(insuper)":
+				return true
+			}
+			return false
 		}
 	}
 	return false
