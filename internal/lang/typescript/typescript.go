@@ -57,6 +57,10 @@ var functionKinds = map[string]bool{
 type grammar struct {
 	fn      [2]uint
 	imports map[string]imported
+	// vars maps the function's variables whose type the code states to
+	// that type, as Call.Type writes it (see parser.typeOf).
+	vars map[string]string
+	p    *parser
 }
 
 // Prefix keeps TypeScript's symbols apart from other languages'
@@ -101,6 +105,16 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		if c, ok := g.call(n, s.Src); ok {
 			s.Calls = append(s.Calls, c)
 		}
+	case n.Kind() == "variable_declarator":
+		// const repo: Repo = make(), const cache = new Cache(); a variable
+		// of no stated type shadows any earlier one's
+		if name := n.ChildByFieldName("name"); name != nil && name.Kind() == "identifier" {
+			if typ := g.p.declaredType(n); typ != "" {
+				g.vars[name.Utf8Text(s.Src)] = typ
+			} else {
+				delete(g.vars, name.Utf8Text(s.Src))
+			}
+		}
 	case n.Kind() == "switch_statement":
 		s.RecordStringMatch(n, caseStrings(n, s.Src))
 	case n.Kind() == "return_statement":
@@ -130,7 +144,7 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 			n, exported, byDefault := root.NamedChild(i), false, false
 			if d := n.ChildByFieldName("declaration"); n.Kind() == "export_statement" && d != nil {
 				// A default class is called from outside, its methods by name.
-				n, exported, byDefault = d, true, hasToken(n, "default") && d.Kind() != "class_declaration" && d.Kind() != "abstract_class_declaration"
+				n, exported, byDefault = d, true, hasChild(n, "default") && d.Kind() != "class_declaration" && d.Kind() != "abstract_class_declaration"
 			}
 			if n.HasError() {
 				continue
@@ -206,20 +220,16 @@ func wholeImports(root *sitter.Node, src []byte) []string {
 // module whole (import * as schema).
 func hasNamespaceImport(n *sitter.Node) bool {
 	for i := uint(0); i < n.NamedChildCount(); i++ {
-		if clause := n.NamedChild(i); clause.Kind() == "import_clause" {
-			for j := uint(0); j < clause.NamedChildCount(); j++ {
-				if clause.NamedChild(j).Kind() == "namespace_import" {
-					return true
-				}
-			}
+		if clause := n.NamedChild(i); clause.Kind() == "import_clause" && hasChild(clause, "namespace_import") {
+			return true
 		}
 	}
 	return false
 }
 
-// hasToken reports whether a node has an anonymous child of a kind, such
-// as an async, default or ? token.
-func hasToken(n *sitter.Node, kind string) bool {
+// hasChild reports whether a node has a child of a kind, named or not:
+// a token (async, default, ?) or a node (accessibility_modifier).
+func hasChild(n *sitter.Node, kind string) bool {
 	for i := uint(0); i < n.ChildCount(); i++ {
 		if n.Child(i).Kind() == kind {
 			return true
@@ -415,7 +425,7 @@ func typeList(clause *sitter.Node, src []byte) string {
 
 // optional reports whether a property is optional (a?: T): its value may
 // be undefined.
-func optional(prop *sitter.Node) bool { return hasToken(prop, "?") }
+func optional(prop *sitter.Node) bool { return hasChild(prop, "?") }
 
 // enum records an enum, a variant's initialiser as its payload ("=10").
 func (p *parser) enum(decl *sitter.Node) {
@@ -513,6 +523,7 @@ func (p *parser) members(class *sitter.Node, exported bool) {
 	for i := uint(0); i < body.NamedChildCount(); i++ {
 		m := body.NamedChild(i)
 		member, fn := m.ChildByFieldName("name"), m
+		p.fieldTypes(name.Utf8Text(p.src), m)
 		if m.Kind() == "public_field_definition" {
 			fn = nil
 			if value := m.ChildByFieldName("value"); value != nil {
@@ -526,6 +537,57 @@ func (p *parser) members(class *sitter.Node, exported bool) {
 		u.Dispatched = true // it may implement an interface, which TypeScript checks by shape
 		p.units = append(p.units, u)
 	}
+}
+
+// fieldTypes records the type of a class member that is a field: a typed
+// field (clock: Clock), one set with new (cache = new Cache()), or a
+// constructor's parameter property (constructor(private repo: Repo)).
+func (p *parser) fieldTypes(class string, m *sitter.Node) {
+	add := func(field *sitter.Node, typ string) {
+		if field != nil && typ != "" {
+			p.decls.FieldTypes = append(p.decls.FieldTypes, unit.FieldType{Struct: class, Field: field.Utf8Text(p.src), Type: typ, File: p.file, Test: p.test})
+		}
+	}
+	switch name := m.ChildByFieldName("name"); {
+	case m.Kind() == "public_field_definition":
+		add(name, p.declaredType(m))
+	case m.Kind() == "method_definition" && name != nil && name.Utf8Text(p.src) == "constructor":
+		eachParam(m, func(param, field, typ *sitter.Node) {
+			if hasChild(param, "accessibility_modifier") || hasChild(param, "readonly") {
+				add(field, p.typeOf(typ))
+			}
+		})
+	}
+}
+
+// declaredType returns the type a variable or field declaration states:
+// its annotation's (x: Repo), or the class its value makes (new Repo()).
+func (p *parser) declaredType(n *sitter.Node) string {
+	if annotation := n.ChildByFieldName("type"); annotation != nil {
+		return p.typeOf(annotation.NamedChild(0))
+	}
+	if value := n.ChildByFieldName("value"); value != nil && unwrapped(value).Kind() == "new_expression" {
+		return p.typeOf(unwrapped(value).ChildByFieldName("constructor"))
+	}
+	return ""
+}
+
+// typeOf returns a named type (Repo, Cache<T>) as Call.Type writes it,
+// without type arguments: an imported one qualified by the module it is
+// imported from and its exported name (../store/users.UserRepo), a local
+// one bare; "" for any other type (string[], A | B).
+func (p *parser) typeOf(n *sitter.Node) string {
+	if n != nil && n.Kind() == "generic_type" {
+		n = n.ChildByFieldName("name")
+	}
+	if n == nil || (n.Kind() != "type_identifier" && n.Kind() != "identifier") {
+		return ""
+	}
+	name := n.Utf8Text(p.src)
+	if im, ok := p.imports[name]; ok && im.name != "" {
+		return im.module + "." + im.name
+	}
+	return name
 }
 
 // isFunction reports whether a value is a function expression of any kind.
@@ -549,7 +611,13 @@ func isPrivate(m, name *sitter.Node) bool {
 
 // unit makes a unit of the declaration n, whose own function is fn.
 func (p *parser) unit(name string, n, fn *sitter.Node, public bool) unit.Unit {
-	s := syntax.Flatten(n, p.src, grammar{fn: syntax.Span(fn), imports: p.imports})
+	vars := map[string]string{}
+	eachParam(fn, func(_, name, typ *sitter.Node) {
+		if t := p.typeOf(typ); name != nil && t != "" {
+			vars[name.Utf8Text(p.src)] = t
+		}
+	})
+	s := syntax.Flatten(n, p.src, grammar{fn: syntax.Span(fn), imports: p.imports, vars: vars, p: p})
 	ps, _ := params(fn, p.src)
 	return unit.Unit{
 		File:      p.file,

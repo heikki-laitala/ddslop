@@ -188,7 +188,8 @@ type Call struct {
 	// Type is the type of a method call's operand where the code states
 	// it (a parameter, var x T, x := T{}), as a Go package's import path
 	// and the type name ("example.com/app/store.DB"), or the name alone
-	// for the caller's own package. Go only.
+	// for the caller's own package; TypeScript writes an imported type as
+	// its module and name ("../store/users.UserRepo").
 	Type string
 	// Field is the field a method is called on, followed from the
 	// operand: the receiver's (store in s.store.Save(), Go's and Rust's
@@ -285,9 +286,9 @@ type Decls struct {
 	TypeNames []string
 	// FuncTypes are the function types the file declares; Go only.
 	FuncTypes []FuncType
-	// FieldTypes are the types of the file's struct fields, written as
-	// Call.Type; fields of other types (slices, maps) are left out. Go
-	// only.
+	// FieldTypes are the types of the file's struct fields, or a
+	// TypeScript class's fields, written as Call.Type; fields of other
+	// types (slices, maps) are left out.
 	FieldTypes []FieldType
 }
 

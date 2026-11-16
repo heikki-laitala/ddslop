@@ -93,6 +93,8 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 		case "identifier":
 			if im, ok := g.imports[object.Utf8Text(src)]; ok && im.name == "" {
 				c.Kind, c.Qualifier = unit.PathCall, im.module
+			} else {
+				c.Type = g.vars[object.Utf8Text(src)]
 			}
 		case "member_expression":
 			if this, field := object.ChildByFieldName("object"), object.ChildByFieldName("property"); this != nil && field != nil && this.Kind() == "this" {
@@ -154,7 +156,7 @@ func forwards(fn *sitter.Node, src []byte) string {
 
 // asyncOrGenerator reports whether a function is async or a generator,
 // by its async or * token.
-func asyncOrGenerator(fn *sitter.Node) bool { return hasToken(fn, "async") || hasToken(fn, "*") }
+func asyncOrGenerator(fn *sitter.Node) bool { return hasChild(fn, "async") || hasChild(fn, "*") }
 
 // params returns a function's parameters that bind one name, in order,
 // each with its type as written ("" for none), and whether all are plain
@@ -165,29 +167,45 @@ func params(fn *sitter.Node, src []byte) ([]unit.Param, bool) {
 	if p := fn.ChildByFieldName("parameter"); p != nil {
 		return []unit.Param{{Name: p.Utf8Text(src)}}, true // x => g(x)
 	}
-	list := fn.ChildByFieldName("parameters")
-	if list == nil {
+	if fn.ChildByFieldName("parameters") == nil {
 		return nil, false
 	}
 	var out []unit.Param
 	plain := true
-	for i := uint(0); i < list.NamedChildCount(); i++ {
+	eachParam(fn, func(p, name, typ *sitter.Node) {
+		if name == nil {
+			plain = false
+			return
+		}
+		plain = plain && p.Kind() == "required_parameter" && p.ChildByFieldName("value") == nil
+		param := unit.Param{Name: name.Utf8Text(src)}
+		if typ != nil {
+			param.Type = syntax.Compact(typ.Utf8Text(src))
+		}
+		out = append(out, param)
+	})
+	return out, plain
+}
+
+// eachParam calls each with every parameter in a function's parameter
+// list but a this parameter: its name, or nil when it binds no one name
+// (a rest or destructured parameter), and its type, or nil.
+func eachParam(fn *sitter.Node, each func(p, name, typ *sitter.Node)) {
+	list := fn.ChildByFieldName("parameters")
+	for i := uint(0); list != nil && i < list.NamedChildCount(); i++ {
 		p := list.NamedChild(i)
 		pattern, typ := p.ChildByFieldName("pattern"), p.ChildByFieldName("type")
+		if typ != nil {
+			typ = typ.NamedChild(0)
+		}
 		switch {
 		case pattern != nil && pattern.Kind() == "this":
 		case (p.Kind() != "required_parameter" && p.Kind() != "optional_parameter") || pattern == nil || pattern.Kind() != "identifier":
-			plain = false
+			each(p, nil, typ)
 		default:
-			plain = plain && p.Kind() == "required_parameter" && p.ChildByFieldName("value") == nil
-			param := unit.Param{Name: pattern.Utf8Text(src)}
-			if typ != nil && typ.NamedChild(0) != nil {
-				param.Type = syntax.Compact(typ.NamedChild(0).Utf8Text(src))
-			}
-			out = append(out, param)
+			each(p, pattern, typ)
 		}
 	}
-	return out, plain
 }
 
 // noBorrow: TypeScript passes arguments as they are.

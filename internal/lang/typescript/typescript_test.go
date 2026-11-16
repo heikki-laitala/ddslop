@@ -529,3 +529,55 @@ export async function load() {
 `)
 	testutil.Lines(t, "whole imports", decls.WholeImports, []string{"./schema", "./routes"})
 }
+
+// A class's fields record the types the code states, as Call.Type writes
+// them: an imported type qualified by its module, a local one bare.
+func TestClassFieldsRecordTheirTypes(t *testing.T) {
+	_, decls := testutil.Parse(t, Parse, "src/users/service.ts", `import { UserRepo } from "../store/users";
+import type { Mailer } from "@acme/mail";
+
+export class UserService {
+  private cache = new Cache<string>();
+  clock: Clock;
+  private readonly names: string[];
+  constructor(private readonly repo: UserRepo, public mailer: Mailer, plain: number, readonly clock2: Clock) {}
+}
+
+class Cache<T> {}
+`)
+	testutil.Lines(t, "field types", testutil.Format(decls.FieldTypes, func(f unit.FieldType) string {
+		return fmt.Sprintf("%s.%s %s test=%v", f.Struct, f.Field, f.Type, f.Test)
+	}), []string{
+		"UserService.cache Cache test=false",
+		"UserService.clock Clock test=false",
+		"UserService.repo ../store/users.UserRepo test=false",
+		"UserService.mailer @acme/mail.Mailer test=false",
+		"UserService.clock2 Clock test=false",
+	})
+}
+
+// A method call records its operand's type where the code states it: a
+// typed parameter, or a constant typed or made with new.
+func TestMethodCallsRecordTheTypeTheCodeStates(t *testing.T) {
+	units, _ := testutil.Parse(t, Parse, "src/users/handler.ts", `import { UserRepo } from "../store/users";
+
+export async function handle(repo: UserRepo, id: string) {
+  const cache = new Map<string, User>();
+  const mailer: Mailer = makeMailer();
+  repo.find(id);
+  cache.get(id);
+  mailer.send(id);
+  other.run();
+  {
+    const repo = make();
+    repo.find(id);
+  }
+}
+`)
+	testutil.Lines(t, "calls", testutil.Format(units[0].Calls, func(c unit.Call) string {
+		if c.Kind != unit.MethodCall {
+			return ""
+		}
+		return c.Name + " " + c.Type
+	}), []string{"find ../store/users.UserRepo", "get Map", "send Mailer", "run ", "find "})
+}

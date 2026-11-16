@@ -1366,3 +1366,37 @@ func TestBuildResolvesTypeScriptCallsThroughWorkspacePackages(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildResolvesTypeScriptMethodCallsByTheirType(t *testing.T) {
+	units := []unit.Unit{
+		// the type names the class's module: of two UserRepo, the imported one
+		fn("src/users/handler.ts", "handle", unit.Call{Kind: unit.MethodCall, Name: "find", Type: "../store/users.UserRepo"}),
+		exported(fn("src/store/users.ts", "UserRepo.find")),
+		exported(fn("src/legacy/users.ts", "UserRepo.find")),
+		// a local type is the caller's file's class; one the file does not
+		// declare is a global (Response), whatever class shares its name
+		fn("src/users/cache.ts", "warm", unit.Call{Kind: unit.MethodCall, Name: "fill", Type: "Cache"}),
+		fn("src/users/cache.ts", "Cache.fill"),
+		fn("src/users/report.ts", "print", unit.Call{Kind: unit.MethodCall, Name: "render", Type: "Table"}),
+		fn("src/ui/table.ts", "Table.render"),
+		// a field of this, typed by the class's declaration
+		fn("src/users/service.ts", "UserService.load", unit.Call{Kind: unit.MethodCall, Field: "repo", Name: "find"}),
+		// a type no class of ours has: an outside one
+		fn("src/users/handler.ts", "lookup", unit.Call{Kind: unit.MethodCall, Name: "get", Type: "Map"}),
+		fn("src/other/map.ts", "Registry.get"),
+	}
+	g := Build(Inputs{Fields: map[string]map[string]FieldType{
+		"src/users": {"UserService.repo": {Type: "../store/users.UserRepo", File: "src/users/service.ts"}},
+	}}, units)
+	for caller, want := range map[string]string{
+		"src/users/handler.ts handle":           "[src/store/users.ts UserRepo.find]",
+		"src/users/cache.ts warm":               "[src/users/cache.ts Cache.fill]",
+		"src/users/report.ts print":             "[]",
+		"src/users/service.ts UserService.load": "[src/store/users.ts UserRepo.find]",
+		"src/users/handler.ts lookup":           "[]",
+	} {
+		if got := callees(g, caller); got != want {
+			t.Errorf("%s calls %s, want %s", caller, got, want)
+		}
+	}
+}

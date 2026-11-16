@@ -450,32 +450,43 @@ its own, or a global, unless the caller declares the name, as a
 parameter does), a relative import to the exported function of that name
 in the file it names, extension or not, or in its `index` file (a
 default import is taken under its local name, which a private function
-of the module may share), and a self call to the class's method. An
-import of a workspace package, by its `package.json` name or a subpath
-of it (`@acme/db`, `@acme/db/query`), resolves to the exported function
-of that name anywhere in the package's directory outside the packages
-nested in it, when exactly one is there: its `main` and `exports` often
-name build output (`dist/`), and its entry file re-exports the rest, so
-the directory is what the name stands for, as a Go package's is. An
-outside package's import (`node:fs`, `lodash`) resolves to nothing, and
-nor does any other method call: JavaScript's own method names (`map`,
-`get`, `then`) are too many to tell from the code's. Wrappers work as in
-Go, but a function giving a parameter a default value (`opts = {}`) or
-taking an optional one (`id?: string`) is no wrapper: inlined, its
-callers that leave the argument out would change; nor is an async
-function or a generator, whose callers get a promise or an iterator, not
-the call's value; class members are left out, as they may implement an
-interface, which TypeScript checks by shape. All TypeScript extensions
-share one call index, so a `.tsx` component calls a `.ts` helper. What
-the call graph needs to know of TypeScript files by name (which are
-source, which file a relative import names) lives in
-`internal/lang/tsfile`, which holds no parser, so `flow` links no
-grammar. A TypeScript package serves only the analysed code when its
-`package.json`, the nearest above a file, is `"private": true`, which
-keeps it from being published, as Rust's `publish = false` does; there
-an exported function nothing names is unused. Code outside the analysed
-source calls some without naming them: a default export, under any name,
-though a default class's methods are called by name; Next.js's
+of the module may share), and a self call to the class's method. A
+method call on a value whose type the code states resolves to that
+class's method: a typed parameter (`repo: UserRepo`), a constant typed
+or made with `new`, or a field of `this` typed by its class (a typed
+field, one set with `new`, or a constructor's parameter property,
+`constructor(private repo: UserRepo)`, the usual dependency injection).
+Types are written as Go's are, an imported one qualified by its module
+(`../store/users.UserRepo`), so the class is the one that module, or
+workspace package, declares; a local type is the file's own class of the
+name, and one the file does not declare a global (`Response`, `Map`),
+whatever class of ours shares its name. On Excalidraw this resolved 688
+more calls (44% of them, from 41%); on tRPC and Hono a few dozen, and no
+finding changed. An import of a workspace package, by its `package.json`
+name or a subpath of it (`@acme/db`, `@acme/db/query`), resolves to the
+exported function of that name anywhere in the package's directory
+outside the packages nested in it, when exactly one is there: its `main`
+and `exports` often name build output (`dist/`), and its entry file
+re-exports the rest, so the directory is what the name stands for, as a
+Go package's is. An outside package's import (`node:fs`, `lodash`)
+resolves to nothing, and nor does any other method call: JavaScript's
+own method names (`map`, `get`, `then`) are too many to tell from the
+code's. Wrappers work as in Go, but a function giving a parameter a
+default value (`opts = {}`) or taking an optional one (`id?: string`) is
+no wrapper: inlined, its callers that leave the argument out would
+change; nor is an async function or a generator, whose callers get a
+promise or an iterator, not the call's value; class members are left
+out, as they may implement an interface, which TypeScript checks by
+shape. All TypeScript extensions share one call index, so a `.tsx`
+component calls a `.ts` helper. What the call graph needs to know of
+TypeScript files by name (which are source, which file a relative import
+names) lives in `internal/lang/tsfile`, which holds no parser, so `flow`
+links no grammar. A TypeScript package serves only the analysed code
+when its `package.json`, the nearest above a file, is `"private": true`,
+which keeps it from being published, as Rust's `publish = false` does;
+there an exported function nothing names is unused. Code outside the
+analysed source calls some without naming them: a default export, under
+any name, though a default class's methods are called by name; Next.js's
 functions, by the names it calls (`getStaticProps`, `GET`,
 `generateMetadata`, `proxy`, `register`), in any file, so a function of
 such a name elsewhere is only missed; and every export of a module
@@ -490,15 +501,15 @@ examples and website), a first measure without these rules gave 15
 unused exports, among them a drizzle schema's relations and a page's
 `getStaticPaths`; with them, 6, all named nowhere else (`useMenuState`,
 `highlightCode`); none on Excalidraw and Hono, and the wrappers stayed
-the same. Calls through path aliases (`@/lib/x`) and calls on imported
-classes are not followed. And as module cycles are found among a Rust
-crate's modules, TypeScript files in a crate's directory (a Tauri app's
-frontend) are none of its modules. On Hono, Excalidraw and tRPC, 6
-wrappers, all passing their parameters on unchanged; most narrow the
-types (`createHTTPHandler` calling `createHandler`). Following workspace
-packages found 3 more on Excalidraw, each calling into another of its
-packages (`cloneLibraryItems` passing on to `@excalidraw/common`'s
-`cloneJSON`).
+the same. Calls through path aliases (`@/lib/x`) are not followed, nor
+method calls on a value of no stated type or of an interface's type. And
+as module cycles are found among a Rust crate's modules, TypeScript
+files in a crate's directory (a Tauri app's frontend) are none of its
+modules. On Hono, Excalidraw and tRPC, 6 wrappers, all passing their
+parameters on unchanged; most narrow the types (`createHTTPHandler`
+calling `createHandler`). Following workspace packages found 3 more on
+Excalidraw, each calling into another of its packages
+(`cloneLibraryItems` passing on to `@excalidraw/common`'s `cloneJSON`).
 
 `ddslop map --lang typescript` describes TypeScript by directory (scope
 `directories`, as `packages` would read as npm packages): a directory is

@@ -753,9 +753,11 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 // that name in the module a relative path names (see tsfile.ModuleIs),
 // or anywhere in the workspace package a package path names (@acme/db,
 // @acme/db/query) outside the packages nested in it, never an outside
-// package's; a call on this is the caller's class's method.
-// Without types, the name of any other method says nothing: it is not
-// resolved.
+// package's (see inTSModule); a call on this is the caller's class's
+// method; one on a value whose type the code states (a typed parameter, a
+// field of this) is the method of that type's class (see
+// resolveTSMethod). Without a type, the name of any other method says
+// nothing: it is not resolved.
 func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) int {
 	sameFile := func(u unit.Unit) bool { return u.File == caller.File }
 	switch {
@@ -765,15 +767,44 @@ func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner str
 		}
 		return only(units, ix.free[c.Name], sameFile)
 	case c.Kind == unit.PathCall:
-		inModule := func(u unit.Unit) bool { return tsfile.ModuleIs(caller.File, c.Qualifier, u.File) }
-		if dir, ok := ix.tsPackageOf(c.Qualifier); ok {
-			inModule = func(u unit.Unit) bool { return tsfile.PackageDir(u.File, ix.tsPackages) == dir }
-		}
+		inModule := ix.inTSModule(caller.File, c.Qualifier)
 		return only(units, ix.free[c.Name], func(u unit.Unit) bool { return u.Public && inModule(u) })
 	case c.Qualifier == "self" && owner != "":
 		return only(units, ix.owned[owner+"::"+c.Name], sameFile)
+	case c.Field != "" && owner != "":
+		// this.repo.find(): the field's type, read where the class is declared
+		ft := ix.fields[ix.libraries.CrateOf(caller.File)][owner+"."+c.Field]
+		return ix.resolveTSMethod(units, ft.File, ft.Type, c.Name)
 	}
-	return -1
+	return ix.resolveTSMethod(units, caller.File, c.Type, c.Name)
+}
+
+// resolveTSMethod resolves a method call on a value of a TypeScript type,
+// as unit.Call.Type writes it, read in the file home: a type imported
+// from a module is that module's class of the name, a local one the
+// file's own class of the name: one the file does not declare is a
+// global (Response, Map), whatever class of ours shares its name.
+func (ix index) resolveTSMethod(units []unit.Unit, home, typ, method string) int {
+	if typ == "" {
+		return -1
+	}
+	i := strings.LastIndex(typ, ".")
+	cands := ix.owned[typ[i+1:]+"::"+method]
+	if i >= 0 {
+		return only(units, cands, ix.inTSModule(home, typ[:i]))
+	}
+	return only(units, cands, func(u unit.Unit) bool { return u.File == home })
+}
+
+// inTSModule reports, for a unit, whether its file is the module a
+// module path names as importer imports it: the file a relative path
+// names (see tsfile.ModuleIs), or one of the workspace package a package
+// path names (@acme/db), outside the packages nested in it.
+func (ix index) inTSModule(importer, module string) func(unit.Unit) bool {
+	if dir, ok := ix.tsPackageOf(module); ok {
+		return func(u unit.Unit) bool { return tsfile.PackageDir(u.File, ix.tsPackages) == dir }
+	}
+	return func(u unit.Unit) bool { return tsfile.ModuleIs(importer, module, u.File) }
 }
 
 // tsPackageOf returns the directory of the workspace package a module

@@ -742,3 +742,31 @@ func TestMapOfTypeScriptLayersItsDirectories(t *testing.T) {
 		t.Errorf("helpers = %+v, want respond used by src/api and src/service", h)
 	}
 }
+
+// Classes wired by their constructors' parameters (dependency injection)
+// call each other through typed fields: the map layers them by those
+// calls.
+func TestMapLayersTypeScriptCallsThroughTypedFields(t *testing.T) {
+	r := mapOf(t, "--lang", "typescript", repo(t, map[string]string{
+		"src/api/handler.ts": `import { UserService } from "../service/users";
+
+export class Handler {
+  constructor(private readonly service: UserService) {}
+  get(id: string) {
+    return this.service.load(id);
+  }
+}
+`,
+		"src/service/users.ts": `import { UserRepo } from "../store/users";
+
+export class UserService {
+  constructor(private repo: UserRepo) {}
+  load(id: string) {
+    return this.repo.find(id);
+  }
+}
+`,
+		"src/store/users.ts": "export class UserRepo {\n  find(id: string) {\n    return id;\n  }\n}\n",
+	}))
+	wantLayers(t, r, []string{"src/api"}, []string{"src/service"}, []string{"src/store"})
+}
