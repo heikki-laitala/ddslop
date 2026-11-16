@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -72,11 +71,10 @@ func runFlows(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 
-	db, files, _, err := openFiles(root)
+	files, err := indexedFiles(root)
 	if err != nil {
 		return fail(stderr, err)
 	}
-	defer func() { _ = db.Close() }()
 	g, traits := callGraph(root, files)
 	r := flowsReport{Flows: []flowJSON{}, Summary: flowsSummary{Functions: len(g.Units), Calls: g.Calls, ResolvedCalls: g.Resolved}}
 	for _, entry := range g.Entries(traits) {
@@ -94,17 +92,7 @@ func runFlows(args []string, stdout, stderr io.Writer) int {
 	}
 	r.Summary.Entries = len(r.Flows)
 
-	if *format == "json" {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		err = enc.Encode(r)
-	} else {
-		err = writeFlowsText(stdout, r)
-	}
-	if err != nil {
-		return fail(stderr, err)
-	}
-	return exitClean
+	return writeOutput(stdout, stderr, *format, r, writeFlowsText)
 }
 
 func writeFlowsText(w io.Writer, r flowsReport) error {

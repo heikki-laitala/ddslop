@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -71,11 +70,10 @@ func runSimilar(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 
-	db, files, _, err := openFiles(root)
+	files, err := indexedFiles(root)
 	if err != nil {
 		return fail(stderr, err)
 	}
-	defer func() { _ = db.Close() }()
 	var units []unit.Unit
 	var target *unit.Unit
 	for _, f := range files {
@@ -100,17 +98,7 @@ func runSimilar(args []string, stdout, stderr io.Writer) int {
 		}
 		r.Similar = append(r.Similar, similarMatch{locate(s.Unit), math.Round(s.Similarity*1000) / 1000})
 	}
-	if *format == "json" {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		err = enc.Encode(r)
-	} else {
-		err = writeSimilarText(stdout, r)
-	}
-	if err != nil {
-		return fail(stderr, err)
-	}
-	return exitClean
+	return writeOutput(stdout, stderr, *format, r, writeSimilarText)
 }
 
 // location parses FILE:LINE, returning the file relative to root.

@@ -189,6 +189,24 @@ func outputFormat(format string, stdout io.Writer, allowed ...string) (string, e
 	return format, nil
 }
 
+// writeOutput writes a command's result v to stdout, as indented JSON when
+// format is "json" and with text otherwise, and returns the command's
+// exit code.
+func writeOutput[T any](stdout, stderr io.Writer, format string, v T, text func(io.Writer, T) error) int {
+	var err error
+	if format == "json" {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		err = enc.Encode(v)
+	} else {
+		err = text(stdout, v)
+	}
+	if err != nil {
+		return fail(stderr, err)
+	}
+	return exitClean
+}
+
 // parseRoot parses a command's flags and its optional path argument (see
 // rootArg), reporting the exit code to return when the command ends here.
 func parseRoot(fs *flag.FlagSet, args []string, stderr io.Writer) (string, int, bool) {
@@ -484,11 +502,10 @@ func baselineAt(root string, opts options, ref string) (baseline.Baseline, error
 // functionsAt lists the functions of the code at dir, as "file#function",
 // from the index check left there.
 func functionsAt(dir string) (map[string]bool, error) {
-	db, files, _, err := openFiles(dir)
+	files, err := indexedFiles(dir)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = db.Close() }()
 	functions := map[string]bool{}
 	for _, f := range files {
 		for _, u := range f.Units {
@@ -592,6 +609,16 @@ func openFiles(root string) (*index.DB, []index.File, index.Stats, error) {
 		return nil, nil, stats, err
 	}
 	return db, files, stats, nil
+}
+
+// indexedFiles brings the index under root up to date and loads its
+// files (see openFiles), for a command that needs nothing else from it.
+func indexedFiles(root string) ([]index.File, error) {
+	db, files, _, err := openFiles(root)
+	if err != nil {
+		return nil, err
+	}
+	return files, db.Close()
 }
 
 // threadCount is how many goroutines parse files and verify near misses.
@@ -1159,6 +1186,7 @@ func parseLibrariesUnderTestPaths(root string, files []index.File) error {
 }
 
 // markTest marks everything a file declares as test code.
+// ddslop:ignore each loop sets Test on another declaration type, a field Go generics cannot reach
 func markTest(f *index.File) {
 	for i := range f.Units {
 		f.Units[i].Test = true

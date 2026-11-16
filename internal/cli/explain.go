@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -91,17 +90,7 @@ func runExplain(args []string, stdout, stderr io.Writer) int {
 		}
 		e.Code = append(e.Code, occurrenceCode{File: o.File, StartLine: o.StartLine, Lines: lines})
 	}
-	if *format == "json" {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		err = enc.Encode(e)
-	} else {
-		err = writeExplanation(stdout, e)
-	}
-	if err != nil {
-		return fail(stderr, err)
-	}
-	return exitClean
+	return writeOutput(stdout, stderr, *format, e, writeExplanation)
 }
 
 // sourceLines returns lines start to end (1-based, inclusive) of a file

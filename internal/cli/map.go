@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"cmp"
-	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -216,11 +215,10 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 	if cfg.MinNodes != nil {
 		minNodes = *cfg.MinNodes // as check reads it, so the map flags the families check reports
 	}
-	db, files, _, err := openFiles(root)
+	files, err := indexedFiles(root)
 	if err != nil {
 		return fail(stderr, err)
 	}
-	defer func() { _ = db.Close() }()
 
 	r := mapReport{Maps: []mapJSON{}}
 	for _, lang := range langs {
@@ -246,17 +244,7 @@ func runMap(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, fmt.Errorf("no Rust code under %s for --crate %s", root, *crate))
 	}
 
-	if resolved == "json" {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		err = enc.Encode(r)
-	} else {
-		err = writeMapText(stdout, r, langs)
-	}
-	if err != nil {
-		return fail(stderr, err)
-	}
-	return exitClean
+	return writeOutput(stdout, stderr, resolved, r, func(w io.Writer, r mapReport) error { return writeMapText(w, r, langs) })
 }
 
 // mapOptions are map's settings: the --limit on each list, the --crate to
