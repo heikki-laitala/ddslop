@@ -1696,10 +1696,11 @@ Section 4 is built for two concerns in Go (`codemap.Idioms`, `idioms`
 in JSON). The Go adapter records each function's error forms with their
 lines (`Unit.Forms`), from syntax alone: a check is `errors.Is` or
 `errors.As`, `==` or `!=` between an error value and anything but `nil`
-(a sentinel), or a comparison of `err.Error()`, directly or inside
+or a string literal (a sentinel), or a comparison of `err.Error()`, directly or inside
 `strings.Contains` and its kin; wrapping is `fmt.Errorf` with `%w`, or
 with `%v` or `%s` and an error among its arguments. An error value is
-told by Go's naming habit: `err`, or a name ending in `err` or `Err`.
+told by Go's naming habit: `err`, or a name ending in `err` or `Err`;
+an error is never compared with a string, so `stderr == ""` is no check.
 The map counts each concern's forms over the non-test functions in its
 scope and calls the most used form the convention when it holds a
 majority of at least 5 occurrences; otherwise it names the adapter's
@@ -1781,26 +1782,42 @@ Section 5 is built for the error idioms (`codemap.Drifts`, kind
 `convention-drift`, action `follow-convention`). `check` finds, per
 language (Go's and Rust's forms are never compared), every occurrence of
 another form in a concern whose convention holds at least 90% of at
-least 5 occurrences across the repository. The map names a convention
+least 5 occurrences across the repository's production code. Test code
+is held to those conventions but sets none: with `--tests` it would
+otherwise move the share production code is judged by, and a suite
+free to check errors by message once took a convention below 90% and
+every drift of its concern, production code's included, with it. The map names a convention
 at a simple majority, which describes the code; drift needs more,
 because below it the forms are a mix the code chose, not a slip:
 the Rust service wraps errors with `map_err` in 69% and anyhow's
 `context` in the rest, throughout its main crate. The candidate gives
-the drifting form in `values`, the concern in `concern`, the
+the drifting form in `values`, the concern in `concern`, the share of
+the concern's occurrences the convention holds in `share` (how close it
+is to lapsing; the text line says "convention at N%"), the
 convention's form as the suggestion's `pattern`, and as `target` the
 convention's closest occurrence: in the same file the nearest, else the
 first in the same module, else the first anywhere. Drift reads the code
 `check` analyses: no generated files, and test code only with
 `--tests`. The occurrences of one form in one function are one
 candidate with an occurrence per line, so diff mode and SARIF see those
-lines and not the code between them. Its fingerprint holds the concern,
+lines and not the code between them. A `ddslop:ignore` on a form's line
+leaves that form out of the convention and the drifts, and the rest of
+the function in. Its fingerprint holds the concern,
 the form and the function, not the line, and a baseline matches a drift
 only by that fingerprint, in both directions: matching on
 `file#function`, as other kinds are matched, would let another kind's
 entry, or a drift of another form in the same function, hide a new
 drift, and a drift's entry hide a new candidate of another kind. No other candidate covers an
 error concern, so rule 3 of the concerns model (one candidate per
-occurrence and concern) has nothing to suppress yet.
+occurrence and concern) has nothing to suppress yet. With
+`--baseline-ref`, the change is judged by the conventions of the code
+it started from, measured in the ref's checkout as its candidates are:
+a share crossing 90% would otherwise make a drift of every old
+occurrence of the other form, all new to a baseline that had no
+convention, and fail a change that touched none of them, while one
+falling below would hide the change's own drifts. A concern the ref has
+no occurrence of is judged by the change's own convention; a baseline
+file records no conventions.
 
 Measured on the four codebases: one candidate, on the Rust workspace,
 where a tool checks a `serde_yaml` error by searching its
@@ -2144,7 +2161,8 @@ A linter on a sloppy codebase must not fail every build on day one:
   applies to the first line below it that is neither a comment nor an
   attribute; after code, to its own line. A function, method, struct,
   enum or constant starting on such a line is left out of the analysis,
-  and so is a string literal on it (a value that only happens to equal a
+  and so is an error form on it (a test asserting an error's message)
+  and a string literal on it (a value that only happens to equal a
   constant, which `inlined-constant` would otherwise report). Leaving the
   code out, rather than dropping occurrences from finished candidates,
   keeps differences, scores and health consistent. Parallel flows still
