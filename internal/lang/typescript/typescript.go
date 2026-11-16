@@ -63,10 +63,7 @@ type grammar struct {
 // alike-named kinds.
 func (grammar) Prefix() string { return "ts:" }
 
-func (grammar) Leaf(kind string) (unit.LeafKind, bool) {
-	k, ok := leafKinds[kind]
-	return k, ok
-}
+func (grammar) Leaves() map[string]unit.LeafKind { return leafKinds }
 
 // Declares: the names of functions, methods, classes, variables,
 // parameters, catch clauses and for-of loops, through destructuring
