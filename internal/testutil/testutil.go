@@ -2,6 +2,7 @@
 package testutil
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -38,4 +39,17 @@ func Parse(t testing.TB, parse func(string, []byte) ([]unit.Unit, unit.Decls, er
 		t.Fatalf("Parse: %v", err)
 	}
 	return units, decls
+}
+
+// Producer names the call among calls producing c's operand, as
+// "name#result", or "-" when no call does (with "#result" should a result
+// be recorded all the same).
+func Producer(calls []unit.Call, c unit.Call) string {
+	name := "-"
+	if c.From > 0 {
+		name = calls[c.From-1].Name
+	} else if c.Result == 0 {
+		return name
+	}
+	return fmt.Sprintf("%s#%d", name, c.Result)
 }

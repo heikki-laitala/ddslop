@@ -51,3 +51,16 @@ func TestParseReturnsWhatTheAdapterParsed(t *testing.T) {
 		t.Fatalf("parse saw %q %q, returned %v", gotPath, gotSrc, units)
 	}
 }
+
+func TestProducerNamesTheCallAndResultOrADash(t *testing.T) {
+	calls := []unit.Call{{Name: "open"}, {Name: "save", From: 1, Result: 2}}
+	if got := Producer(calls, calls[1]); got != "open#2" {
+		t.Errorf("produced call = %q, want open#2", got)
+	}
+	if got := Producer(calls, calls[0]); got != "-" {
+		t.Errorf("unproduced call = %q, want -", got)
+	}
+	if got := Producer(calls, unit.Call{Result: 1}); got != "-#1" {
+		t.Errorf("unproduced call with a result = %q, want -#1", got)
+	}
+}

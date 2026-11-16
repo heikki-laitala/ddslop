@@ -2,7 +2,6 @@ package golang
 
 import (
 	"fmt"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -13,14 +12,9 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
-func mustParse(t *testing.T, path, src string) ([]unit.Unit, unit.Decls) {
-	t.Helper()
-	return testutil.Parse(t, Parse, path, src)
-}
-
 func mustUnits(t *testing.T, path, src string) []unit.Unit {
 	t.Helper()
-	units, _ := mustParse(t, path, src)
+	units, _ := testutil.Parse(t, Parse, path, src)
 	return units
 }
 
@@ -65,10 +59,10 @@ func TestUnitsExtractsFunctionsAndMethods(t *testing.T) {
 	// Methods are named after their receiver type, without pointer or type
 	// arguments; function literals are part of their function; a function
 	// with a syntax error is skipped.
-	want := "Store.Load 4-14 test=false\nopen 16-18 test=false"
-	if strings.Join(got, "\n") != want {
-		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
-	}
+	testutil.Lines(t, "units", got, []string{
+		"Store.Load 4-14 test=false",
+		"open 16-18 test=false",
+	})
 }
 
 func TestTestFilesAndTestdataAreTestCode(t *testing.T) {
@@ -179,7 +173,7 @@ func f() {
 	type inner struct{ a int }
 }
 `
-	_, decls := mustParse(t, "store/store.go", src)
+	_, decls := testutil.Parse(t, Parse, "store/store.go", src)
 	var consts []string
 	for _, c := range decls.Consts {
 		consts = append(consts, fmt.Sprintf("%s=%s:%d literal=%v", c.Name, c.Value, c.Line, c.Literal))
@@ -202,9 +196,7 @@ func f() {
 	}
 	// Each name of a multi-name field is a field; an embedded field is
 	// named after its type.
-	if want := "Budget 18-22 [ID:string Name:string Limit:*int64 Mutex:sync.Mutex]"; strings.Join(structs, "\n") != want {
-		t.Errorf("structs:\n%s\nwant:\n%s", strings.Join(structs, "\n"), want)
-	}
+	testutil.Lines(t, "structs", structs, []string{"Budget 18-22 [ID:string Name:string Limit:*int64 Mutex:sync.Mutex]"})
 }
 
 func TestUnitsRecordCallsAndWhatAWrapperForwardsTo(t *testing.T) {
@@ -244,7 +236,7 @@ func logged(x int) int {
 	return add(x)
 }
 `
-	units, _ := mustParse(t, "store/store.go", src)
+	units, _ := testutil.Parse(t, Parse, "store/store.go", src)
 	var forwards, calls []string
 	for _, u := range units {
 		if u.Forwards != "" {
@@ -295,7 +287,7 @@ func small(kind string) int {
 	return 0
 }
 `
-	units, _ := mustParse(t, "store/store.go", src)
+	units, _ := testutil.Parse(t, Parse, "store/store.go", src)
 	u := byName(t, units, "Store.interpret")
 	var params []string
 	for _, p := range u.Params {
@@ -312,9 +304,7 @@ func small(kind string) int {
 			matches = append(matches, fmt.Sprintf("%s %v %d-%d", x.Name, m.Values, m.StartLine, m.EndLine))
 		}
 	}
-	if want := `Store.interpret ["committed" "refused" "replayed"] 4-11`; strings.Join(matches, "\n") != want {
-		t.Errorf("string switches:\n%s\nwant:\n%s", strings.Join(matches, "\n"), want)
-	}
+	testutil.Lines(t, "string", matches, []string{`Store.interpret ["committed" "refused" "replayed"] 4-11`})
 }
 
 func TestInterfaceMethodsListsTheMethodsOfDeclaredInterfaces(t *testing.T) {
@@ -336,7 +326,12 @@ type Params struct{ Limit int }
 }
 
 func TestUnitsRecordTheirErrorForms(t *testing.T) {
-	src := `package store
+	for name, tc := range map[string]struct {
+		src  string
+		want []string
+	}{
+		"checks and wrapping": {
+			src: `package store
 
 import (
 	"errors"
@@ -361,25 +356,18 @@ func load(path string) error {
 	}
 	return nil
 }
-`
-	got := testutil.Format(byName(t, mustUnits(t, "store/s.go", src), "load").Forms, func(f unit.Form) string {
-		return fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form)
-	})
-	want := []string{
-		"12 error-checks errors.Is/As",
-		"15 error-checks ==",
-		"15 error-checks message",
-		"16 error-wrapping %w",
-		"18 error-checks message",
-		"19 error-wrapping %v",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
-}
-
-func TestErrorFormsFollowImportPathsAndFormatDirectives(t *testing.T) {
-	src := `package store
+`,
+			want: []string{
+				"12 error-checks errors.Is/As",
+				"15 error-checks ==",
+				"15 error-checks message",
+				"16 error-wrapping %w",
+				"18 error-checks message",
+				"19 error-wrapping %v",
+			},
+		},
+		"import paths and format directives": {
+			src: `package store
 
 import (
 	stderrors "errors"
@@ -398,63 +386,44 @@ func load(err error) error {
 	}
 	return format.Errorf("load: %+v", err)
 }
-`
-	got := testutil.Format(byName(t, mustUnits(t, "store/s.go", src), "load").Forms, func(f unit.Form) string {
-		return fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form)
-	})
-	want := []string{
-		"9 error-checks errors.Is/As",
-		"13 error-wrapping %v",
-		"16 error-wrapping %w",
-		"18 error-wrapping %v",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("forms:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
-}
-
-func TestParseRecordsTheParameterTypesOfFunctionTypes(t *testing.T) {
-	src := `package cli
-
-type command func(args []string, stdout, stderr io.Writer) int
-
-type (
-	handler func(context.Context, *Request) error
-	options struct{ verbose bool }
-)
-
-type visit = func(path string)
-`
-	_, decls := mustParse(t, "cli/cli.go", src)
-	// Named or not, each parameter and result counts by its type, a
-	// Context too; an alias declares a function type as well.
-	if want := "[{cli/cli.go ([]string, io.Writer, io.Writer) (int) false} {cli/cli.go (context.Context, *Request) (error) false} {cli/cli.go (string) () false}]"; fmt.Sprint(decls.FuncTypes) != want {
-		t.Errorf("FuncTypes = %v, want %s", decls.FuncTypes, want)
+`,
+			want: []string{
+				"9 error-checks errors.Is/As",
+				"13 error-wrapping %v",
+				"16 error-wrapping %w",
+				"18 error-wrapping %v",
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := testutil.Format(byName(t, mustUnits(t, "store/s.go", tc.src), "load").Forms, func(f unit.Form) string {
+				return fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form)
+			})
+			testutil.Lines(t, "forms", got, tc.want)
+		})
 	}
 }
 
-func TestUnitsRecordTheirSignatures(t *testing.T) {
-	src := `package store
-
-func none() {}
-
-func one() error { return nil }
-
-func named(ctx context.Context, a, b string) (n, m int, err error) { return 0, 0, nil }
-
-func variadic(a int, rest ...string) {}
-`
-	units, _ := mustParse(t, "store/store.go", src)
-	got := testutil.Format(units, func(u unit.Unit) string {
-		return u.Name + " " + u.Types
-	})
-	if want := "[none () () one () (error) named (context.Context, string, string) (int, int, error) variadic (int, ...string) ()]"; fmt.Sprint(got) != want {
-		t.Errorf("signatures = %v, want %s", got, want)
+// Call formats for TestCallsRecordTheTypeOfTheirOperand.
+func methodType(c unit.Call) string {
+	if c.Kind != unit.MethodCall {
+		return ""
 	}
+	return fmt.Sprintf("%d %s qualifier=%q type=%q field=%q", c.Line, c.Name, c.Qualifier, c.Type, c.Field)
 }
 
-func TestMethodCallsRecordTheTypeTheCodeStates(t *testing.T) {
-	src := `package api
+func callType(c unit.Call) string {
+	return fmt.Sprintf("%d %s kind=%d qualifier=%q type=%q", c.Line, c.Name, c.Kind, c.Qualifier, c.Type)
+}
+
+func TestCallsRecordTheTypeOfTheirOperand(t *testing.T) {
+	for name, tc := range map[string]struct {
+		src  string
+		line func(unit.Call) string
+		want []string
+	}{
+		"method calls record the type the code states": {
+			src: `package api
 
 import (
 	"strings"
@@ -479,56 +448,24 @@ func (s *Server) Get(db *st.DB, q Query, names []string, n int) {
 	c.Fill()
 	unknown.Do()
 }
-`
-	units, _ := mustParse(t, "api/server.go", src)
-	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
-		if c.Kind == unit.MethodCall {
-			return fmt.Sprintf("%s type=%q field=%q", c.Name, c.Type, c.Field)
-		}
-		return ""
-	})
-	want := []string{
-		`Load type="example.com/app/internal/store.DB" field=""`,
-		`Run type="Query" field=""`,
-		`WriteString type="strings.Builder" field=""`,
-		`Fill type="Cache" field=""`,
-		`Find type="example.com/app/internal/store.Index" field=""`,
-		`Save type="" field="store"`,
-		`Flush type="" field=""`,
-		`Trim type="" field=""`,
-		`String type="" field=""`,
-		`Fill type="" field=""`,
-		`Do type="" field=""`,
-	}
-	testutil.Lines(t, "method calls", got, want)
-}
-
-func TestStructFieldTypesAreQualifiedByTheFileImports(t *testing.T) {
-	src := `package api
-
-import st "example.com/app/internal/store"
-
-type Server struct {
-	store *st.Store
-	cache Cache
-	names []string
-	st.Logger
-}
-`
-	_, decls := mustParse(t, "api/server.go", src)
-	got := testutil.Format(decls.FieldTypes, func(f unit.FieldType) string {
-		return fmt.Sprintf("%s.%s %s", f.Struct, f.Field, f.Type)
-	})
-	want := []string{
-		"Server.store example.com/app/internal/store.Store",
-		"Server.cache Cache",
-		"Server.Logger example.com/app/internal/store.Logger",
-	}
-	testutil.Lines(t, "field types", got, want)
-}
-
-func TestOperandTypesKeepToTheirScope(t *testing.T) {
-	src := `package api
+`,
+			line: methodType,
+			want: []string{
+				`10 Load qualifier="" type="example.com/app/internal/store.DB" field=""`,
+				`11 Run qualifier="" type="Query" field=""`,
+				`13 WriteString qualifier="" type="strings.Builder" field=""`,
+				`15 Fill qualifier="" type="Cache" field=""`,
+				`17 Find qualifier="" type="example.com/app/internal/store.Index" field=""`,
+				`18 Save qualifier="" type="" field="store"`,
+				`19 Flush qualifier="self" type="" field=""`,
+				`20 Trim qualifier="" type="" field=""`,
+				`21 String qualifier="" type="" field=""`,
+				`23 Fill qualifier="" type="" field=""`,
+				`24 Do qualifier="" type="" field=""`,
+			},
+		},
+		"operand types keep to their scope": {
+			src: `package api
 
 func run(db *DB, items []Item) {
 	{
@@ -549,39 +486,21 @@ func run(db *DB, items []Item) {
 	}
 	db.Save()
 }
-`
-	units, _ := mustParse(t, "api/run.go", src)
-	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
-		if c.Kind == unit.MethodCall {
-			return fmt.Sprintf("%d %s", c.Line, c.Type)
-		}
-		return ""
-	})
-	want := []string{"6 Other", "8 DB", "10 ", "12 DB", "14 Remote", "16 DB", "18 ", "20 DB"}
-	testutil.Lines(t, "types", got, want)
-}
-
-func TestFieldTypesOfTestFilesAreMarked(t *testing.T) {
-	_, decls := mustParse(t, "api/server_test.go", "package api_test\n\ntype Server struct{ store Fake }\n")
-	if len(decls.FieldTypes) != 1 || !decls.FieldTypes[0].Test {
-		t.Errorf("field types = %+v, want one marked as test code", decls.FieldTypes)
-	}
-}
-
-func TestModulePathReadsGoMod(t *testing.T) {
-	for gomod, want := range map[string]string{
-		"module example.com/app\n\ngo 1.25\n":         "example.com/app",
-		"// comment\nmodule \"example.com/q\" // x\n": "example.com/q",
-		"go 1.25\n": "",
-	} {
-		if got := ModulePath([]byte(gomod)); got != want {
-			t.Errorf("ModulePath(%q) = %q, want %q", gomod, got, want)
-		}
-	}
-}
-
-func TestAnAssignmentsRightSideSeesTheTypeBeforeIt(t *testing.T) {
-	src := `package api
+`,
+			line: methodType,
+			want: []string{
+				`6 Save qualifier="" type="Other" field=""`,
+				`8 Save qualifier="" type="DB" field=""`,
+				`10 Save qualifier="" type="" field=""`,
+				`12 Save qualifier="" type="DB" field=""`,
+				`14 Save qualifier="" type="Remote" field=""`,
+				`16 Save qualifier="" type="DB" field=""`,
+				`18 Save qualifier="" type="" field=""`,
+				`20 Save qualifier="" type="DB" field=""`,
+			},
+		},
+		"an assignment's right side sees the type before it": {
+			src: `package api
 
 func run(x *DB) {
 	x = x.Reset()
@@ -590,17 +509,17 @@ func run(x *DB) {
 	y = y.Clone()
 	y.Fill()
 }
-`
-	units, _ := mustParse(t, "api/run.go", src)
-	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
-		return fmt.Sprintf("%d %s %q", c.Line, c.Name, c.Type)
-	})
-	want := []string{`4 Reset "DB"`, `5 Close ""`, `7 Clone "Cache"`, `8 Fill ""`}
-	testutil.Lines(t, "calls", got, want)
-}
-
-func TestAssignmentsInANestedScopeLeaveTheOuterTypeUnknown(t *testing.T) {
-	src := `package api
+`,
+			line: methodType,
+			want: []string{
+				`4 Reset qualifier="" type="DB" field=""`,
+				`5 Close qualifier="" type="" field=""`,
+				`7 Clone qualifier="" type="Cache" field=""`,
+				`8 Fill qualifier="" type="" field=""`,
+			},
+		},
+		"assignments in a nested scope leave the outer type unknown": {
+			src: `package api
 
 func run(ok bool, items []*Other) {
 	x := &DB{}
@@ -624,17 +543,18 @@ func run(ok bool, items []*Other) {
 	}
 	w.Save()
 }
-`
-	units, _ := mustParse(t, "api/run.go", src)
-	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
-		return fmt.Sprintf("%d %q", c.Line, c.Type)
-	})
-	want := []string{`8 ""`, `13 ""`, `17 ""`, `21 "Other"`, `23 "DB"`}
-	testutil.Lines(t, "calls", got, want)
-}
-
-func TestEachBranchStartsFromTheTypesBeforeIt(t *testing.T) {
-	src := `package api
+`,
+			line: methodType,
+			want: []string{
+				`8 Save qualifier="" type="" field=""`,
+				`13 Save qualifier="" type="" field=""`,
+				`17 Save qualifier="" type="" field=""`,
+				`21 Save qualifier="" type="Other" field=""`,
+				`23 Save qualifier="" type="DB" field=""`,
+			},
+		},
+		"each branch starts from the types before it": {
+			src: `package api
 
 func run(ok bool, n int) {
 	x := &DB{}
@@ -662,17 +582,19 @@ func run(ok bool, n int) {
 		z.Save()
 	}
 }
-`
-	units, _ := mustParse(t, "api/run.go", src)
-	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
-		return fmt.Sprintf("%d %q", c.Line, c.Type)
-	})
-	want := []string{`8 "DB"`, `10 ""`, `16 "DB"`, `18 ""`, `24 ""`, `26 "DB"`}
-	testutil.Lines(t, "calls", got, want)
-}
-
-func TestAShadowedReceiverIsAnOrdinaryVariable(t *testing.T) {
-	src := `package api
+`,
+			line: methodType,
+			want: []string{
+				`8 Save qualifier="" type="DB" field=""`,
+				`10 Save qualifier="" type="" field=""`,
+				`16 Save qualifier="" type="DB" field=""`,
+				`18 Save qualifier="" type="" field=""`,
+				`24 Save qualifier="" type="" field=""`,
+				`26 Save qualifier="" type="DB" field=""`,
+			},
+		},
+		"a shadowed receiver is an ordinary variable": {
+			src: `package api
 
 func (s *Server) Run() {
 	s.store.Save()
@@ -689,28 +611,20 @@ func (s *Server) Run() {
 	var db = &DB{}
 	db.Load()
 }
-`
-	units, _ := mustParse(t, "api/run.go", src)
-	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
-		if c.Kind == unit.MethodCall {
-			return fmt.Sprintf("%d %s qualifier=%q type=%q field=%q", c.Line, c.Name, c.Qualifier, c.Type, c.Field)
-		}
-		return ""
-	})
-	want := []string{
-		`4 Save qualifier="" type="" field="store"`,
-		`5 Flush qualifier="self" type="" field=""`,
-		`8 Save qualifier="" type="" field=""`,
-		`9 Flush qualifier="" type="Other" field=""`,
-		`12 Flush qualifier="" type="Remote" field=""`,
-		`14 Flush qualifier="self" type="" field=""`,
-		`16 Load qualifier="" type="DB" field=""`,
-	}
-	testutil.Lines(t, "method calls", got, want)
-}
-
-func TestVariablesShadowImportsAndNamedResultsAreTyped(t *testing.T) {
-	src := `package api
+`,
+			line: methodType,
+			want: []string{
+				`4 Save qualifier="" type="" field="store"`,
+				`5 Flush qualifier="self" type="" field=""`,
+				`8 Save qualifier="" type="" field=""`,
+				`9 Flush qualifier="" type="Other" field=""`,
+				`12 Flush qualifier="" type="Remote" field=""`,
+				`14 Flush qualifier="self" type="" field=""`,
+				`16 Load qualifier="" type="DB" field=""`,
+			},
+		},
+		"variables shadow imports and named results are typed": {
+			src: `package api
 
 import "encoding/json"
 
@@ -727,25 +641,17 @@ func plain() {
 		json.Marshal()
 	}
 }
-`
-	units, _ := mustParse(t, "api/run.go", src)
-	var got []string
-	for _, u := range units {
-		for _, c := range u.Calls {
-			got = append(got, fmt.Sprintf("%d kind=%d qualifier=%q type=%q", c.Line, c.Kind, c.Qualifier, c.Type))
-		}
-	}
-	want := []string{
-		fmt.Sprintf(`6 kind=%d qualifier="" type="Codec"`, unit.MethodCall),
-		fmt.Sprintf(`7 kind=%d qualifier="" type="DB"`, unit.MethodCall),
-		fmt.Sprintf(`12 kind=%d qualifier="json" type=""`, unit.PathCall),
-		fmt.Sprintf(`15 kind=%d qualifier="" type="Codec"`, unit.MethodCall),
-	}
-	testutil.Lines(t, "calls", got, want)
-}
-
-func TestSelectReceivesAndLiteralResultsDeclareVariables(t *testing.T) {
-	src := `package api
+`,
+			line: callType,
+			want: []string{
+				fmt.Sprintf(`6 Marshal kind=%d qualifier="" type="Codec"`, unit.MethodCall),
+				fmt.Sprintf(`7 Save kind=%d qualifier="" type="DB"`, unit.MethodCall),
+				fmt.Sprintf(`12 Marshal kind=%d qualifier="json" type=""`, unit.PathCall),
+				fmt.Sprintf(`15 Marshal kind=%d qualifier="" type="Codec"`, unit.MethodCall),
+			},
+		},
+		"select receives and literal results declare variables": {
+			src: `package api
 
 import "encoding/json"
 
@@ -761,17 +667,106 @@ func (s *Server) run(ch chan *Codec) {
 		return
 	}
 }
+`,
+			line: callType,
+			want: []string{
+				fmt.Sprintf(`8 Marshal kind=%d qualifier="" type=""`, unit.MethodCall),
+				fmt.Sprintf(`10 Flush kind=%d qualifier="" type=""`, unit.MethodCall),
+				fmt.Sprintf(`13 Save kind=%d qualifier="" type="DB"`, unit.MethodCall),
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls []unit.Call
+			for _, u := range mustUnits(t, "api/run.go", tc.src) {
+				calls = append(calls, u.Calls...)
+			}
+			testutil.Lines(t, "calls", testutil.Format(calls, tc.line), tc.want)
+		})
+	}
+}
+
+func TestParseRecordsTheParameterTypesOfFunctionTypes(t *testing.T) {
+	src := `package cli
+
+type command func(args []string, stdout, stderr io.Writer) int
+
+type (
+	handler func(context.Context, *Request) error
+	options struct{ verbose bool }
+)
+
+type visit = func(path string)
 `
-	units, _ := mustParse(t, "api/run.go", src)
-	got := testutil.Format(units[0].Calls, func(c unit.Call) string {
-		return fmt.Sprintf("%d kind=%d qualifier=%q type=%q", c.Line, c.Kind, c.Qualifier, c.Type)
+	_, decls := testutil.Parse(t, Parse, "cli/cli.go", src)
+	// Named or not, each parameter and result counts by its type, a
+	// Context too; an alias declares a function type as well.
+	if want := "[{cli/cli.go ([]string, io.Writer, io.Writer) (int) false} {cli/cli.go (context.Context, *Request) (error) false} {cli/cli.go (string) () false}]"; fmt.Sprint(decls.FuncTypes) != want {
+		t.Errorf("FuncTypes = %v, want %s", decls.FuncTypes, want)
+	}
+}
+
+func TestUnitsRecordTheirSignatures(t *testing.T) {
+	src := `package store
+
+func none() {}
+
+func one() error { return nil }
+
+func named(ctx context.Context, a, b string) (n, m int, err error) { return 0, 0, nil }
+
+func variadic(a int, rest ...string) {}
+`
+	units, _ := testutil.Parse(t, Parse, "store/store.go", src)
+	got := testutil.Format(units, func(u unit.Unit) string {
+		return u.Name + " " + u.Types
+	})
+	if want := "[none () () one () (error) named (context.Context, string, string) (int, int, error) variadic (int, ...string) ()]"; fmt.Sprint(got) != want {
+		t.Errorf("signatures = %v, want %s", got, want)
+	}
+}
+
+func TestStructFieldTypesAreQualifiedByTheFileImports(t *testing.T) {
+	src := `package api
+
+import st "example.com/app/internal/store"
+
+type Server struct {
+	store *st.Store
+	cache Cache
+	names []string
+	st.Logger
+}
+`
+	_, decls := testutil.Parse(t, Parse, "api/server.go", src)
+	got := testutil.Format(decls.FieldTypes, func(f unit.FieldType) string {
+		return fmt.Sprintf("%s.%s %s", f.Struct, f.Field, f.Type)
 	})
 	want := []string{
-		fmt.Sprintf(`8 kind=%d qualifier="" type=""`, unit.MethodCall),
-		fmt.Sprintf(`10 kind=%d qualifier="" type=""`, unit.MethodCall),
-		fmt.Sprintf(`13 kind=%d qualifier="" type="DB"`, unit.MethodCall),
+		"Server.store example.com/app/internal/store.Store",
+		"Server.cache Cache",
+		"Server.Logger example.com/app/internal/store.Logger",
 	}
-	testutil.Lines(t, "calls", got, want)
+	testutil.Lines(t, "field types", got, want)
+}
+
+func TestFieldTypesOfTestFilesAreMarked(t *testing.T) {
+	_, decls := testutil.Parse(t, Parse, "api/server_test.go", "package api_test\n\ntype Server struct{ store Fake }\n")
+	if len(decls.FieldTypes) != 1 || !decls.FieldTypes[0].Test {
+		t.Errorf("field types = %+v, want one marked as test code", decls.FieldTypes)
+	}
+}
+
+func TestModulePathReadsGoMod(t *testing.T) {
+	for gomod, want := range map[string]string{
+		"module example.com/app\n\ngo 1.25\n":         "example.com/app",
+		"// comment\nmodule \"example.com/q\" // x\n": "example.com/q",
+		"go 1.25\n": "",
+	} {
+		if got := ModulePath([]byte(gomod)); got != want {
+			t.Errorf("ModulePath(%q) = %q, want %q", gomod, got, want)
+		}
+	}
 }
 
 func TestTypeParametersAndTypeSwitchAliasesAreNotConcreteTypes(t *testing.T) {
@@ -804,7 +799,7 @@ func (s *Server) kind(v any) {
 	}
 }
 `
-	units, decls := mustParse(t, "api/run.go", src)
+	units, decls := testutil.Parse(t, Parse, "api/run.go", src)
 	var got []string
 	for _, u := range units {
 		for _, c := range u.Calls {
@@ -836,7 +831,7 @@ func named() (db *st.DB, n int) { return }
 func generic[T any]() (T, Cache) { var t T; return t, Cache{} }
 func none() {}
 `
-	units, _ := mustParse(t, "api/open.go", src)
+	units, _ := testutil.Parse(t, Parse, "api/open.go", src)
 	got := testutil.Format(units, func(u unit.Unit) string {
 		return fmt.Sprintf("%s %q", u.Name, u.Results)
 	})
@@ -866,16 +861,11 @@ func run(s *Server) {
 	d.Fill()
 }
 `
-	units, _ := mustParse(t, "api/run.go", src)
+	units, _ := testutil.Parse(t, Parse, "api/run.go", src)
 	calls := units[0].Calls
-	var got []string
-	for _, c := range calls {
-		from := "-"
-		if c.From > 0 {
-			from = fmt.Sprintf("%s#%d", calls[c.From-1].Name, c.Result)
-		}
-		got = append(got, fmt.Sprintf("%d %s from=%s", c.Line, c.Name, from))
-	}
+	got := testutil.Format(calls, func(c unit.Call) string {
+		return fmt.Sprintf("%d %s from=%s", c.Line, c.Name, testutil.Producer(calls, c))
+	})
 	want := []string{
 		"4 open from=-",
 		"5 Save from=open#0",
@@ -904,11 +894,15 @@ func fixture() *Store { return nil }
 func Testify() {}
 func Testé() {}
 `
-	units, _ := mustParse(t, "store/store_test.go", src)
+	units, _ := testutil.Parse(t, Parse, "store/store_test.go", src)
 	got := testutil.Format(units, func(u unit.Unit) string {
 		return fmt.Sprintf("%s case=%v", u.Name, u.TestCase)
 	})
-	if want := "TestSave case=true\nBenchmarkSave case=true\nfixture case=false\nTestify case=false\nTesté case=false"; strings.Join(got, "\n") != want {
-		t.Errorf("units:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
-	}
+	testutil.Lines(t, "units", got, []string{
+		"TestSave case=true",
+		"BenchmarkSave case=true",
+		"fixture case=false",
+		"Testify case=false",
+		"Testé case=false",
+	})
 }
