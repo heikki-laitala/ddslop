@@ -283,7 +283,8 @@ candidates touching changed lines), `baseline` (a baseline file instead of
 `baseline-ref`), `path`, `fail-over`
 (fail only above this duplication percentage), `args`, `upload-sarif`,
 `annotate` and `fail` (`"false"` reports without failing the job, through
-the `exit-code` output, the SARIF report and annotations as warnings). A pull request from a fork or Dependabot cannot upload to code
+the `exit-code` output, the SARIF report and annotations as warnings).
+A pull request from a fork or Dependabot cannot upload to code
 scanning, so there, and with `upload-sarif: "false"`, candidates show as
 workflow annotations instead; `annotate: "false"` leaves annotations out,
 for a workflow that reads the exit code and the SARIF report itself.
