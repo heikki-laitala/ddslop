@@ -454,6 +454,22 @@ func TestRootImportsAreTheRootsOwn(t *testing.T) {
 			"pub fn f() -> u8 { let _y: Option<crate::Y> = None; 1 }\n",
 			"src/foo.rs", "pub struct X;\npub fn g() -> u8 { crate::child::f() }\n")))
 	})
+	t.Run("an alias of the crate itself is the root", func(t *testing.T) {
+		wantCycleBetween(t, ". -> child, child -> .", repo(t, crate(
+			"mod child;\npub struct Thing;\npub(crate) use crate as facade;\npub fn run() -> u8 { child::f() }\n",
+			"pub fn f() -> u8 { let _t: Option<crate::facade::Thing> = None; 1 }\n")))
+	})
+	t.Run("a long chain of re-exports reaches the module it started from", func(t *testing.T) {
+		wantCycleBetween(t, "child -> foo, foo -> child", repo(t, crate(
+			"mod child;\nmod foo;\npub use foo::X as X1;\npub use X1 as X2;\npub use X2 as X3;\npub use X3 as X4;\npub use X4 as X5;\npub use X5 as X6;\npub use X6 as X7;\npub use X7 as X8;\npub use X8 as X9;\npub use X9 as X10;\n",
+			"pub fn f() -> u8 { let _y: Option<crate::X10> = None; 1 }\n",
+			"src/foo.rs", "pub struct X;\npub fn g() -> u8 { crate::child::f() }\n")))
+	})
+	t.Run("an alias loop ends", func(t *testing.T) {
+		wantCycles(t, 0, "two aliases naming each other lead nowhere", repo(t, crate(
+			"mod child;\npub use A as B;\npub use B as A;\npub fn run() -> u8 { child::f() }\n",
+			"pub fn f() -> u8 { let _a: Option<crate::A> = None; 1 }\n")))
+	})
 	t.Run("a macro the root imports is its module's", func(t *testing.T) {
 		wantCycles(t, 0, "child invokes the macro the root imports from macros", repo(t, crate(
 			"#[macro_use]\nmod macros;\nmod child;\npub(crate) use macros::one;\npub fn run() -> u8 { child::f() }\n",

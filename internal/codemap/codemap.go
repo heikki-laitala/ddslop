@@ -275,7 +275,7 @@ func ReferencedModule(file string, crates *Packages, ref unit.Reference, crate C
 			return moduleName(name, at[0])
 		}
 		if target, ok := crate.RootImports[at[0]]; ok {
-			return importedModule(name, target, crate, 0)
+			return importedModule(name, target, crate, map[string]bool{at[0]: true})
 		}
 	}
 	// A path ending at a root value's name (crate::foo for the root's fn
@@ -287,23 +287,23 @@ func ReferencedModule(file string, crates *Packages, ref unit.Reference, crate C
 	return moduleName(name, "")
 }
 
-// maxReexports bounds how many root re-exports importedModule follows,
-// so an alias loop ends.
-const maxReexports = 8
-
 // importedModule returns the module of crate a root import's path names:
 // refusal::Refusal or crate::refusal::Refusal names refusal, and
 // crate::Error, or a bare name the root defines, names the root itself. A
 // name the root itself imports (pub use foo::X; pub use X as Y) is
-// followed to where it comes from, through at most maxReexports imports.
-// Any other path leads out of the crate, to no module of it ("").
-func importedModule(crate, path string, facts CrateFacts, depth int) string {
+// followed to where it comes from; seen holds the names followed so far,
+// so an alias loop ends. Any other path leads out of the crate, to no
+// module of it (""), and crate itself (use crate as facade) is the root.
+func importedModule(crate, path string, facts CrateFacts, seen map[string]bool) string {
 	segments := strings.Split(path, "::")
 	inCrate := false
 	for len(segments) > 0 && (segments[0] == "crate" || segments[0] == "self") {
 		segments, inCrate = segments[1:], true
 	}
 	if len(segments) == 0 {
+		if inCrate {
+			return moduleName(crate, "")
+		}
 		return ""
 	}
 	first := strings.TrimPrefix(segments[0], "r#")
@@ -313,8 +313,9 @@ func importedModule(crate, path string, facts CrateFacts, depth int) string {
 	if facts.Modules[moduleName(crate, first)] {
 		return moduleName(crate, first)
 	}
-	if next, ok := facts.RootImports[first]; ok && depth < maxReexports {
-		return importedModule(crate, next, facts, depth+1)
+	if next, ok := facts.RootImports[first]; ok && !seen[first] {
+		seen[first] = true
+		return importedModule(crate, next, facts, seen)
 	}
 	if inCrate || facts.RootItems[first] {
 		return moduleName(crate, "")
