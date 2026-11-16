@@ -44,16 +44,11 @@ type sarifLocation struct {
 	} `json:"physicalLocation"`
 }
 
-func decodeSARIF(t *testing.T, out string) sarifLog {
-	t.Helper()
-	return decodeJSON[sarifLog](t, out)
-}
-
 func TestCheckSARIF(t *testing.T) {
 	root := repo(t, map[string]string{"src/orders.rs": orders, "src/users.rs": users})
 
 	stdout, _ := runCode(t, 1, "check", "--format", "sarif", "--min-nodes", "20", root)
-	l := decodeSARIF(t, stdout)
+	l := decodeJSON[sarifLog](t, stdout)
 	if l.Version != "2.1.0" || len(l.Runs) != 1 || l.Runs[0].Tool.Driver.Name != "ddslop" || l.Runs[0].Tool.Driver.Version == "" {
 		t.Fatalf("SARIF header = %+v", l)
 	}
@@ -94,7 +89,7 @@ func TestCheckSARIFPutsTheChangedCopyFirst(t *testing.T) {
 
 	_, stdout, _ := run("check", "--format", "sarif", "--min-nodes", "20", "--diff", "HEAD", root)
 
-	res := decodeSARIF(t, stdout).Runs[0].Results
+	res := decodeJSON[sarifLog](t, stdout).Runs[0].Results
 	if len(res) != 1 || res[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != "z.rs" {
 		t.Errorf("primary location should be the changed copy z.rs: %+v", res)
 	}

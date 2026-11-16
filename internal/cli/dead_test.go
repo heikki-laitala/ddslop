@@ -19,7 +19,7 @@ func TestCheckReportsUnusedPublicFunctionsOfUnpublishedCrates(t *testing.T) {
 	})
 
 	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
-	r := decodeTargets(t, stdout)
+	r := decodeJSON[targetReport](t, stdout)
 	var got []string
 	for _, c := range r.Candidates {
 		o := c.Occurrences[0]
@@ -35,7 +35,7 @@ func TestCheckReportsUnusedPublicFunctionsOfUnpublishedCrates(t *testing.T) {
 		t.Errorf("text output should describe one function of 3 lines:\n%s", text)
 	}
 	_, sarif, _ := run("check", "--format", "sarif", root)
-	msg := decodeSARIF(t, sarif).Runs[0].Results[0].Message.Text
+	msg := decodeJSON[sarifLog](t, sarif).Runs[0].Results[0].Message.Text
 	if !strings.HasPrefix(msg, "Public function nothing uses") || strings.Contains(msg, "Duplicated") || strings.Contains(msg, "Other copies") {
 		t.Errorf("SARIF message = %q, want the rule's description without copies", msg)
 	}

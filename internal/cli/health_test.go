@@ -20,11 +20,6 @@ type healthReport struct {
 	} `json:"summary"`
 }
 
-func decodeHealth(t *testing.T, stdout string) healthReport {
-	t.Helper()
-	return decodeJSON[healthReport](t, stdout)
-}
-
 func TestCheckSummarisesRepositoryHealth(t *testing.T) {
 	wrapper := `pub fn visible(principal: &str, token_id: u64) -> bool {
     in_namespace(principal, token_id)
@@ -40,7 +35,7 @@ fn in_namespace(principal: &str, token_id: u64) -> bool {
 
 	_, stdout, stderr := run("check", "--format", "json", "--min-nodes", "20", root)
 
-	h := decodeHealth(t, stdout).Summary
+	h := decodeJSON[healthReport](t, stdout).Summary
 	if h.Version == "" {
 		t.Errorf("summary has no ddslop version; stderr: %s", stderr)
 	}
@@ -59,7 +54,7 @@ func TestCheckHealthDescribesTheWholeRepositoryInDiffMode(t *testing.T) {
 	root := committedRepo(t, map[string]string{"a.rs": users, "b.rs": orders})
 
 	stdout, _ := runCode(t, 0, "check", "--format", "json", "--min-nodes", "20", "--diff", "HEAD", root)
-	if got := decodeHealth(t, stdout).Summary.Health; got.DuplicatedLines != 9 {
+	if got := decodeJSON[healthReport](t, stdout).Summary.Health; got.DuplicatedLines != 9 {
 		t.Errorf("health in diff mode = %+v, want the whole repository's 9 duplicated lines", got)
 	}
 }

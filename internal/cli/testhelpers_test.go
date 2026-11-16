@@ -65,7 +65,7 @@ func TestCheckLeavesHelperCopiesInOneFileAlone(t *testing.T) {
 // measures the code it was found in.
 func TestHelpersCountInTheAnalysedLines(t *testing.T) {
 	_, stdout, _ := run("check", "--format", "json", repo(t, testHelperCrate()))
-	h := decodeHealth(t, stdout).Summary.Health
+	h := decodeJSON[healthReport](t, stdout).Summary.Health
 	if h.DuplicatedLines == 0 || h.AnalysedLines < 2*h.DuplicatedLines || h.DuplicationPercent > 50 {
 		t.Errorf("health = %+v, want the two helpers' lines among the analysed ones", h)
 	}

@@ -47,11 +47,6 @@ func (r targetReport) first() string {
 	return strings.Join(parts, " ")
 }
 
-func decodeTargets(t *testing.T, stdout string) targetReport {
-	t.Helper()
-	return decodeJSON[targetReport](t, stdout)
-}
-
 func TestCheckReportsConstantsDeclaredTwice(t *testing.T) {
 	root := repo(t, map[string]string{
 		"router/src/model_grant.rs": "pub const MAX_GRANTED_MODELS: usize = 64;\n",

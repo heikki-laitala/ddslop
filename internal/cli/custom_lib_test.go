@@ -106,7 +106,7 @@ func TestAPlacedTargetReadsItsPackagesPublishSetting(t *testing.T) {
 		"tool.rs":    "fn main() { app::used(); }\npub fn never_called_anywhere() -> u8 { 2 }\n",
 	}
 	_, stdout, _ := run("check", "--format", "json", repo(t, files))
-	r := decodeTargets(t, stdout)
+	r := decodeJSON[targetReport](t, stdout)
 	var dead []string
 	for _, c := range r.Candidates {
 		if c.Kind == "dead-code" {
