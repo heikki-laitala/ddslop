@@ -378,6 +378,15 @@ func importedModule(crate, path string, facts CrateFacts, seen map[string]bool) 
 	return ""
 }
 
+// OwnFile reports whether file is the file of a top-level module of its
+// crate (facade.rs or facade/mod.rs), whose scope is the module's own: a
+// submodule's file (facade/nested.rs) is grouped with the module but
+// declares in the submodule.
+func OwnFile(file string, crates *Packages) bool {
+	name, rel := CratePath(file, crates)
+	return name != "" && len(fileModules(rel)) == 1
+}
+
 // ReexportPath returns the crate:: path a re-export written in file names,
 // read from the file's module (super::foo::X in facade.rs is crate::foo::X),
 // or false for a path that does not start in the crate.

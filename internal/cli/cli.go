@@ -908,6 +908,9 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		if moduleItems[m] == nil {
 			moduleItems[m] = map[string]bool{}
 		}
+		if !codemap.OwnFile(f.Path, crates) {
+			continue // a submodule's scope is not what a glob of the module supplies
+		}
 		for _, n := range f.TopExports {
 			moduleItems[m][n] = true
 		}
