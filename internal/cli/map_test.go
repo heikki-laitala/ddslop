@@ -770,3 +770,16 @@ export class UserService {
 	}))
 	wantLayers(t, r, []string{"src/api"}, []string{"src/service"}, []string{"src/store"})
 }
+
+// Two files of one directory may each declare a type of one name (Deps,
+// Props): each keeps its own field types.
+func TestMapKeepsTypeScriptFieldTypesPerFile(t *testing.T) {
+	r := mapOf(t, "--lang", "typescript", repo(t, map[string]string{
+		"src/wiring/a.ts":     "import { ARepo } from \"../a-store/repo\";\n\nexport interface Deps {\n  repo: ARepo;\n}\n",
+		"src/wiring/b.ts":     "import { BRepo } from \"../b-store/repo\";\n\nexport interface Deps {\n  repo: BRepo;\n}\n",
+		"src/a-store/repo.ts": "export class ARepo {\n  find(id: string) {\n    return id;\n  }\n}\n",
+		"src/b-store/repo.ts": "export class BRepo {\n  find(id: string) {\n    return id;\n  }\n}\n",
+		"src/api/handler.ts":  "import type { Deps } from \"../wiring/b\";\n\nexport function handle(deps: Deps, id: string) {\n  return deps.repo.find(id);\n}\n",
+	}))
+	wantLayers(t, r, []string{"src/api"}, []string{"src/b-store"})
+}

@@ -383,7 +383,8 @@ func (p *parser) constant(name, value *sitter.Node) {
 // structure records an interface or object type as a struct of its
 // properties, each with its type as written, an optional one's as
 // T|undefined; methods are left out. An interface's bases are a field
-// named extends (extends:Base,Other<T>): they are part of its type.
+// named extends (extends:Base,Other<T>): they are part of its type. Each
+// property's named type is recorded too, as a class field's is.
 func (p *parser) structure(decl, body *sitter.Node) {
 	name := decl.ChildByFieldName("name")
 	if name == nil || body == nil {
@@ -410,6 +411,7 @@ func (p *parser) structure(decl, body *sitter.Node) {
 			t += "|undefined"
 		}
 		s.Fields = append(s.Fields, unit.Field{Name: field.Utf8Text(p.src), Type: t, Line: syntax.Line(prop.StartPosition())})
+		p.addFieldType(s.Name, field, p.typeOf(typ.NamedChild(0)))
 	}
 	p.decls.Structs = append(p.decls.Structs, s)
 }
@@ -543,20 +545,23 @@ func (p *parser) members(class *sitter.Node, exported bool) {
 // field (clock: Clock), one set with new (cache = new Cache()), or a
 // constructor's parameter property (constructor(private repo: Repo)).
 func (p *parser) fieldTypes(class string, m *sitter.Node) {
-	add := func(field *sitter.Node, typ string) {
-		if field != nil && typ != "" {
-			p.decls.FieldTypes = append(p.decls.FieldTypes, unit.FieldType{Struct: class, Field: field.Utf8Text(p.src), Type: typ, File: p.file, Test: p.test})
-		}
-	}
 	switch name := m.ChildByFieldName("name"); {
 	case m.Kind() == "public_field_definition":
-		add(name, p.declaredType(m))
+		p.addFieldType(class, name, p.declaredType(m))
 	case m.Kind() == "method_definition" && name != nil && name.Utf8Text(p.src) == "constructor":
 		eachParam(m, func(param, field, typ *sitter.Node) {
 			if hasChild(param, "accessibility_modifier") || hasChild(param, "readonly") {
-				add(field, p.typeOf(typ))
+				p.addFieldType(class, field, p.typeOf(typ))
 			}
 		})
+	}
+}
+
+// addFieldType records that a class's, interface's or object type's
+// field has a type, as Call.Type writes it, when it has one.
+func (p *parser) addFieldType(owner string, field *sitter.Node, typ string) {
+	if field != nil && typ != "" {
+		p.decls.FieldTypes = append(p.decls.FieldTypes, unit.FieldType{Struct: owner, Field: field.Utf8Text(p.src), Type: typ, File: p.file, Test: p.test})
 	}
 }
 

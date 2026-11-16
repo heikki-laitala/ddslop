@@ -59,6 +59,7 @@ type index struct {
 	fields      map[string]map[string]FieldType // package or crate directory -> "Struct.field" -> its type
 	modules     map[string]string               // go.mod directory -> module path
 	tsPackages  map[string]string               // TypeScript package.json directory -> package name
+	tsFields    map[string][]FieldType          // TypeScript "Type.field" -> the field's type in each type of that name, one per file
 	libraries   Libraries                       // Rust libraries moved out of src/lib.rs
 }
 
@@ -110,7 +111,8 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 			langs[ext] = &index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{}, owners: map[string]bool{},
 				impls: map[string][]string{}, rustModules: map[string]map[string]bool{},
 				crates: map[string]string{}, imports: in.Imports, deps: map[string]map[string]bool{},
-				fields: in.Fields, modules: in.Modules, tsPackages: in.TSPackages, libraries: in.Libraries}
+				fields: in.Fields, modules: in.Modules, tsPackages: in.TSPackages, tsFields: map[string][]FieldType{},
+				libraries: in.Libraries}
 		}
 		return langs[ext]
 	}
@@ -135,6 +137,14 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		ix.owners[owner] = true
 	}
 
+	for _, byKey := range in.Fields {
+		for key, ft := range byKey {
+			if tsfile.IsSource(ft.File) {
+				ix := indexOf(ft.File)
+				ix.tsFields[key] = append(ix.tsFields[key], ft)
+			}
+		}
+	}
 	for _, im := range in.Impls {
 		ix, crate := indexOf(im.File), in.Libraries.CrateOf(im.File)
 		ix.impls[im.Trait] = append(ix.impls[im.Trait], crate)
@@ -748,16 +758,16 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 
 // resolveTypeScript resolves a TypeScript call. A name the file does not
 // import is its own function's, or a global's, unless the caller declares
-// it (a parameter), its own name aside (a recursive call); an imported
-// one (a path call qualified by its module) is the exported function of
-// that name in the module a relative path names (see tsfile.ModuleIs),
-// or anywhere in the workspace package a package path names (@acme/db,
+// it (a parameter), its own name aside (a recursive call); an imported one
+// (a path call qualified by its module) is the exported function of that
+// name in the module a relative path names (see tsfile.ModuleIs), or
+// anywhere in the workspace package a package path names (@acme/db,
 // @acme/db/query) outside the packages nested in it, never an outside
 // package's (see inTSModule); a call on this is the caller's class's
 // method; one on a value whose type the code states (a typed parameter, a
-// field of this) is the method of that type's class (see
-// resolveTSMethod). Without a type, the name of any other method says
-// nothing: it is not resolved.
+// field of this or of a typed variable) is the method of that type's class
+// (see resolveTSMethod, tsFieldType). Without a type, the name of any
+// other method says nothing: it is not resolved.
 func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner string, c unit.Call) int {
 	sameFile := func(u unit.Unit) bool { return u.File == caller.File }
 	switch {
@@ -768,12 +778,21 @@ func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner str
 		return only(units, ix.free[c.Name], sameFile)
 	case c.Kind == unit.PathCall:
 		inModule := ix.inTSModule(caller.File, c.Qualifier)
-		return only(units, ix.free[c.Name], func(u unit.Unit) bool { return u.Public && inModule(u) })
+		return only(units, ix.free[c.Name], func(u unit.Unit) bool { return u.Public && inModule(u.File) })
 	case c.Qualifier == "self" && owner != "":
 		return only(units, ix.owned[owner+"::"+c.Name], sameFile)
-	case c.Field != "" && owner != "":
-		// this.repo.find(): the field's type, read where the class is declared
-		ft := ix.fields[ix.libraries.CrateOf(caller.File)][owner+"."+c.Field]
+	case c.Field != "" && (c.Type != "" || owner != ""):
+		// deps.repo.find() on a typed variable, or this.repo.find() on the
+		// caller's own class: the field's type, read where its type is
+		// declared
+		typ := c.Type
+		if typ == "" {
+			typ = owner
+		}
+		ft, ok := ix.tsFieldType(caller.File, typ, c.Field)
+		if !ok {
+			return -1
+		}
 		return ix.resolveTSMethod(units, ft.File, ft.Type, c.Name)
 	}
 	return ix.resolveTSMethod(units, caller.File, c.Type, c.Name)
@@ -791,20 +810,43 @@ func (ix index) resolveTSMethod(units []unit.Unit, home, typ, method string) int
 	i := strings.LastIndex(typ, ".")
 	cands := ix.owned[typ[i+1:]+"::"+method]
 	if i >= 0 {
-		return only(units, cands, ix.inTSModule(home, typ[:i]))
+		inModule := ix.inTSModule(home, typ[:i])
+		return only(units, cands, func(u unit.Unit) bool { return inModule(u.File) })
 	}
 	return only(units, cands, func(u unit.Unit) bool { return u.File == home })
 }
 
-// inTSModule reports, for a unit, whether its file is the module a
-// module path names as importer imports it: the file a relative path
-// names (see tsfile.ModuleIs), or one of the workspace package a package
-// path names (@acme/db), outside the packages nested in it.
-func (ix index) inTSModule(importer, module string) func(unit.Unit) bool {
-	if dir, ok := ix.tsPackageOf(module); ok {
-		return func(u unit.Unit) bool { return tsfile.PackageDir(u.File, ix.tsPackages) == dir }
+// tsFieldType returns the type of a field of a TypeScript class,
+// interface or object type, typ as unit.Call.Type writes it read in the
+// file home: the field of the type of that name the module declares, or
+// home itself for a local type.
+func (ix index) tsFieldType(home, typ, field string) (FieldType, bool) {
+	i := strings.LastIndex(typ, ".")
+	inModule := func(file string) bool { return file == home }
+	if i >= 0 {
+		inModule = ix.inTSModule(home, typ[:i])
 	}
-	return func(u unit.Unit) bool { return tsfile.ModuleIs(importer, module, u.File) }
+	var found []FieldType
+	for _, ft := range ix.tsFields[typ[i+1:]+"."+field] {
+		if inModule(ft.File) {
+			found = append(found, ft)
+		}
+	}
+	if len(found) != 1 {
+		return FieldType{}, false
+	}
+	return found[0], true
+}
+
+// inTSModule reports, for a file, whether it is the module a module path
+// names as importer imports it: the file a relative path names (see
+// tsfile.ModuleIs), or one of the workspace package a package path names
+// (@acme/db), outside the packages nested in it.
+func (ix index) inTSModule(importer, module string) func(file string) bool {
+	if dir, ok := ix.tsPackageOf(module); ok {
+		return func(file string) bool { return tsfile.PackageDir(file, ix.tsPackages) == dir }
+	}
+	return func(file string) bool { return tsfile.ModuleIs(importer, module, file) }
 }
 
 // tsPackageOf returns the directory of the workspace package a module

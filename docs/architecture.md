@@ -455,8 +455,10 @@ method call on a value whose type the code states resolves to that
 class's method: a typed parameter (`repo: UserRepo`), a constant typed
 or made with `new`, or a field of `this` typed by its class (a typed
 field, one set with `new`, or a constructor's parameter property,
-`constructor(private repo: UserRepo)`, the usual dependency injection).
-Types are written as Go's are, an imported one qualified by its module
+`constructor(private repo: UserRepo)`, the usual dependency injection),
+or a field of a typed variable, read from its interface, object type or
+class (`deps.repo.find()` with `deps: ControllerDeps`). Types are
+written as Go's are, an imported one qualified by its module
 (`../store/users.UserRepo`), so the class is the one that module, or
 workspace package, declares; a local type is the file's own class of the
 name, and one the file does not declare a global (`Response`, `Map`),

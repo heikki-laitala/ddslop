@@ -1400,3 +1400,33 @@ func TestBuildResolvesTypeScriptMethodCallsByTheirType(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildResolvesTypeScriptCallsThroughATypedVariablesField(t *testing.T) {
+	units := []unit.Unit{
+		// deps: ClusterDeps, declared in another module, whose clusters
+		// field is a ClusterRepo
+		fn("src/controllers/cluster.ts", "createController", unit.Call{Kind: unit.MethodCall, Name: "findById", Type: "../deps.ClusterDeps", Field: "clusters"}),
+		exported(fn("src/repositories/cluster.ts", "ClusterRepo.findById")),
+		// a field the type does not declare: unknown
+		fn("src/controllers/cluster.ts", "other", unit.Call{Kind: unit.MethodCall, Name: "findById", Type: "../deps.ClusterDeps", Field: "missing"}),
+		// a local type is the caller's file's
+		fn("src/controllers/local.ts", "local", unit.Call{Kind: unit.MethodCall, Name: "findById", Type: "LocalDeps", Field: "clusters"}),
+		// a type of the name in another module is not the one imported
+		fn("src/controllers/cluster.ts", "elsewhere", unit.Call{Kind: unit.MethodCall, Name: "findById", Type: "../wiring.ClusterDeps", Field: "clusters"}),
+	}
+	g := Build(Inputs{Fields: map[string]map[string]FieldType{
+		"src/deps.ts":              {"ClusterDeps.clusters": {Type: "./repositories/cluster.ClusterRepo", File: "src/deps.ts"}},
+		"src/other/deps.ts":        {"ClusterDeps.clusters": {Type: "../repositories/cluster.ClusterRepo", File: "src/other/deps.ts"}},
+		"src/controllers/local.ts": {"LocalDeps.clusters": {Type: "../repositories/cluster.ClusterRepo", File: "src/controllers/local.ts"}},
+	}}, units)
+	for caller, want := range map[string]string{
+		"src/controllers/cluster.ts createController": "[src/repositories/cluster.ts ClusterRepo.findById]",
+		"src/controllers/cluster.ts other":            "[]",
+		"src/controllers/local.ts local":              "[src/repositories/cluster.ts ClusterRepo.findById]",
+		"src/controllers/cluster.ts elsewhere":        "[]",
+	} {
+		if got := callees(g, caller); got != want {
+			t.Errorf("%s calls %s, want %s", caller, got, want)
+		}
+	}
+}

@@ -234,12 +234,16 @@ func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
 			}
 		}
 		dir := in.Libraries.CrateOf(f.Path)
+		fieldsKey := dir
+		if tsfile.IsSource(f.Path) {
+			fieldsKey = f.Path // each file's own types: flow matches the module naming them
+		}
 		for _, ft := range f.Decls.FieldTypes {
 			if ft.Test {
 				continue // the graph is of the non-test code
 			}
-			if in.Fields[dir] == nil {
-				in.Fields[dir] = map[string]flow.FieldType{}
+			if in.Fields[fieldsKey] == nil {
+				in.Fields[fieldsKey] = map[string]flow.FieldType{}
 			}
 			// Structs of one name in two Rust modules of a crate that type
 			// a field differently leave it unknown.
@@ -248,13 +252,13 @@ func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
 			// declared in two places, it is unknown unless spelled from
 			// crate::. A Go package is one scope, its files often build
 			// variants of one struct.
-			known, seen := in.Fields[dir][key]
+			known, seen := in.Fields[fieldsKey][key]
 			elsewhere := strings.HasSuffix(ft.File, ".rs") && (known.File != ft.File || known.Module != ft.Module)
 			relative := func(t string) bool { return t != "" && !strings.HasPrefix(t, "crate::") }
 			if seen && (known.Type != ft.Type || known.Unwrapped != ft.Unwrapped || elsewhere && (relative(ft.Type) || relative(ft.Unwrapped))) {
-				in.Fields[dir][key] = flow.FieldType{}
+				in.Fields[fieldsKey][key] = flow.FieldType{}
 			} else if !seen {
-				in.Fields[dir][key] = flow.FieldType{Type: ft.Type, Unwrapped: ft.Unwrapped, File: ft.File, Module: ft.Module}
+				in.Fields[fieldsKey][key] = flow.FieldType{Type: ft.Type, Unwrapped: ft.Unwrapped, File: ft.File, Module: ft.Module}
 			}
 		}
 		if _, done := in.Crates[dir]; done {

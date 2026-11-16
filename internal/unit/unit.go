@@ -195,7 +195,8 @@ type Call struct {
 	// operand: the receiver's (store in s.store.Save(), Go's and Rust's
 	// self.store.get()) or, in Rust, a dotted path from the receiver, a
 	// typed variable (Type) or a call's result (From): ctx.db in
-	// self.ctx.db.query(), store in req.store.get().
+	// self.ctx.db.query(), store in req.store.get(); or, in TypeScript,
+	// this.store.get() and a typed variable's: repo in deps.repo.find().
 	Field string
 	// From is 1 + the index, among its unit's calls, of the call whose
 	// result the operand is (db.Save() after db, err := open(), or
@@ -287,8 +288,8 @@ type Decls struct {
 	// FuncTypes are the function types the file declares; Go only.
 	FuncTypes []FuncType
 	// FieldTypes are the types of the file's struct fields, or a
-	// TypeScript class's fields, written as Call.Type; fields of other
-	// types (slices, maps) are left out.
+	// TypeScript class's, interface's or object type's fields, written as
+	// Call.Type; fields of other types (slices, maps) are left out.
 	FieldTypes []FieldType
 }
 

@@ -581,3 +581,26 @@ export async function handle(repo: UserRepo, id: string) {
 		return c.Name + " " + c.Type
 	}), []string{"find ../store/users.UserRepo", "get Map", "send Mailer", "run ", "find "})
 }
+
+// An interface's or object type's properties record their types too, and
+// a method call on a typed variable's property records both: the
+// variable's type and the property.
+func TestCallsThroughATypedVariablesFieldRecordBoth(t *testing.T) {
+	units, decls := testutil.Parse(t, Parse, "src/controllers/cluster.ts", `import type { IClusterRepo } from "../repositories/cluster";
+
+export interface ClusterDeps {
+  clusters: IClusterRepo;
+  limit: number;
+}
+
+type Options = { clock: Clock };
+
+export function createController(deps: ClusterDeps) {
+  return deps.clusters.findById("1");
+}
+`)
+	testutil.Lines(t, "field types", testutil.Format(decls.FieldTypes, func(f unit.FieldType) string { return f.Struct + "." + f.Field + " " + f.Type }),
+		[]string{"ClusterDeps.clusters ../repositories/cluster.IClusterRepo", "Options.clock Clock"})
+	testutil.Lines(t, "calls", testutil.Format(units[0].Calls, func(c unit.Call) string { return c.Name + " " + c.Type + " " + c.Field }),
+		[]string{"findById ClusterDeps clusters"})
+}

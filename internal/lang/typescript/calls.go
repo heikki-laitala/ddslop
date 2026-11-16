@@ -67,8 +67,9 @@ func importClause(clause *sitter.Node, module string, src []byte, names map[stri
 // call classifies a call by its callee: an imported function, or one
 // through a namespace import (db.query), is a path call qualified by its
 // module; any other plain name a free call; a call on this a self call,
-// one on a field of this (this.store.get) a method call on that field,
-// and any other a method call.
+// one on a field of this (this.store.get) or of a typed variable
+// (deps.store.get) a method call on that field, and any other a method
+// call.
 // ddslop:ignore the Go adapter's classification over TypeScript's node kinds; each changes with its own grammar
 func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 	fn := n.ChildByFieldName("function")
@@ -97,8 +98,13 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 				c.Type = g.vars[object.Utf8Text(src)]
 			}
 		case "member_expression":
-			if this, field := object.ChildByFieldName("object"), object.ChildByFieldName("property"); this != nil && field != nil && this.Kind() == "this" {
+			// this.repo.find(), or deps.repo.find() on a typed variable
+			switch inner, field := object.ChildByFieldName("object"), object.ChildByFieldName("property"); {
+			case inner == nil || field == nil:
+			case inner.Kind() == "this":
 				c.Field = field.Utf8Text(src)
+			case inner.Kind() == "identifier" && g.vars[inner.Utf8Text(src)] != "":
+				c.Type, c.Field = g.vars[inner.Utf8Text(src)], field.Utf8Text(src)
 			}
 		}
 	default:
