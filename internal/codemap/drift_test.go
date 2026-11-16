@@ -119,3 +119,19 @@ func TestDriftsAreJudgedAgainstTheConventionsGiven(t *testing.T) {
 		t.Errorf("Drifts = %+v, want only the wrapping drift, at the given share", got)
 	}
 }
+
+// A convention given holds even where no occurrence of its form is left:
+// a change replacing every check by variant with one by message drifts
+// from the base's convention, with no target to follow in its own code.
+func TestADriftNeedsNoSurvivingConventionalOccurrence(t *testing.T) {
+	var units []unit.Unit
+	for i := range 6 {
+		units = append(units, formUnit("a/a.go", i+1, "error-checks", "message"))
+	}
+	g := &flow.Graph{Units: units}
+
+	got := Drifts(g, ByModule(nil), ByModule(nil), map[string]Convention{"error-checks": {Form: "variant", Share: 1, Holds: true}})
+	if len(got) != 6 || got[0].Target != -1 || got[0].TargetLine != 0 {
+		t.Errorf("Drifts = %+v, want each of the six, with no target", got)
+	}
+}

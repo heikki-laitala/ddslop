@@ -159,6 +159,16 @@ func errorChecks(prefix string, n, m int) string {
 	return b.String()
 }
 
+// rewritten lists the drifts of store/s.go's checks by message after the
+// first, in OldByMessage1 to OldByMessage<n>, one a line from line 9.
+func rewritten(n int) []string {
+	var out []string
+	for i := 1; i <= n; i++ {
+		out = append(out, fmt.Sprintf("store/s.go:%d-%d OldByMessage%d", 8+i, 8+i, i))
+	}
+	return out
+}
+
 // A gate judges a change by the conventions the code it started from has:
 // a change that brings a concern's share up to the drift share makes no
 // drift of the code it did not touch, and one that brings it down still
@@ -168,8 +178,11 @@ func TestBaselineRefJudgesDriftsByTheBaseConventions(t *testing.T) {
 	cases := []struct {
 		name       string
 		base, more [2]int // checks by errors.Is and by message, at the base and added
+		rewrite    bool   // the change rewrites the base's checks by errors.Is by message
 		want       []string
 	}{
+		// 30 of 31 at the base; every check by errors.Is rewritten by message.
+		{name: "replaced", base: [2]int{30, 1}, rewrite: true, want: rewritten(30)},
 		// 30 of 35 at the base, no convention; 50 of 55 after.
 		{name: "rising", base: [2]int{30, 5}, more: [2]int{20, 0}, want: nil},
 		// 30 of 31 at the base; 30 of 35 after, below the drift share.
@@ -184,6 +197,9 @@ func TestBaselineRefJudgesDriftsByTheBaseConventions(t *testing.T) {
 				"store/s.go": errorChecks("Old", tc.base[0], tc.base[1]),
 			})
 			testutil.WriteFiles(t, root, map[string]string{"store/new.go": errorChecks("New", tc.more[0], tc.more[1])})
+			if tc.rewrite {
+				testutil.WriteFiles(t, root, map[string]string{"store/s.go": errorChecks("Old", 0, tc.base[0]+tc.base[1])})
+			}
 
 			if got := driftCandidates(t, "--baseline-ref", "HEAD", root); strings.Join(got, ", ") != strings.Join(tc.want, ", ") {
 				t.Errorf("drifts = %v, want %v", got, tc.want)

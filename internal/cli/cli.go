@@ -751,8 +751,12 @@ func side(lang string, test bool) string {
 // appendDrifts appends codemap's drifts as the report's.
 func appendDrifts(out []report.Drift, g *flow.Graph, found []codemap.Drift) []report.Drift {
 	for _, d := range found {
-		out = append(out, report.Drift{Concern: d.Concern, Form: d.Form, Convention: d.Convention, Share: d.Share,
-			Unit: g.Units[d.Unit], Lines: d.Lines, Target: g.Units[d.Target], TargetLine: d.TargetLine})
+		r := report.Drift{Concern: d.Concern, Form: d.Form, Convention: d.Convention, Share: d.Share,
+			Unit: g.Units[d.Unit], Lines: d.Lines}
+		if d.Target >= 0 {
+			r.Target, r.TargetLine = g.Units[d.Target], d.TargetLine
+		}
+		out = append(out, r)
 	}
 	return out
 }

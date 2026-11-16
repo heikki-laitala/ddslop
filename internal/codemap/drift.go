@@ -18,7 +18,7 @@ const minDriftShare = 0.9
 // Drift is another form where a convention exists, in one unit: the line
 // of each of its occurrences there, in order, and the convention's
 // occurrence to follow (Target and TargetLine), the one closest to the
-// first.
+// first, or Target -1 when the code has none.
 type Drift struct {
 	Concern, Form, Convention string
 	// Share is the share of the concern's occurrences the convention
@@ -90,9 +90,10 @@ func Conventions(g *flow.Graph, group Grouping) map[string]Convention {
 // Drifts finds, for each concern of the units in group whose convention
 // holds in conventions, the occurrences of other forms. Each drift's
 // target is the convention's occurrence in the same file nearest to it,
-// else the first in the same module (by module), else the first anywhere.
-// The occurrences of one form in one unit are one drift. Drifts come in
-// unit order.
+// else the first in the same module (by module), else the first anywhere;
+// a convention given from other code may have none left here, and its
+// drifts then have no target (Target -1). The occurrences of one form in
+// one unit are one drift. Drifts come in unit order.
 func Drifts(g *flow.Graph, group, module Grouping, conventions map[string]Convention) []Drift {
 	var out []Drift
 	for concern, occs := range concernOccurrences(g, group) {
@@ -107,9 +108,6 @@ func Drifts(g *flow.Graph, group, module Grouping, conventions map[string]Conven
 				conventional = append(conventional, o)
 			}
 		}
-		if len(conventional) == 0 {
-			continue
-		}
 		slices.SortFunc(conventional, func(a, b occurrence) int {
 			return cmp.Or(cmp.Compare(g.Units[a.unit].File, g.Units[b.unit].File), cmp.Compare(a.line, b.line))
 		})
@@ -122,7 +120,10 @@ func Drifts(g *flow.Graph, group, module Grouping, conventions map[string]Conven
 				out[k].Lines = append(out[k].Lines, o.line)
 				continue
 			}
-			t := closest(g, module, o, conventional)
+			t := occurrence{unit: -1}
+			if len(conventional) > 0 {
+				t = closest(g, module, o, conventional)
+			}
 			merged[[2]any{o.unit, o.form}] = len(out)
 			out = append(out, Drift{Concern: concern, Form: o.form, Convention: convention, Share: c.Share, Unit: o.unit,
 				Lines: []int{o.line}, Target: t.unit, TargetLine: t.line})

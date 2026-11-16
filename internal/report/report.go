@@ -752,7 +752,9 @@ func driftCandidate(language string, d Drift) Candidate {
 		// lines, not the code between them.
 		c.Occurrences = append(c.Occurrences, Occurrence{File: d.Unit.File, Name: d.Unit.Name, StartLine: line, EndLine: line})
 	}
-	c.Target = &Occurrence{File: d.Target.File, Name: d.Target.Name, StartLine: d.TargetLine, EndLine: d.TargetLine}
+	if d.TargetLine > 0 {
+		c.Target = &Occurrence{File: d.Target.File, Name: d.Target.Name, StartLine: d.TargetLine, EndLine: d.TargetLine}
+	}
 	c.Values = []string{d.Form}
 	c.Concern = d.Concern
 	c.Share = d.Share
