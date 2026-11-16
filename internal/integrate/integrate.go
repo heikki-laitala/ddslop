@@ -5,7 +5,7 @@ package integrate
 
 import (
 	"bytes"
-	_ "embed" // skill and section templates
+	"embed" // skill and section templates
 	"errors"
 	"fmt"
 	"io/fs"
@@ -52,6 +52,10 @@ var (
 	skillTemplate string
 	//go:embed templates/section.md
 	section string
+	// former holds every section an earlier ddslop wrote, so Install can
+	// tell one it may bring up to date from one edited by hand.
+	//go:embed templates/former
+	former embed.FS
 
 	skill = template.Must(template.New("SKILL.md").Parse(skillTemplate))
 )
@@ -108,7 +112,10 @@ func Install(root string, agents []Agent) ([]string, error) {
 			continue
 		}
 		written[resolved] = true
-		changed, err = upsertSection(path)
+		changed, kept, err := upsertSection(path)
+		if kept {
+			changes = append(changes, fmt.Sprintf("kept the ddslop section in %s: it is not one ddslop wrote, so it stays as edited (delete it and run init again for ddslop's)", describe(path)))
+		}
 		if err := note(changed, err, "updated %s", describe(path)); err != nil {
 			return changes, err
 		}
@@ -296,14 +303,19 @@ func findSection(content string) (start, end int, ok bool) {
 	return start, len(content), start >= 0
 }
 
-// upsertSection replaces the ddslop section of a file, or appends it.
-func upsertSection(path string) (bool, error) {
+// upsertSection replaces the ddslop section of a file, or appends it. A
+// section ddslop did not write (see ours) is the project's own: it is kept,
+// and kept reports so.
+func upsertSection(path string) (changed, kept bool, err error) {
 	content, err := readFile(path)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	var updated string
 	if start, end, ok := findSection(content); ok {
+		if !ours(content[start:end]) {
+			return false, true, nil
+		}
 		after := content[end:]
 		updated = content[:start] + section
 		if after != "" {
@@ -315,7 +327,28 @@ func upsertSection(path string) (bool, error) {
 			updated = strings.TrimRight(content, "\n") + "\n\n" + section
 		}
 	}
-	return writeFile(path, updated)
+	changed, err = writeFile(path, updated)
+	return changed, false, err
+}
+
+// ours reports whether a section is one ddslop wrote: the current
+// template or a former one, whatever blank lines surround it.
+func ours(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == strings.TrimSpace(section) {
+		return true
+	}
+	entries, err := former.ReadDir("templates/former")
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		old, err := former.ReadFile("templates/former/" + e.Name())
+		if err == nil && text == strings.TrimSpace(string(old)) {
+			return true
+		}
+	}
+	return false
 }
 
 // removeSection deletes the ddslop section of a file, and the file itself

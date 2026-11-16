@@ -3,6 +3,7 @@ package integrate
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,15 +104,20 @@ func TestInstallCodexAndCopilot(t *testing.T) {
 	}
 }
 
+// A section an earlier ddslop wrote is brought up to date in place.
 func TestInstallIsIdempotentAndUpdatesTheSectionInPlace(t *testing.T) {
 	root := t.TempDir()
-	write(t, root, "AGENTS.md", "# Rules\n\n## ddslop\n\nOld text.\n\n## Testing\n\nRun tests.\n")
+	former, err := os.ReadFile("templates/former/1.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "AGENTS.md", "# Rules\n\n"+string(former)+"\n## Testing\n\nRun tests.\n")
 
 	install(t, root, Codex)
 	second := install(t, root, Codex)
 
 	agents := read(t, root, "AGENTS.md")
-	if strings.Count(agents, sectionTitle) != 1 || strings.Contains(agents, "Old text.") {
+	if strings.Count(agents, sectionTitle) != 1 || !strings.Contains(agents, section) {
 		t.Errorf("section not replaced in place:\n%s", agents)
 	}
 	if !strings.HasPrefix(agents, "# Rules\n\n## ddslop\n") || !strings.HasSuffix(agents, "## Testing\n\nRun tests.\n") {
@@ -231,5 +237,28 @@ func TestUninstallRemovesEverythingButOtherContent(t *testing.T) {
 	}
 	if exists(filepath.Join(root, indexDir)) {
 		t.Error("purge left .ddslop/")
+	}
+}
+
+// A section edited by hand is the project's: Install keeps it, still
+// updates the skill, and says how to get ddslop's section back.
+func TestInstallKeepsASectionEditedByHand(t *testing.T) {
+	root := t.TempDir()
+	own := "# Rules\n\n## ddslop\n\nRun our gate, not --diff HEAD.\n\n## Testing\n\nRun tests.\n"
+	write(t, root, "AGENTS.md", own)
+
+	changes := install(t, root, Codex)
+
+	if got := read(t, root, "AGENTS.md"); got != own {
+		t.Errorf("AGENTS.md changed:\n%s", got)
+	}
+	if !strings.Contains(read(t, root, ".codex/skills/ddslop/SKILL.md"), "ddslop") {
+		t.Error("the skill was not installed")
+	}
+	if !slices.ContainsFunc(changes, func(c string) bool { return strings.Contains(c, "kept the ddslop section") }) {
+		t.Errorf("changes = %v, want a line saying the edited section was kept", changes)
+	}
+	if again := install(t, root, Codex); !slices.ContainsFunc(again, func(c string) bool { return strings.Contains(c, "kept") }) {
+		t.Errorf("second install = %v, want it to say again that the section was kept", again)
 	}
 }

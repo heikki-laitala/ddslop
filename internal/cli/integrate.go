@@ -19,7 +19,8 @@ Sets ddslop up in the project at path (default "."): a ddslop skill for
 each chosen coding agent, a "## ddslop" section in its instructions file
 (CLAUDE.md, AGENTS.md or .github/copilot-instructions.md), a .ddslop/
 entry in .gitignore, and the index. Without agent flags, installs for
-Claude Code. Running it again only updates what changed.
+Claude Code. Running it again only updates what changed, and keeps a
+section edited by hand.
 
 Flags:
 `
