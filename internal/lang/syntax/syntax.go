@@ -20,9 +20,9 @@ type Grammar interface {
 	// Prefix is prepended to node kinds before they become symbols, so
 	// languages naming kinds alike (identifier, block) keep apart symbols.
 	Prefix() string
-	// Leaf returns the leaf kind of a node kind that is blanked out, taken
-	// whole without descending into it.
-	Leaf(kind string) (unit.LeafKind, bool)
+	// Leaves maps the node kinds that are blanked out, taken whole without
+	// descending into them, to their leaf kind.
+	Leaves() map[string]unit.LeafKind
 	// Declares reports whether a child sits in a position that introduces
 	// names, given its parent's kind, whether the parent does, and the
 	// child's field name and kind.
@@ -95,7 +95,7 @@ func (s *Shaper) visit(n *sitter.Node, declares bool) {
 		return // comments
 	}
 	s.Nodes++
-	if kind, ok := s.grammar.Leaf(n.Kind()); ok {
+	if kind, ok := s.grammar.Leaves()[n.Kind()]; ok {
 		s.emit(unit.LeafSymbol(kind), Line(n.StartPosition()))
 		text := n.Utf8Text(s.Src)
 		s.Leaves = append(s.Leaves, unit.Leaf{

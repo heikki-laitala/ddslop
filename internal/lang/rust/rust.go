@@ -42,10 +42,7 @@ type grammar struct {
 // shapes and fingerprints, predate other languages.
 func (grammar) Prefix() string { return "" }
 
-func (grammar) Leaf(kind string) (unit.LeafKind, bool) {
-	k, ok := leafKinds[kind]
-	return k, ok
-}
+func (grammar) Leaves() map[string]unit.LeafKind { return leafKinds }
 
 func (grammar) Declares(parent string, parentDeclares bool, field, child string) bool {
 	return childDeclares(parent, parentDeclares, field, child)

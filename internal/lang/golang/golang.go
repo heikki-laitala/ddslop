@@ -64,10 +64,7 @@ type grammar struct {
 // Prefix keeps Go's symbols apart from other languages' alike-named kinds.
 func (grammar) Prefix() string { return "go:" }
 
-func (grammar) Leaf(kind string) (unit.LeafKind, bool) {
-	k, ok := leafKinds[kind]
-	return k, ok
-}
+func (grammar) Leaves() map[string]unit.LeafKind { return leafKinds }
 
 // Declares: the function's name, parameter names, and the names
 // short variable declarations, var and const specs and range clauses
