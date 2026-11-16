@@ -394,4 +394,9 @@ func TestARootReexportIsADependencyOnItsModule(t *testing.T) {
 
 	wantCycleBetween(t, "refusal -> request, request -> refusal",
 		repo(t, reexportingCrate("pub enum Refusal { Empty }\npub fn code() -> u8 { crate::request::refuse(Refusal::Empty) }\n")))
+
+	// A name the root imports from another crate is no module of its own.
+	external := reexportingCrate("pub enum Refusal { Empty }\n")
+	external["src/lib.rs"] = "mod refusal;\nmod request;\npub use other::Refusal;\npub fn encode() -> u8 { request::encode() }\n"
+	wantCycles(t, 0, "the root re-exports another crate's type; request uses it", repo(t, external))
 }
