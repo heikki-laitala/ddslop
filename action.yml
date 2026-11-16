@@ -104,13 +104,19 @@ runs:
       shell: bash
       env:
         UPLOAD: ${{ inputs.upload-sarif }}
+        ANNOTATE: ${{ inputs.annotate }}
+        SARIF: ${{ steps.check.outputs.sarif-file }}
         FORK: ${{ github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository }}
         DEPENDABOT: ${{ github.event.pull_request && github.actor == 'dependabot[bot]' }}
       run: |
         # Pull requests from forks and Dependabot get a read-only token:
         # uploading would fail.
         if [ "$UPLOAD" = true ] && { [ "$FORK" = true ] || [ "$DEPENDABOT" = true ]; }; then
-          echo "::notice::ddslop: this pull request's token cannot upload to code scanning; results are shown as annotations"
+          if [ "$ANNOTATE" = false ]; then
+            echo "ddslop: this pull request's token cannot upload to code scanning; the results are in $SARIF"
+          else
+            echo "::notice::ddslop: this pull request's token cannot upload to code scanning; results are shown as annotations"
+          fi
           UPLOAD=false
         fi
         echo "upload=$UPLOAD" >>"$GITHUB_OUTPUT"
@@ -162,17 +168,19 @@ runs:
         CODE: ${{ steps.check.outputs.exit-code }}
         ANNOTATE: ${{ inputs.annotate }}
         FAIL: ${{ inputs.fail }}
+        SARIF: ${{ steps.check.outputs.sarif-file }}
       run: |
         # Without annotations the outcome is still a failure, written as
-        # plain log lines.
+        # plain log lines that point at the SARIF report instead.
         error="::error::"
-        if [ "$ANNOTATE" = false ]; then error="ddslop: "; fi
+        where="see the annotations on the changed files"
+        if [ "$ANNOTATE" = false ]; then error="" where="see $SARIF"; fi
         case "$CODE" in
           0) echo "ddslop: passed" ;;
           1) if [ "$FAIL" = false ]; then
                echo "ddslop: found duplication to refactor; fail is false, so the job passes"
                exit 0
              fi
-             echo "${error}ddslop found duplication to refactor (see the annotations on the changed files)"; exit 1 ;;
+             echo "${error}ddslop found duplication to refactor ($where)"; exit 1 ;;
           *) echo "${error}ddslop failed (exit code $CODE)"; exit 2 ;;
         esac
