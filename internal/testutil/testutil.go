@@ -3,6 +3,8 @@ package testutil
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -52,4 +54,19 @@ func Producer(calls []unit.Call, c unit.Call) string {
 		return name
 	}
 	return fmt.Sprintf("%s#%d", name, c.Result)
+}
+
+// WriteFiles writes files, each at its path relative to root, making the
+// directories they need.
+func WriteFiles(t testing.TB, root string, files map[string]string) {
+	t.Helper()
+	for name, content := range files {
+		p := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

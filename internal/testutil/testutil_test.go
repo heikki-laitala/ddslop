@@ -2,6 +2,8 @@ package testutil
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/heikki-laitala/ddslop/internal/unit"
@@ -62,5 +64,15 @@ func TestProducerNamesTheCallAndResultOrADash(t *testing.T) {
 	}
 	if got := Producer(calls, unit.Call{Result: 1}); got != "-#1" {
 		t.Errorf("unproduced call with a result = %q, want -#1", got)
+	}
+}
+
+func TestWriteFilesMakesTheDirectoriesTheFilesNeed(t *testing.T) {
+	root := t.TempDir()
+	WriteFiles(t, root, map[string]string{"a.txt": "a", "x/y/b.txt": "b"})
+	for name, want := range map[string]string{"a.txt": "a", "x/y/b.txt": "b"} {
+		if got, err := os.ReadFile(filepath.Join(root, name)); err != nil || string(got) != want { //nolint:gosec // the test's own file
+			t.Errorf("%s holds %q (%v), want %q", name, got, err, want)
+		}
 	}
 }

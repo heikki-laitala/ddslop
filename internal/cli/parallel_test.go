@@ -188,9 +188,5 @@ func TestCheckTextShowsParallelFlowSteps(t *testing.T) {
 
 	_, stdout, _ := run("check", "--format", "text", "--min-nodes", "10", root)
 
-	for _, want := range []string{"parallel-flow", "extract-pipeline", "step: svc/src/lib.rs:19-27 validate_create | svc/src/lib.rs:29-37 validate_update"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("text output is missing %q:\n%s", want, stdout)
-		}
-	}
+	wantContains(t, stdout, "parallel-flow", "extract-pipeline", "step: svc/src/lib.rs:19-27 validate_create | svc/src/lib.rs:29-37 validate_update")
 }

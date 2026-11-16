@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 func read(t *testing.T, root, name string) string {
@@ -18,13 +20,7 @@ func read(t *testing.T, root, name string) string {
 
 func write(t *testing.T, root, name, content string) {
 	t.Helper()
-	p := filepath.Join(root, name)
-	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFiles(t, root, map[string]string{name: content})
 }
 
 func install(t *testing.T, root string, agents ...Agent) []string {

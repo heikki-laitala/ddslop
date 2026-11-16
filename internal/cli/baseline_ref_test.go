@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 // A gate against a ref reports only what the change added: known
@@ -52,21 +54,12 @@ func TestBaselineRefReportsOnlyWhatTheChangeAdded(t *testing.T) {
 func TestBaselineRefErrors(t *testing.T) {
 	root := committedRepo(t, map[string]string{"a.rs": users})
 
-	code, _, stderr := run("check", "--baseline-ref", "no-such-ref", root)
-	if code != 2 || !strings.Contains(stderr, "no-such-ref") {
-		t.Errorf("unknown ref: exit %d, stderr %q; want 2 naming the ref", code, stderr)
-	}
+	wantError(t, "no-such-ref", "check", "--baseline-ref", "no-such-ref", root)
 
-	code, _, stderr = run("check", "--baseline-ref", "HEAD", "--baseline", "x.json", root)
-	if code != 2 || !strings.Contains(stderr, "--baseline-ref") {
-		t.Errorf("both baselines: exit %d, stderr %q; want 2 naming the conflict", code, stderr)
-	}
+	wantError(t, "--baseline-ref", "check", "--baseline-ref", "HEAD", "--baseline", "x.json", root)
 
 	plain := repo(t, map[string]string{"a.rs": users})
-	code, _, stderr = run("check", "--baseline-ref", "HEAD", plain)
-	if code != 2 || !strings.Contains(stderr, "Git") {
-		t.Errorf("outside Git: exit %d, stderr %q; want 2 saying a ref needs a Git repository", code, stderr)
-	}
+	wantError(t, "Git", "check", "--baseline-ref", "HEAD", plain)
 }
 
 // A path the ref does not have yet, such as a component the change adds,
@@ -97,9 +90,7 @@ func TestBaselineRefAnalysesTheRefWithTheChangesConfiguration(t *testing.T) {
 		"gen/a.rs":     users,
 		"gen/b.rs":     orders,
 	})
-	if err := os.WriteFile(filepath.Join(root, ".ddslop.yaml"), []byte("min-nodes: 20\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFiles(t, root, map[string]string{".ddslop.yaml": "min-nodes: 20\n"})
 
 	stdout, _ := runCode(t, 0, "check", "--format", "json", "--baseline-ref", "HEAD", root)
 	if r := decode(t, stdout); r.Summary.Baselined != 1 {
@@ -123,9 +114,7 @@ func TestBaselineRefDoesNotWriteThroughASymlinkedConfiguration(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, ".ddslop.yaml")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".ddslop.yaml"), []byte("min-nodes: 20\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFiles(t, root, map[string]string{".ddslop.yaml": "min-nodes: 20\n"})
 
 	if code, _, stderr := run("check", "--format", "json", "--baseline-ref", "HEAD", root); code == 2 {
 		t.Fatalf("exit code 2: %s", stderr)
@@ -145,15 +134,7 @@ func TestBaselineRefOfAPathThatWasNoDirectoryKnowsNothing(t *testing.T) {
 	gitIn(t, root, "add", "svc")
 	gitIn(t, root, "commit", "-q", "-m", "svc links elsewhere")
 	gitIn(t, root, "rm", "-q", "svc")
-	for name, content := range map[string]string{"svc/a.rs": users, "svc/b.rs": orders} {
-		p := filepath.Join(root, name)
-		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	testutil.WriteFiles(t, root, map[string]string{"svc/a.rs": users, "svc/b.rs": orders})
 
 	stdout, _ := runCode(t, 1, "check", "--format", "json", "--min-nodes", "20", "--baseline-ref", "HEAD", filepath.Join(root, "svc"))
 	if r := decode(t, stdout); r.Summary.Baselined != 0 {
@@ -165,9 +146,7 @@ func TestBaselineRefOfAPathThatWasNoDirectoryKnowsNothing(t *testing.T) {
 func TestBaselineRefReplacesAConfigurationDirectory(t *testing.T) {
 	root := committedRepo(t, map[string]string{"a.rs": users, ".ddslop.yaml/old.txt": "x\n"})
 	gitIn(t, root, "rm", "-q", "-r", ".ddslop.yaml")
-	if err := os.WriteFile(filepath.Join(root, ".ddslop.yaml"), []byte("min-nodes: 20\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteFiles(t, root, map[string]string{".ddslop.yaml": "min-nodes: 20\n"})
 
 	if code, _, stderr := run("check", "--format", "json", "--baseline-ref", "HEAD", root); code == 2 {
 		t.Fatalf("exit code 2: %s", stderr)

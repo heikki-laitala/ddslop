@@ -89,13 +89,9 @@ func TestCheckDiffTextMarksChangedOccurrences(t *testing.T) {
 
 func TestCheckDiffErrors(t *testing.T) {
 	root := committedRepo(t, map[string]string{"a.rs": users})
-	if code, _, stderr := run("check", "--diff", "no-such-ref", root); code != 2 || stderr == "" {
-		t.Errorf("unknown ref: exit %d, stderr %q; want 2 with an error", code, stderr)
-	}
+	wantError(t, "", "check", "--diff", "no-such-ref", root)
 	plain := repo(t, map[string]string{"a.rs": users})
-	if code, _, stderr := run("check", "--diff", "HEAD", plain); code != 2 || !strings.Contains(stderr, "Git") {
-		t.Errorf("outside Git: exit %d, stderr %q; want 2 explaining Git is needed", code, stderr)
-	}
+	wantError(t, "Git", "check", "--diff", "HEAD", plain)
 }
 
 // A tracked file deleted but not yet committed is gone: Git still lists

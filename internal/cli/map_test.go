@@ -123,11 +123,7 @@ func TestMapDescribesLayersBreaksAndHelpers(t *testing.T) {
 func TestMapTextNamesTheSections(t *testing.T) {
 	root := repo(t, layeredService)
 	stdout, _ := runCode(t, 0, "map", "--format", "text", root)
-	for _, want := range []string{"go, packages: ", "Layers", "handlers", "bypass", "Shared helpers", "Respond"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("text output lacks %q:\n%s", want, stdout)
-		}
-	}
+	wantContains(t, stdout, "go, packages: ", "Layers", "handlers", "bypass", "Shared helpers", "Respond")
 }
 
 func TestMapLimitCapsEachSection(t *testing.T) {
@@ -287,27 +283,17 @@ func TestMapOfAnUnknownLangFails(t *testing.T) {
 }
 
 func TestMapOfACrateInGoFails(t *testing.T) {
-	code, _, stderr := run("map", "--lang", "go", "--crate", "service", repo(t, goAndRust()))
-	if code != 2 || !strings.Contains(stderr, "--crate") {
-		t.Errorf("exit %d, stderr %q; want 2: a crate is Rust's", code, stderr)
-	}
+	wantError(t, "--crate", "map", "--lang", "go", "--crate", "service", repo(t, goAndRust()))
 }
 
 func TestMapOfAnUnknownCrateFails(t *testing.T) {
-	code, _, stderr := run("map", "--crate", "nope", repo(t, workspace))
-	if code != 2 || !strings.Contains(stderr, "api, service, store") {
-		t.Errorf("exit %d, stderr %q; want 2 and the crates there are", code, stderr)
-	}
+	wantError(t, "api, service, store", "map", "--crate", "nope", repo(t, workspace))
 }
 
 func TestMapTextNamesTheScopeAndSummarisesCrates(t *testing.T) {
 	root := repo(t, workspace)
 	_, stdout, _ := run("map", "--format", "text", root)
-	for _, want := range []string{"rust, crates:", "Crates (--crate NAME for one crate's modules):", "service  2 module(s), 2 layer(s)"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("text lacks %q:\n%s", want, stdout)
-		}
-	}
+	wantContains(t, stdout, "rust, crates:", "Crates (--crate NAME for one crate's modules):", "service  2 module(s), 2 layer(s)")
 	_, stdout, _ = run("map", "--format", "text", "--crate", "service", root)
 	if !strings.Contains(stdout, "rust, crate service:") {
 		t.Errorf("text lacks the crate scope:\n%s", stdout)
@@ -411,11 +397,7 @@ func TestMapFlagsEachParallelFlowFamilyAsATypicalFeature(t *testing.T) {
 	}
 
 	_, text, _ := run("map", "--format", "text", root)
-	for _, want := range []string{"Typical features", "Service::create", "parallel-flow", "extract"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("text map lacks %q:\n%s", want, text)
-		}
-	}
+	wantContains(t, text, "Typical features", "Service::create", "parallel-flow", "extract")
 }
 
 func TestMapLimitCapsAFeaturesSteps(t *testing.T) {
@@ -498,11 +480,7 @@ func TestMapNamesTheCodebasesFormForEachErrorConcern(t *testing.T) {
 	}
 
 	_, text, _ := run("map", "--format", "text", root)
-	for _, want := range []string{"Idioms", "error-checks: errors.Is/As in 5 of 6", "message 1, e.g. store/s.go:16 F", "error-wrapping: no convention"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("text map lacks %q:\n%s", want, text)
-		}
-	}
+	wantContains(t, text, "Idioms", "error-checks: errors.Is/As in 5 of 6", "message 1, e.g. store/s.go:16 F", "error-wrapping: no convention")
 }
 
 func TestMapLimitCountsTheFormsItLeavesOut(t *testing.T) {

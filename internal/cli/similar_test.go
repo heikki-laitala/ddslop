@@ -49,9 +49,7 @@ func TestSimilarErrors(t *testing.T) {
 		"line outside a function": {"similar", filepath.Join(root, "src", "users.rs") + ":40", root},
 		"file outside the root":   {"similar", "/elsewhere/x.rs:1", root},
 	}
-	for name, args := range cases {
-		if code, _, stderr := run(args...); code != 2 || stderr == "" {
-			t.Errorf("%s: exit code %d, stderr %q; want 2 and a message", name, code, stderr)
-		}
+	for _, args := range cases {
+		wantError(t, "", args...)
 	}
 }

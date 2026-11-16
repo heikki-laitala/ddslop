@@ -2,10 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/heikki-laitala/ddslop/internal/index"
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -105,11 +108,7 @@ func TestFlowsTextAndDepth(t *testing.T) {
 
 	_, stdout, _ := run("flows", "--format", "text", "--depth", "1", root)
 
-	for _, want := range []string{"Api::create (svc/src/ledger.rs:4-8)", "  validate (svc/src/ledger.rs:17-19)", "  Store::save (svc/src/store.rs:4-4)"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("text output is missing %q:\n%s", want, stdout)
-		}
-	}
+	wantContains(t, stdout, "Api::create (svc/src/ledger.rs:4-8)", "  validate (svc/src/ledger.rs:17-19)", "  Store::save (svc/src/store.rs:4-4)")
 	if strings.Contains(stdout, "normalise") {
 		t.Errorf("--depth 1 followed calls two levels deep:\n%s", stdout)
 	}
@@ -197,21 +196,86 @@ func TestGraphInputsLeaveOutTestFieldTypes(t *testing.T) {
 	}
 }
 
-// Two modules of a Rust crate may declare structs of one name: a field
-// they type differently is unknown rather than either's.
-func TestGraphInputsLeaveFieldsOfCollidingStructsUntyped(t *testing.T) {
-	fields := func(path, typ string) index.File {
-		return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "db", Type: typ}}}}}
+// declaring is a file at path declaring the field types fields.
+func declaring(path string, fields ...unit.FieldType) index.File {
+	return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: fields}}}
+}
+
+// Server.db's types per module, as graphInputs reads them from structs of
+// one name declared more than once.
+func TestGraphInputsTypeFieldsOfStructsDeclaredMoreThanOnce(t *testing.T) {
+	db := func(typ, file string) unit.FieldType {
+		return unit.FieldType{Struct: "Server", Field: "db", Type: typ, File: file}
 	}
-	in := graphInputs(t.TempDir(), false, []index.File{
-		fields("a/src/one.rs", "Database"), fields("a/src/two.rs", "Cache"),
-		fields("b/src/one.rs", "Database"), fields("b/src/two.rs", "Database"),
-	})
-	if got, ok := in.Fields["a"]["Server.db"]; !ok || got.Type != "" {
-		t.Errorf("a's Server.db = %q (present %v), want \"\": two structs type it differently", got, ok)
+	for name, tc := range map[string]struct {
+		files []index.File
+		want  []string
+	}{
+		// Two modules of a Rust crate may declare structs of one name: a
+		// field they type differently is unknown rather than either's.
+		"two modules typing a field differently": {
+			files: []index.File{
+				declaring("a/src/one.rs", db("Database", "")), declaring("a/src/two.rs", db("Cache", "")),
+				declaring("b/src/one.rs", db("Database", "")), declaring("b/src/two.rs", db("Database", "")),
+			},
+			want: []string{`a present type="" unwrapped=""`, `b present type="Database" unwrapped=""`},
+		},
+		// Two modules' Server { db: Db } mean each module's own Db: a
+		// relative type declared in two places is unknown; a crate:: path
+		// is the same type wherever it is written.
+		"relative types of two modules": {
+			files: []index.File{
+				declaring("a/src/one.rs", db("Db", "a/src/one.rs")), declaring("a/src/two.rs", db("Db", "a/src/two.rs")),
+				declaring("b/src/one.rs", db("crate::db::Db", "b/src/one.rs")), declaring("b/src/two.rs", db("crate::db::Db", "b/src/two.rs")),
+			},
+			want: []string{`a present type="" unwrapped=""`, `b present type="crate::db::Db" unwrapped=""`},
+		},
+		// A Go package may declare a struct once per build variant
+		// (server_linux.go, server_windows.go): fields typed alike keep the
+		// type.
+		"Go build variants": {
+			files: []index.File{
+				declaring("api/server_linux.go", db("Store", "api/server_linux.go")),
+				declaring("api/server_windows.go", db("Store", "api/server_windows.go")),
+			},
+			want: []string{`api present type="Store" unwrapped=""`},
+		},
+		// A field's unwrapped type reaches the graph; structs of one name
+		// in two modules that unwrap a field differently leave it unknown.
+		"what unwrapping a field leaves": {
+			files: []index.File{
+				declaring("a/src/lib.rs", unit.FieldType{Struct: "Server", Field: "db", Type: "Option", Unwrapped: "crate::Db", File: "x/src/lib.rs"}),
+				declaring("b/src/one.rs", unit.FieldType{Struct: "Server", Field: "db", Type: "Option", Unwrapped: "crate::Db", File: "x/src/lib.rs"}),
+				declaring("b/src/one.rs", unit.FieldType{Struct: "Server", Field: "db", Type: "Option", Unwrapped: "crate::Cache", File: "x/src/lib.rs"}),
+			},
+			want: []string{`a present type="Option" unwrapped="crate::Db"`, `b present type="" unwrapped=""`},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := graphInputs(t.TempDir(), false, tc.files)
+			var got []string
+			for _, module := range slices.Sorted(maps.Keys(in.Fields)) {
+				if f, ok := in.Fields[module]["Server.db"]; ok {
+					got = append(got, fmt.Sprintf("%s present type=%q unwrapped=%q", module, f.Type, f.Unwrapped))
+				}
+			}
+			testutil.Lines(t, "Server.db", got, tc.want)
+		})
 	}
-	if got := in.Fields["b"]["Server.db"].Type; got != "Database" {
-		t.Errorf("b's Server.db = %q, want Database: both agree", got)
+}
+
+// A test's fake implementation of a trait is not one the non-test code
+// calls through; with --tests the graph holds test code, so it counts the
+// test code's implementations too.
+func TestGraphInputsListTestImplsOnlyWithTests(t *testing.T) {
+	pg := unit.Impl{File: "a/src/store.rs", Trait: "Store", Type: "PgStore"}
+	fake := unit.Impl{File: "a/src/store.rs", Trait: "Store", Type: "Fake", Test: true}
+	files := []index.File{{Path: "a/src/store.rs", Parsed: index.Parsed{Decls: unit.Decls{Impls: []unit.Impl{pg, fake}}}}}
+	if got := fmt.Sprint(graphInputs(t.TempDir(), false, files).Impls); got != fmt.Sprint([]unit.Impl{pg}) {
+		t.Errorf("Impls = %s, want PgStore's only", got)
+	}
+	if got := fmt.Sprint(graphInputs(t.TempDir(), true, files).Impls); got != fmt.Sprint([]unit.Impl{pg, fake}) {
+		t.Errorf("Impls with tests = %s, want PgStore's and the test's Fake", got)
 	}
 }
 
@@ -227,75 +291,5 @@ func TestGraphInputsListRustFilesWithoutFunctions(t *testing.T) {
 	in := graphInputs(t.TempDir(), false, []index.File{{Path: "a/src/model.rs"}, {Path: "a/src/lib.rs"}, {Path: "web/x.go"}})
 	if got := fmt.Sprint(in.RustFiles); got != "[a/src/model.rs a/src/lib.rs]" {
 		t.Errorf("RustFiles = %s, want both Rust files", got)
-	}
-}
-
-// Two modules' Server { db: Db } mean each module's own Db: a relative
-// type declared in two places is unknown; a crate:: path is the same type
-// wherever it is written.
-func TestGraphInputsLeaveRelativeFieldTypesOfCollidingStructsUntyped(t *testing.T) {
-	field := func(path, typ string) index.File {
-		return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "db", Type: typ, File: path}}}}}
-	}
-	in := graphInputs(t.TempDir(), false, []index.File{
-		field("a/src/one.rs", "Db"), field("a/src/two.rs", "Db"),
-		field("b/src/one.rs", "crate::db::Db"), field("b/src/two.rs", "crate::db::Db"),
-	})
-	if got := in.Fields["a"]["Server.db"].Type; got != "" {
-		t.Errorf("a's Server.db = %q, want unknown: each module's own Db", got)
-	}
-	if got := in.Fields["b"]["Server.db"].Type; got != "crate::db::Db" {
-		t.Errorf("b's Server.db = %q, want crate::db::Db: one type wherever written", got)
-	}
-}
-
-// A Go package may declare a struct once per build variant
-// (server_linux.go, server_windows.go): fields typed alike keep the type.
-func TestGraphInputsKeepGoFieldTypesOfBuildVariants(t *testing.T) {
-	field := func(path string) index.File {
-		return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{{Struct: "Server", Field: "db", Type: "Store", File: path}}}}}
-	}
-	in := graphInputs(t.TempDir(), false, []index.File{field("api/server_linux.go"), field("api/server_windows.go")})
-	if got := in.Fields["api"]["Server.db"].Type; got != "Store" {
-		t.Errorf("Server.db = %q, want Store: both build variants agree", got)
-	}
-}
-
-// A field's unwrapped type reaches the graph; structs of one name in two
-// modules that unwrap a field differently leave it unknown.
-func TestGraphInputsKeepWhatUnwrappingAFieldLeaves(t *testing.T) {
-	field := func(path, unwrapped string) index.File {
-		return index.File{Path: path, Parsed: index.Parsed{Decls: unit.Decls{FieldTypes: []unit.FieldType{
-			{Struct: "Server", Field: "db", Type: "Option", Unwrapped: unwrapped, File: "x/src/lib.rs"}}}}}
-	}
-	in := graphInputs(t.TempDir(), false, []index.File{field("a/src/lib.rs", "crate::Db"), field("b/src/one.rs", "crate::Db"), field("b/src/one.rs", "crate::Cache")})
-	if got := in.Fields["a"]["Server.db"].Unwrapped; got != "crate::Db" {
-		t.Errorf("a's Server.db unwraps to %q, want crate::Db", got)
-	}
-	if got := in.Fields["b"]["Server.db"]; got.Unwrapped != "" {
-		t.Errorf("b's Server.db = %+v, want unknown: two structs unwrap it differently", got)
-	}
-}
-
-// A test's fake implementation of a trait is not one the non-test code
-// calls through.
-func TestGraphInputsListNonTestImpls(t *testing.T) {
-	in := graphInputs(t.TempDir(), false, []index.File{{Path: "a/src/store.rs", Parsed: index.Parsed{Decls: unit.Decls{Impls: []unit.Impl{
-		{File: "a/src/store.rs", Trait: "Store", Type: "PgStore"},
-		{File: "a/src/store.rs", Trait: "Store", Type: "Fake", Test: true},
-	}}}}})
-	if got := fmt.Sprint(in.Impls); got != fmt.Sprint([]unit.Impl{{File: "a/src/store.rs", Trait: "Store", Type: "PgStore"}}) {
-		t.Errorf("Impls = %s, want PgStore's only", got)
-	}
-}
-
-// With --tests the graph holds test code, so it counts the test code's
-// implementations too.
-func TestGraphInputsWithTestsListTestImpls(t *testing.T) {
-	in := graphInputs(t.TempDir(), true, []index.File{{Path: "a/src/store.rs", Parsed: index.Parsed{Decls: unit.Decls{Impls: []unit.Impl{
-		{File: "a/src/store.rs", Trait: "Store", Type: "Fake", Test: true},
-	}}}}})
-	if len(in.Impls) != 1 {
-		t.Errorf("Impls = %v, want the test's Fake", in.Impls)
 	}
 }

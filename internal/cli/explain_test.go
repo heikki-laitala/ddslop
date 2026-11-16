@@ -14,7 +14,7 @@ func TestExplainShowsACandidatesCodeWithItsDifferencesMarked(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr: %s", code, stderr)
 	}
-	for _, want := range []string{
+	wantContains(t, text,
 		"c1 renamed-clone: 2 copies of 9 lines",
 		"extract-common with 1 parameter(s)",
 		"a.rs:1-9 load_user",
@@ -23,11 +23,7 @@ func TestExplainShowsACandidatesCodeWithItsDifferencesMarked(t *testing.T) {
 		// line 3 is the same in both copies: not marked
 		"     3 |     let name: String = row.get(0);",
 		"b.rs:1-9 load_order",
-	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("explain output is missing %q:\n%s", want, text)
-		}
-	}
+	)
 
 	// The fingerprint names the same candidate, independently of its ID.
 	_, stdout, _ := run("check", "--format", "json", "--min-nodes", "20", root)
@@ -67,13 +63,11 @@ func TestExplainShowsTheFirstThreeOccurrencesUnlessAll(t *testing.T) {
 
 func TestExplainErrors(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users, "b.rs": orders})
-	for name, args := range map[string][]string{
+	for _, args := range map[string][]string{
 		"no id":        {"explain", root},
 		"unknown id":   {"explain", "--min-nodes", "20", "c9", root},
 		"unknown kind": {"explain", "--format", "sarif", "c1", root},
 	} {
-		if code, _, stderr := run(args...); code != 2 || stderr == "" {
-			t.Errorf("%s: exit code %d, stderr %q; want 2 and a message", name, code, stderr)
-		}
+		wantError(t, "", args...)
 	}
 }

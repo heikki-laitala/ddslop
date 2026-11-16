@@ -21,7 +21,5 @@ func TestFailOverGatesOnTheDuplicationPercentage(t *testing.T) {
 	if !strings.Contains(text, "Duplication 50.0% is over the 40.0% limit") {
 		t.Errorf("text output does not say why it failed:\n%s", text)
 	}
-	if code, _, stderr := run("check", "--fail-over", "-1", root); code != 2 || !strings.Contains(stderr, "--fail-over") {
-		t.Errorf("negative --fail-over: exit code %d, stderr %q; want 2", code, stderr)
-	}
+	wantError(t, "--fail-over", "check", "--fail-over", "-1", root)
 }

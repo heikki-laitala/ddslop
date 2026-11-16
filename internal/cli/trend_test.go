@@ -27,9 +27,5 @@ func TestStatsShowsTheHealthTrendOfCheckRuns(t *testing.T) {
 	if got := strings.Count(out, "% duplicated"); got != 2 {
 		t.Errorf("history has %d entries, want 2 (the repeated run adds none):\n%s", got, out)
 	}
-	for _, want := range []string{"50.0% duplicated (9 of 18 lines)", "0.0% duplicated (0 of 12 lines)", "change: 50.0% -> 0.0% (-50.0 points)"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("stats output is missing %q:\n%s", want, out)
-		}
-	}
+	wantContains(t, out, "50.0% duplicated (9 of 18 lines)", "0.0% duplicated (0 of 12 lines)", "change: 50.0% -> 0.0% (-50.0 points)")
 }

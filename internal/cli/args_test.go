@@ -26,14 +26,10 @@ func TestDoubleDashEndsFlags(t *testing.T) {
 		t.Errorf("check --flags -- PATH: exit code %d, stderr %q; want 1", code, stderr)
 	}
 	// After --, a flag-like argument is a path.
-	if code, _, stderr := run("check", "--", "--format"); code != 2 || !strings.Contains(stderr, "--format") {
-		t.Errorf("check -- --format: exit code %d, stderr %q; want 2 naming the missing path --format", code, stderr)
-	}
+	wantError(t, "--format", "check", "--", "--format")
 }
 
 func TestMoreThanOnePathIsStillAnError(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users})
-	if code, _, stderr := run("check", root, "--format", "json", root); code != 2 || !strings.Contains(stderr, "at most one path") {
-		t.Errorf("two paths: exit code %d, stderr %q; want 2 and the one-path error", code, stderr)
-	}
+	wantError(t, "at most one path", "check", root, "--format", "json", root)
 }

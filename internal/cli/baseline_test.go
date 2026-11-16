@@ -48,7 +48,5 @@ func TestBaselineOutputFlagAndErrors(t *testing.T) {
 	if _, err := os.Stat(out); err != nil {
 		t.Errorf("--output file not written: %v", err)
 	}
-	if code, _, stderr := run("check", "--baseline", filepath.Join(root, "missing.json"), root); code != 2 || stderr == "" {
-		t.Errorf("missing baseline: exit %d, stderr %q; want 2 with an error", code, stderr)
-	}
+	wantError(t, "", "check", "--baseline", filepath.Join(root, "missing.json"), root)
 }

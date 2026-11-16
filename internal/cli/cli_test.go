@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 // Two functions with the same structure: names, a literal and a called
@@ -43,15 +45,7 @@ const unrelated = `pub fn add(a: u32, b: u32) -> u32 {
 func repo(t *testing.T, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
-	for name, content := range files {
-		p := filepath.Join(root, name)
-		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	testutil.WriteFiles(t, root, files)
 	return root
 }
 
@@ -59,6 +53,26 @@ func run(args ...string) (code int, stdout, stderr string) {
 	var out, errOut bytes.Buffer
 	code = Run(args, &out, &errOut)
 	return code, out.String(), errOut.String()
+}
+
+// wantError runs ddslop with args and fails the test unless it exits 2
+// with an error on stderr that mentions mention.
+func wantError(t *testing.T, mention string, args ...string) {
+	t.Helper()
+	stderr := ""
+	if _, stderr = runCode(t, 2, args...); stderr == "" || !strings.Contains(stderr, mention) {
+		t.Errorf("ddslop %s: stderr %q, want an error mentioning %q", strings.Join(args, " "), stderr, mention)
+	}
+}
+
+// wantContains fails the test for each of wants output lacks.
+func wantContains(t *testing.T, output string, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(output, want) {
+			t.Errorf("output lacks %q:\n%s", want, output)
+		}
+	}
 }
 
 // runCode runs ddslop with args and stops the test unless it exits with
@@ -226,17 +240,13 @@ func TestCheckTextFormat(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users, "b.rs": orders})
 
 	stdout, _ := runCode(t, 1, "check", "--format", "text", "--min-nodes", "20", root)
-	for _, want := range []string{
+	wantContains(t, stdout,
 		"c1 renamed-clone",
 		"a.rs:1-9 load_user",
 		"b.rs:1-9 load_order",
 		"extract-common",
 		`"SELECT * FROM users WHERE id = $1" | "SELECT * FROM orders WHERE id = $1"`,
-	} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("text output is missing %q:\n%s", want, stdout)
-		}
-	}
+	)
 }
 
 func TestCheckDefaultsToCurrentDirectoryAndCommand(t *testing.T) {
@@ -438,9 +448,7 @@ func TestCheckMinSimilarity(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"0", "1.5", "-0.2"} {
-		if code, _, stderr := run("check", "--min-similarity", bad, root); code != 2 || stderr == "" {
-			t.Errorf("--min-similarity %s: exit %d, stderr %q; want 2 with an error", bad, code, stderr)
-		}
+		wantError(t, "", "check", "--min-similarity", bad, root)
 	}
 }
 
@@ -449,11 +457,7 @@ func TestCheckTextFormatShowsNearMiss(t *testing.T) {
 
 	_, stdout, _ := run("check", "--format", "text", "--min-nodes", "20", "--min-near-nodes", "20", root)
 
-	for _, want := range []string{"c1 near-miss", "% similar", "b.rs:1-10 load_logged (unmatched: 3)"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("text output is missing %q:\n%s", want, stdout)
-		}
-	}
+	wantContains(t, stdout, "c1 near-miss", "% similar", "b.rs:1-10 load_logged (unmatched: 3)")
 }
 
 // usersChecked is users with an extra check on line 5.
@@ -560,11 +564,7 @@ func TestCheckTextFormatShowsBlockClone(t *testing.T) {
 
 	_, stdout, _ := run("check", "--format", "text", "--min-nodes", "20", "--min-block-nodes", "20", root)
 
-	for _, want := range []string{"c1 block-clone: 2 copies of 6 lines", "a.rs:6-11 sync_users", "b.rs:5-10 sync_orders"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("text output is missing %q:\n%s", want, stdout)
-		}
-	}
+	wantContains(t, stdout, "c1 block-clone: 2 copies of 6 lines", "a.rs:6-11 sync_users", "b.rs:5-10 sync_orders")
 }
 
 func TestCheckBlockClonesNeedMoreNodesByDefault(t *testing.T) {

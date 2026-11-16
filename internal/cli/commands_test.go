@@ -50,9 +50,7 @@ func TestIndexBuildsAndRefreshesTheIndex(t *testing.T) {
 }
 
 func TestIndexErrors(t *testing.T) {
-	if code, _, stderr := run("index", "/nonexistent/ddslop-test"); code != 2 || stderr == "" {
-		t.Errorf("index on a missing path: exit %d, stderr %q; want 2 with an error", code, stderr)
-	}
+	wantError(t, "", "index", "/nonexistent/ddslop-test")
 	if code, _, _ := run("index", "-h"); code != 0 {
 		t.Errorf("index -h: exit %d, want 0", code)
 	}
@@ -62,11 +60,7 @@ func TestInitInstallsForClaudeByDefaultAndIndexes(t *testing.T) {
 	root := repo(t, map[string]string{"a.rs": users})
 
 	stdout, _ := runCode(t, 0, "init", root)
-	for _, want := range []string{"claude skill", "CLAUDE.md", ".gitignore", "indexed 1 files"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("init output is missing %q:\n%s", want, stdout)
-		}
-	}
+	wantContains(t, stdout, "claude skill", "CLAUDE.md", ".gitignore", "indexed 1 files")
 	if _, err := os.Stat(filepath.Join(root, ".codex")); err == nil {
 		t.Error("init without flags installed Codex too")
 	}
@@ -80,17 +74,13 @@ func TestInitSelectedAgentsStatusAndUninstall(t *testing.T) {
 	}
 
 	_, stdout, _ := run("status", root)
-	for _, want := range []string{
+	wantContains(t, stdout,
 		".gitignore: .ddslop/ present",
 		"index: present",
 		"claude: not installed",
 		"codex: skill, instructions",
 		"copilot: skill, instructions",
-	} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("status output is missing %q:\n%s", want, stdout)
-		}
-	}
+	)
 
 	if code, _, stderr := run("uninstall", root); code != 0 {
 		t.Fatalf("uninstall: exit %d, stderr %s", code, stderr)
@@ -115,18 +105,12 @@ func TestStatsDescribesTheIndexWithoutSyncing(t *testing.T) {
 		"tests.rs": orders,
 	})
 
-	if code, _, stderr := run("stats", root); code != 2 || !strings.Contains(stderr, "ddslop index") {
-		t.Errorf("stats before indexing: exit %d, stderr %q; want 2 suggesting ddslop index", code, stderr)
-	}
+	wantError(t, "ddslop index", "stats", root)
 
 	run("index", root)
 	if err := os.WriteFile(filepath.Join(root, "new.rs"), []byte(orders), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	stdout, _ := runCode(t, 0, "stats", root)
-	for _, want := range []string{"files: 3 (1 generated)", "functions: 2 (1 test)", indexPath} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("stats output is missing %q (new.rs must not be indexed by stats):\n%s", want, stdout)
-		}
-	}
+	wantContains(t, stdout, "files: 3 (1 generated)", "functions: 2 (1 test)", indexPath)
 }

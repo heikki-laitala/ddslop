@@ -33,10 +33,7 @@ func asVersion(t *testing.T, v string) {
 
 func TestUpgradeRefusesDevelopmentBuildsWithoutForce(t *testing.T) {
 	asVersion(t, "v1.0.0-4-geb25f25-dirty")
-	code, _, stderr := run("upgrade")
-	if code != 2 || !strings.Contains(stderr, "--force") {
-		t.Errorf("exit code %d, stderr %q; want 2 and a hint about --force", code, stderr)
-	}
+	wantError(t, "--force", "upgrade")
 }
 
 func TestUpgradeCheckReportsANewerRelease(t *testing.T) {
