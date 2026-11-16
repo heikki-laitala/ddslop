@@ -1823,8 +1823,10 @@ it started from, measured in the ref's checkout as its candidates are:
 a share crossing 90% would otherwise make a drift of every old
 occurrence of the other form, all new to a baseline that had no
 convention, and fail a change that touched none of them, while one
-falling below would hide the change's own drifts. A concern the ref has
-no occurrence of is judged by the change's own convention; a baseline
+falling below would hide the change's own drifts. A change may leave no
+occurrence of the ref's conventional form at all, rewriting every one;
+its drifts are reported with no `target`. A concern the ref has no
+occurrence of is judged by the change's own convention; a baseline
 file records no conventions.
 
 Measured on the four codebases: one candidate, on the Rust workspace,
