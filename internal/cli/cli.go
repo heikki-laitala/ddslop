@@ -907,16 +907,15 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		if moduleItems[m] == nil {
 			moduleItems[m] = map[string]bool{}
 		}
-		for _, n := range definedNames(f) {
+		for _, n := range f.TopNames {
 			moduleItems[m][n] = true
 		}
-		for n, path := range f.TopImports {
-			// Only a crate:: path reads the same from every module.
-			if !strings.HasPrefix(n, "*") && strings.HasPrefix(path, "crate::") {
+		for n, path := range f.TopReexports {
+			if target, ok := codemap.ReexportPath(f.Path, crates, path); ok {
 				if moduleReexports[m] == nil {
 					moduleReexports[m] = map[string]string{}
 				}
-				moduleReexports[m][strings.TrimPrefix(n, "r#")] = path
+				moduleReexports[m][strings.TrimPrefix(n, "r#")] = target
 			}
 		}
 	}
@@ -934,7 +933,7 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		for _, k := range f.Decls.Consts {
 			rootValues[strings.TrimPrefix(k.Name, "r#")] = true
 		}
-		for _, n := range definedNames(f) {
+		for _, n := range f.TopNames {
 			rootItems[n] = true
 		}
 		// a name the root imports (pub use values::foo) beside its mod foo
@@ -979,24 +978,6 @@ func dependencies(files []index.File, crates *codemap.Packages, name string, gen
 		}
 	}
 	return deps
-}
-
-// definedNames lists the items a Rust file defines at its top level:
-// functions, constants, types and traits.
-func definedNames(f index.File) []string {
-	var out []string
-	for _, u := range f.Units {
-		if u.Module == "" && !strings.Contains(u.Name, "::") {
-			out = append(out, strings.TrimPrefix(u.Name, "r#"))
-		}
-	}
-	for _, k := range f.Decls.Consts {
-		out = append(out, strings.TrimPrefix(k.Name, "r#"))
-	}
-	for _, n := range append(slices.Clone(f.Decls.TypeNames), f.Traits...) {
-		out = append(out, strings.TrimPrefix(n, "r#"))
-	}
-	return out
 }
 
 // libraryCrates returns the crates whose package has a library target
@@ -1389,7 +1370,7 @@ func loadFiles(root string, db *index.DB) ([]index.File, error) {
 		if !test {
 			continue
 		}
-		files[i].Imports, files[i].TopImports = nil, nil
+		files[i].Imports, files[i].TopImports, files[i].TopReexports = nil, nil, nil
 		markTest(&files[i])
 	}
 	return files, nil
@@ -1520,7 +1501,8 @@ func languageOf(path string) string {
 func parseRust(file syntax.Source) (index.Parsed, error) {
 	units, decls, err := rust.ParseAs(file)
 	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(file.Src),
-		Modules: rust.DeclaredModules(file.Src), InlineModules: rust.InlineModules(file.Src), References: rust.ReferencesAs(file)}
+		Modules: rust.DeclaredModules(file.Src), InlineModules: rust.InlineModules(file.Src), References: rust.ReferencesAs(file),
+		TopNames: rust.TopNames(file.Src), TopReexports: rust.TopReexports(file.Src)}
 	for _, t := range decls.Traits {
 		parsed.Traits = append(parsed.Traits, t.Name)
 	}

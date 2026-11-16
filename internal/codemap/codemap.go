@@ -360,6 +360,25 @@ func importedModule(crate, path string, facts CrateFacts, seen map[string]bool) 
 	return ""
 }
 
+// ReexportPath returns the crate:: path a re-export written in file names,
+// read from the file's module (super::foo::X in facade.rs is crate::foo::X),
+// or false for a path that does not start in the crate.
+func ReexportPath(file string, crates *Packages, path string) (string, bool) {
+	name, rel := CratePath(file, crates)
+	first, _, _ := strings.Cut(path, "::")
+	if name == "" || (first != "crate" && first != "self" && first != "super") {
+		return "", false
+	}
+	resolved, ok := flow.ResolvePath(path, strings.Join(fileModules(rel), "::"))
+	if !ok {
+		return "", false
+	}
+	if resolved == "" {
+		return "crate", true
+	}
+	return "crate::" + resolved, true
+}
+
 // fileModules returns the module path of a file under src/: store/client
 // for store/client.rs, store for store/mod.rs, none for lib.rs.
 func fileModules(rel string) []string {

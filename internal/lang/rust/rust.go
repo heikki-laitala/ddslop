@@ -1891,7 +1891,31 @@ func InlineModules(src []byte) []string {
 // inline ones or out-of-line ones, what entry makes of each one's name and
 // attributes, "" leaving it out.
 func topModules(src []byte, inline bool, entry func(name string, attrs []string) string) []string {
+	return topItems(src, func(item *sitter.Node, _ []string) bool {
+		return item.Kind() == "mod_item" && (item.ChildByFieldName("body") != nil) == inline
+	}, entry)
+}
+
+// topItems returns, for each item at the top of a file that keep accepts,
+// what entry makes of its name and attributes, "" leaving it out.
+func topItems(src []byte, keep func(item *sitter.Node, attrs []string) bool, entry func(name string, attrs []string) string) []string {
 	var names []string
+	topLevel(src, func(item *sitter.Node, attrs []string) {
+		if !keep(item, attrs) {
+			return
+		}
+		if name := item.ChildByFieldName("name"); name != nil {
+			if e := entry(name.Utf8Text(src), attrs); e != "" {
+				names = append(names, e)
+			}
+		}
+	})
+	return names
+}
+
+// topLevel parses src and calls visit with each item at the top of the
+// file and the attributes written above it.
+func topLevel(src []byte, visit func(item *sitter.Node, attrs []string)) {
 	_ = syntax.Parse(language, src, func(root *sitter.Node) {
 		var attrs []string
 		for i := uint(0); i < root.ChildCount(); i++ {
@@ -1902,17 +1926,54 @@ func topModules(src []byte, inline bool, entry func(name string, attrs []string)
 				continue
 			case child.IsExtra():
 				continue
-			case child.Kind() == "mod_item" && (child.ChildByFieldName("body") != nil) == inline:
-				if name := child.ChildByFieldName("name"); name != nil {
-					if e := entry(name.Utf8Text(src), attrs); e != "" {
-						names = append(names, e)
-					}
-				}
 			}
+			visit(child, attrs)
 			attrs = nil
 		}
 	})
-	return names
+}
+
+// topItemKinds are the items whose name a file's own scope declares.
+var topItemKinds = map[string]bool{
+	"function_item": true, "struct_item": true, "enum_item": true, "union_item": true, "type_item": true,
+	"trait_item": true, "const_item": true, "static_item": true, "macro_definition": true,
+}
+
+// TopNames returns the names a file declares in its own scope: its
+// top-level functions, types, traits, constants, statics and macros, not
+// those of an inline module, nor test code's.
+func TopNames(src []byte) []string {
+	return topItems(src, func(item *sitter.Node, attrs []string) bool {
+		return topItemKinds[item.Kind()] && !slices.ContainsFunc(attrs, isCfgTest)
+	}, func(name string, _ []string) string { return strings.TrimPrefix(name, "r#") })
+}
+
+// TopReexports returns the names a file's top-level use declarations with
+// a visibility (pub, pub(crate)) bring in, each with its path: what a glob
+// of the file's module supplies besides its items. Globs and test code's
+// uses are left out.
+func TopReexports(src []byte) map[string]string {
+	out := map[string]string{}
+	topLevel(src, func(item *sitter.Node, attrs []string) {
+		if item.Kind() != "use_declaration" || slices.ContainsFunc(attrs, isCfgTest) || !visible(item) {
+			return
+		}
+		if arg := item.ChildByFieldName("argument"); arg != nil {
+			collectUse(arg, "", src, out)
+		}
+	})
+	maps.DeleteFunc(out, func(name, _ string) bool { return strings.HasPrefix(name, "*") })
+	return out
+}
+
+// visible reports whether a declaration carries a visibility modifier.
+func visible(n *sitter.Node) bool {
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		if n.NamedChild(i).Kind() == "visibility_modifier" {
+			return true
+		}
+	}
+	return false
 }
 
 // Unpublished reports whether a crate is kept out of registries, so its

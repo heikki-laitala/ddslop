@@ -515,3 +515,41 @@ func TestRootImportsAreTheRootsOwn(t *testing.T) {
 			"src/macros.rs", "macro_rules! one_ { () => { 1 } }\npub(crate) use one_ as one;\n")))
 	})
 }
+
+// What a glob of a module supplies is that module's own scope: its
+// top-level items and the uses it makes visible, not an inline module's
+// items nor a private use, and a relative re-export is read from the
+// module that writes it.
+func TestAGlobSuppliesItsModulesOwnScope(t *testing.T) {
+	crate := func(files ...string) map[string]string {
+		out := map[string]string{"Cargo.toml": "[package]\nname = \"app\"\n"}
+		for i := 0; i+1 < len(files); i += 2 {
+			out[files[i]] = files[i+1]
+		}
+		return out
+	}
+	foo := "pub struct X;\npub fn g() -> u8 { crate::child::f() }\n"
+	child := "pub fn f() -> u8 { let _x: Option<crate::X> = None; 1 }\n"
+	t.Run("not an inline module's item", func(t *testing.T) {
+		wantCycleBetween(t, "child -> foo, foo -> child", repo(t, crate(
+			"src/lib.rs", "mod child;\nmod facade;\nmod foo;\npub use facade::*;\npub use foo::*;\n",
+			"src/child.rs", child,
+			"src/facade.rs", "mod nested {\n    pub struct X;\n}\n",
+			"src/foo.rs", foo)))
+	})
+	t.Run("not a private use", func(t *testing.T) {
+		wantCycleBetween(t, "child -> foo, foo -> child", repo(t, crate(
+			"src/lib.rs", "mod child;\nmod facade;\nmod foo;\nmod other;\npub use facade::*;\npub use other::*;\n",
+			"src/child.rs", child,
+			"src/facade.rs", "use crate::other::X;\npub fn h(_: X) {}\n",
+			"src/other.rs", "pub use crate::foo::X;\n",
+			"src/foo.rs", foo)))
+	})
+	t.Run("a relative re-export from the module writing it", func(t *testing.T) {
+		wantCycleBetween(t, "child -> foo, foo -> child", repo(t, crate(
+			"src/lib.rs", "mod child;\nmod facade;\nmod foo;\npub use facade::*;\n",
+			"src/child.rs", child,
+			"src/facade.rs", "pub use super::foo::X;\n",
+			"src/foo.rs", foo)))
+	})
+}
