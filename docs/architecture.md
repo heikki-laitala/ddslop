@@ -291,8 +291,12 @@ fingerprints predate other languages; Go with `go:`, TypeScript with
 `ts:`), so alike-named kinds (identifier, block) never make a Go function
 a near miss of a Rust one. Files are indexed by extension (`.rs`, `.go`,
 `.ts`, `.tsx`, `.mts`, `.cts`), and each candidate's
-`language` is its first file's. The Go adapter (`internal/lang/golang`)
-extracts functions and methods (named `Type.Method`, the receiver
+`language` is its first file's. The detectors grouping declarations or
+functions by a key (types, constants, inlined constants, string kinds,
+parameter groups, scopes) run on each language on its own, so a Go and
+a TypeScript constant of one name and value are no copies. The Go
+adapter (`internal/lang/golang`) extracts functions and methods
+(named `Type.Method`, the receiver
 without pointer or type arguments); function literals stay part of their
 function; `_test.go` files and `testdata/` directories are test code; the
 generated-file header rule (`// Code generated ... DO NOT EDIT.`) is

@@ -249,3 +249,55 @@ export function canCancel(state: string): boolean {
 		"typescript string-kinds [src/state.ts label, src/state.ts icon, src/state.ts canCancel]",
 	})
 }
+
+// Each language is analysed on its own: a Go and a TypeScript constant of
+// one name and value, or switches on one set of strings, are no copies of
+// each other, as neither language can reuse the other's.
+func TestCheckKeepsLanguagesApart(t *testing.T) {
+	goState := `package state
+
+const Version = "1.4.2"
+
+func Label(s string) string {
+	switch s {
+	case "queued":
+		return "Waiting"
+	case "running":
+		return "Busy"
+	case "done":
+		return "Finished"
+	}
+	return ""
+}
+
+func Icon(s string) string {
+	switch s {
+	case "queued":
+		return "clock"
+	case "running":
+		return "spinner"
+	case "done":
+		return "check"
+	}
+	return ""
+}
+`
+	tsState := `export const Version = "1.4.2";
+
+export function canCancel(state: string): boolean {
+  switch (state) {
+    case "queued":
+    case "running":
+      return true;
+    case "done":
+      return false;
+  }
+  return false;
+}
+`
+	root := repo(t, map[string]string{"state/state.go": goState, "web/state.ts": tsState})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "candidates", candidateLines(decode(t, stdout), "duplicate-constant", "string-kinds", "inlined-constant"), nil)
+}

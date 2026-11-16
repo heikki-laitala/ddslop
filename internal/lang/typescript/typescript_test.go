@@ -174,7 +174,7 @@ let mutable = "not a constant";
 export const load = () => 1;
 export const TIMEOUT_MS = 5 * 60 * 1000, root = createRoot(el), DOUBLE = MAX_MODELS * 2;
 const SHORTHAND = { foo }, ENV = import.meta.env.X;
-const cache: Record<string, string> = {}, items: string[] = [], HANDLERS = { a: () => 1 }, CAST = {} as Cache, SEEN = ([] satisfies string[]);
+const cache: Record<string, string> = {}, items: string[] = [], HANDLERS = { a: () => 1 }, CAST = {} as Cache, SEEN = ([] satisfies string[]), UPPER = "x".toUpperCase(), WORKER = import("./worker"), MADE = new (class {})();
 
 export interface Budget {
   id: string;
@@ -218,9 +218,10 @@ function f() {
 	// Interfaces and object types are structs of their properties, an
 	// optional one typed as possibly undefined; enums and unions of string
 	// literals are enums; module-level constants are constants when their
-	// value is made of literals only: a call's result or another
-	// constant's value is computed at run time, an empty object or array
-	// is state to fill, and a function is code.
+	// value is made of literals only: a call's result (even
+	// "x".toUpperCase()) or another constant's value is computed at run
+	// time, an empty object or array is state to fill, and a function is
+	// code.
 	want := strings.Join([]string{
 		"const MAX_MODELS = 64 line=1 literal=false",
 		`const CODE_UNAVAILABLE = "ledger_unavailable" line=2 literal=true`,

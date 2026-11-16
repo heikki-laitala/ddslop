@@ -265,12 +265,13 @@ func isConstant(value *sitter.Node) bool {
 }
 
 // literalsOnly reports whether a value is made of literals and operators
-// only (5 * 60 * 1000, { retries: 3 } as const): one naming anything,
-// such as a call or another constant, is computed at run time, and a
-// function is code.
+// only (5 * 60 * 1000, { retries: 3 } as const): a value that names
+// anything, such as another constant, or calls anything is computed at
+// run time, and a function is code.
 func literalsOnly(n *sitter.Node) bool {
 	switch n.Kind() {
-	case "identifier", "shorthand_property_identifier", "this", "super", "meta_property", "template_substitution":
+	case "identifier", "shorthand_property_identifier", "this", "super", "meta_property", "template_substitution",
+		"call_expression", "new_expression":
 		return false
 	}
 	if functionKinds[n.Kind()] {

@@ -23,6 +23,7 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/codemap"
 	"github.com/heikki-laitala/ddslop/internal/config"
 	"github.com/heikki-laitala/ddslop/internal/flow"
+	"github.com/heikki-laitala/ddslop/internal/group"
 	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/lang/golang"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
@@ -724,20 +725,46 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 	found, conventions := drifts(units, packages(root, files), judged)
 	r := report.Build(languageOf, report.Findings{
 		Groups: append(groups, helperGroups...), NearMisses: nearMisses, Blocks: blocks, Flows: flows,
-		Structs:  clone.Structs(structs, minStructFields),
-		Enums:    clone.Enums(enums),
-		Consts:   clone.Constants(consts),
-		Inlined:  clone.InlinedConstants(consts, units, flow.CrateOf),
+		Structs: byLanguage(structs, func(_ string, s []unit.Struct) []clone.StructGroup { return clone.Structs(s, minStructFields) }),
+		Enums:   byLanguage(enums, func(_ string, e []unit.Enum) []clone.EnumGroup { return clone.Enums(e) }),
+		Consts:  byLanguage(consts, func(_ string, c []unit.Const) []clone.ConstGroup { return clone.Constants(c) }),
+		Inlined: byLanguage(consts, func(lang string, c []unit.Const) []clone.InlinedConst {
+			return clone.InlinedConstants(c, inLanguage(lang, units), flow.CrateOf)
+		}),
 		Dead:     simplify.Dead(units, wordCounts(files), internal),
 		Wrappers: simplify.PassThrough(g),
 		Traits:   simplify.SingleImpl(decls, internal),
-		Scopes:   pattern.Scopes(units),
-		Kinds:    pattern.StringKinds(units),
-		Params:   pattern.ParameterGroups(units, decls.FuncTypes),
-		Drifts:   found,
-		Cycles:   dependencyCycles(cycleGraph(g, root, files, units, opts.tests), files, packages(root, files), opts.tests),
+		Scopes:   byLanguage(units, func(_ string, u []unit.Unit) []pattern.ScopeGroup { return pattern.Scopes(u) }),
+		Kinds:    byLanguage(units, func(_ string, u []unit.Unit) []pattern.StringKind { return pattern.StringKinds(u) }),
+		Params: byLanguage(units, func(_ string, u []unit.Unit) []pattern.ParamGroup {
+			return pattern.ParameterGroups(u, decls.FuncTypes)
+		}),
+		Drifts: found,
+		Cycles: dependencyCycles(cycleGraph(g, root, files, units, opts.tests), files, packages(root, files), opts.tests),
 	}, summary)
 	return r, conventions, recordHealth(db, root, r.Summary.Health)
+}
+
+// languages are the languages check analyses, each on its own.
+var languages = []string{"go", "rust", "typescript"}
+
+// byLanguage runs detect on each language's items on its own, so no
+// candidate puts together declarations or functions of two languages,
+// which neither could share.
+func byLanguage[T group.Located, G any](items []T, detect func(lang string, items []T) []G) []G {
+	var out []G
+	for _, lang := range languages {
+		out = append(out, detect(lang, inLanguage(lang, items))...)
+	}
+	return out
+}
+
+// inLanguage keeps the items whose file is in lang.
+func inLanguage[T group.Located](lang string, items []T) []T {
+	return slices.DeleteFunc(slices.Clone(items), func(x T) bool {
+		file, _ := x.At()
+		return languageOf(file) != lang
+	})
 }
 
 // drifts finds the convention drifts in the units check analyses (no
@@ -753,7 +780,7 @@ func drifts(units []unit.Unit, crates *codemap.Packages, judged map[string]map[s
 	g := &flow.Graph{Units: units}
 	var out []report.Drift
 	measured := map[string]map[string]codemap.Convention{}
-	for _, lang := range []string{"go", "rust"} {
+	for _, lang := range languages {
 		for _, test := range []bool{false, true} {
 			key := side(lang, test)
 			in := codemap.Grouping(func(u unit.Unit) string {
