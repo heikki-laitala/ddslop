@@ -219,7 +219,7 @@ func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
 		return path, path != ""
 	})
 	tsPackages := tsPackageNames(root, files)
-	in := flow.Inputs{Imports: map[string]map[string]string{}, TopImports: map[string]map[string]string{}, Crates: map[string]string{},
+	in := flow.Inputs{Imports: map[string]map[string]string{}, TopImports: map[string]map[string]string{}, InlineModules: map[string][]string{}, Crates: map[string]string{},
 		Fields: map[string]map[string]flow.FieldType{}, Modules: modules, TSPackages: tsPackages, TSInterfaces: map[string][]string{},
 		Libraries: packages(root, files).Libraries}
 	// an interface a class matches by shape may run that class too, so no
@@ -240,6 +240,9 @@ func graphInputs(root string, tests bool, files []index.File) flow.Inputs {
 		}
 		if len(f.TopImports) > 0 {
 			in.TopImports[f.Path] = f.TopImports
+		}
+		if len(f.InlineModules) > 0 {
+			in.InlineModules[f.Path] = f.InlineModules
 		}
 		for _, im := range f.Decls.Impls {
 			if tests || !im.Test {

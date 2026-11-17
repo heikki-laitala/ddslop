@@ -84,6 +84,9 @@ type Inputs struct {
 	// TopImports maps a Rust file to the imports of its own scope (see
 	// rust.Imports): what a path through its module reaches.
 	TopImports map[string]map[string]string
+	// InlineModules maps a Rust file to the modules it declares inline
+	// at its top level (mod facade { ... }).
+	InlineModules map[string][]string
 	// Crates maps a crate directory to the name code uses for the crate.
 	// A directory missing here is named after itself, dashes as
 	// underscores.
@@ -178,6 +181,9 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 	for _, file := range in.RustFiles {
 		if m, ok := in.Libraries.ModuleOf(file); ok {
 			indexOf(file).addModules(m, in.Libraries.CrateOf(file))
+			for _, inline := range in.InlineModules[file] {
+				indexOf(file).addModules(joinModule(m, inline), in.Libraries.CrateOf(file))
+			}
 		}
 	}
 	// Sorted, so that a crate root's names are lib.rs's before main.rs's.
@@ -822,11 +828,12 @@ func (ix index) fromOtherCrate(crate, module, path string) bool {
 // tls::provider, or an item alias: pub use lns_tls::seal as s; pub use s
 // as check) is read through that import, and through the import of its
 // root in turn, so the path's root is a crate's name, crate, self, super
-// or a child module's name. The crate root a call in lib.rs or main.rs
-// names is its own file's: each roots its own crate.
+// or a child module's name. The crate root a call in a root file names
+// (lib.rs, main.rs, a target's a manifest places) is its own file's:
+// each roots its own crate.
 func (ix index) moduleImport(from, crate, module, name string) (string, bool) {
 	imported := ix.modImports[crate+"#"+module]
-	if m, ok := ix.libraries.ModuleOf(from); ok && m == "" && module == "" {
+	if m, ok := ix.libraries.ModuleOf(from); module == "" && (ok && m == "" || ix.libraries.Targets[from] == from) {
 		imported = ix.topImports[from]
 	}
 	path, ok := imported[name]
