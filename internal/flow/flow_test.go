@@ -869,16 +869,19 @@ func TestRustModulePathFallbackSkipsTheCallersOwnFunction(t *testing.T) {
 // lns_ledger::provider), every time; a path from the global root
 // (::lns_tls::provider) or through an alias leaves the crate as well.
 // Only the module's own scope's imports count, not a function's, and a
-// path's root the module imports (use lns_tls as t; pub use t::verify)
-// is read through that import.
+// path's root the module imports (use lns_tls as t; use t as u; pub use
+// u::verify) is read through those imports, and a module the path names
+// (lns_tls::api::sign) picks that module's function.
 func TestRustModulePathFollowsTheModulesImport(t *testing.T) {
 	units := []unit.Unit{
 		fn("tls/src/lib.rs", "provider"),
 		fn("tls/src/lib.rs", "store"),
 		fn("tls/src/lib.rs", "verify"),
+		fn("tls/src/api.rs", "sign"),
+		fn("tls/src/other.rs", "sign"),
 		fn("ledger/src/history.rs", "connect", path("crate", "provider"), path("crate::tls", "provider"),
 			path("crate::tls", "keep"), path("crate::rand", "random"), path("crate::inner", "keep"),
-			path("crate::alias", "verify"), path("crate::alias", "audit")),
+			path("crate::alias", "verify"), path("crate::alias", "audit"), path("crate::alias", "sign")),
 		fn("ledger/src/management_api.rs", "provider"),
 		fn("ledger/src/management_api.rs", "keep"),
 		fn("ledger/src/management_api.rs", "random"),
@@ -890,19 +893,20 @@ func TestRustModulePathFollowsTheModulesImport(t *testing.T) {
 		"ledger/src/tls.rs":   {"provider": "lns_tls::provider", "keep": "lns_tls::store"},
 		"ledger/src/rand.rs":  {"random": "rand::random"},
 		"ledger/src/inner.rs": {"keep": "crate::management_api::keep"},
-		"ledger/src/alias.rs": {"t": "lns_tls", "verify": "t::verify", "management_api": "crate::management_api", "audit": "management_api::audit"},
+		"ledger/src/alias.rs": {"t": "lns_tls", "u": "t", "verify": "u::verify", "management_api": "crate::management_api",
+			"audit": "management_api::audit", "sign": "lns_tls::api::sign"},
 	}
 	in := Inputs{
 		// A function's own use in inner.rs is no import of the module.
 		Imports:    map[string]map[string]string{"ledger/src/inner.rs": {"keep": "lns_tls::store"}},
 		TopImports: top,
 		Crates:     map[string]string{"tls": "lns_tls", "ledger": "lns_ledger"},
-		RustFiles: []string{"tls/src/lib.rs", "ledger/src/lib.rs", "ledger/src/main.rs", "ledger/src/tls.rs",
+		RustFiles: []string{"tls/src/lib.rs", "tls/src/api.rs", "tls/src/other.rs", "ledger/src/lib.rs", "ledger/src/main.rs", "ledger/src/tls.rs",
 			"ledger/src/rand.rs", "ledger/src/inner.rs", "ledger/src/alias.rs", "ledger/src/history.rs", "ledger/src/management_api.rs"},
 	}
 	for range 50 {
 		wantCallees(t, Build(in, units), "ledger/src/history.rs connect",
-			"[tls/src/lib.rs provider tls/src/lib.rs store ledger/src/management_api.rs keep tls/src/lib.rs verify ledger/src/management_api.rs audit]")
+			"[tls/src/lib.rs provider tls/src/lib.rs store ledger/src/management_api.rs keep tls/src/lib.rs verify ledger/src/management_api.rs audit tls/src/api.rs sign]")
 	}
 }
 

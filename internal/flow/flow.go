@@ -730,12 +730,7 @@ func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, 
 		dir, ok := ix.crates[root]
 		switch {
 		case ok && dir != ix.libraries.CrateOf(caller.File):
-			// acme_auth::tokens::verify: the module after the crate's name.
-			_, module, _ := strings.Cut(c.Qualifier, "::")
-			if u := ix.libraries.inModule(units, ix.free[c.Name], dir, module); u >= 0 {
-				return u
-			}
-			return only(units, ix.free[c.Name], func(u unit.Unit) bool { return ix.libraries.CrateOf(u.File) == dir })
+			return ix.imported(units, c.Qualifier+"::"+c.Name)
 		case strings.HasSuffix(caller.File, ".go"):
 			return -1 // Go qualifies only with package names: an outside package
 		case ok, pathKeyword(root), ix.isChildModule(caller, root):
@@ -789,15 +784,23 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 	return ix.imported(units, path)
 }
 
-// imported returns the function a use path rooted at a crate's name
-// imports: the only one of its name in that workspace crate, or -1 for an
-// outside crate's, such as tokio's.
+// imported returns the function a path rooted at a crate's name reaches:
+// in a workspace crate, the one in the module after the crate's name
+// (acme_auth::tokens::verify), else the crate's only one of its name; -1
+// for an outside crate's, such as tokio's.
 func (ix index) imported(units []unit.Unit, path string) int {
-	dir, ok := ix.crates[firstSegment(strings.TrimPrefix(path, "::"))]
+	root, rest, _ := strings.Cut(strings.TrimPrefix(path, "::"), "::")
+	dir, ok := ix.crates[root]
 	if !ok {
 		return -1
 	}
-	_, name := split(path)
+	module, name := "", rest
+	if i := strings.LastIndex(rest, "::"); i >= 0 {
+		module, name = rest[:i], rest[i+2:]
+	}
+	if u := ix.libraries.inModule(units, ix.free[name], dir, module); u >= 0 {
+		return u
+	}
 	return only(units, ix.free[name], func(u unit.Unit) bool { return ix.libraries.CrateOf(u.File) == dir })
 }
 
@@ -815,19 +818,24 @@ func (ix index) fromOtherCrate(crate, module, path string) bool {
 // moduleImport returns the path a module of a crate imports a name by
 // (use, or pub use re-exporting it), and whether its file imports it.
 // A root the module imports itself (use lns_tls as tls; pub use
-// tls::provider) is read through that import, so the path's root is a
-// crate's name, crate, self, super or a child module's name.
+// tls::provider) is read through that import, and through the import of
+// its root in turn, so the path's root is a crate's name, crate, self,
+// super or a child module's name.
 func (ix index) moduleImport(crate, module, name string) (string, bool) {
 	imported := ix.modImports[crate+"#"+module]
 	path, ok := imported[name]
 	if !ok || !strings.Contains(path, "::") {
 		return "", false
 	}
-	root, rest, _ := strings.Cut(path, "::")
-	if full, ok := imported[root]; ok && root != name {
+	for seen := map[string]bool{name: true}; ; {
+		root, rest, _ := strings.Cut(path, "::")
+		full, ok := imported[root]
+		if !ok || seen[root] {
+			return path, true
+		}
+		seen[root] = true
 		path = full + "::" + rest
 	}
-	return path, true
 }
 
 // resolveTypeScript resolves a TypeScript call. A name the file does not
