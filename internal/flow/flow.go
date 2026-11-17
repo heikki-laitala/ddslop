@@ -179,7 +179,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		}
 	}
 	for _, file := range in.RustFiles {
-		if m, ok := in.Libraries.ModuleOf(file); ok {
+		if m, ok := in.Libraries.rootOrModule(file); ok {
 			indexOf(file).addModules(m, in.Libraries.CrateOf(file))
 			for _, inline := range in.InlineModules[file] {
 				indexOf(file).addModules(joinModule(m, inline), in.Libraries.CrateOf(file))
@@ -833,7 +833,7 @@ func (ix index) fromOtherCrate(crate, module, path string) bool {
 // each roots its own crate.
 func (ix index) moduleImport(from, crate, module, name string) (string, bool) {
 	imported := ix.modImports[crate+"#"+module]
-	if m, ok := ix.libraries.ModuleOf(from); module == "" && (ok && m == "" || ix.libraries.Targets[from] == from) {
+	if m, ok := ix.libraries.rootOrModule(from); module == "" && ok && m == "" {
 		imported = ix.topImports[from]
 	}
 	path, ok := imported[name]
@@ -1105,6 +1105,15 @@ func (l Libraries) ModuleOf(file string) (string, bool) {
 		return "", true
 	}
 	return modulePathOf(rel), true
+}
+
+// rootOrModule is ModuleOf, with the root file of a target a manifest
+// places (see Targets) its own crate's root.
+func (l Libraries) rootOrModule(file string) (string, bool) {
+	if l.Targets[file] == file {
+		return "", true
+	}
+	return l.ModuleOf(file)
 }
 
 // owns reports whether a file under the directory of a moved library's
