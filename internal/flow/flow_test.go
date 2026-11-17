@@ -863,22 +863,35 @@ func TestRustModulePathFallbackSkipsTheCallersOwnFunction(t *testing.T) {
 
 // A path naming a module that re-exports the name from another crate
 // (pub use lns_tls::provider) reaches that crate's function, or none for
-// an outside crate's, never the caller crate's single function of that
-// name.
+// an outside crate's (rand::random), never the caller crate's single
+// function of that name. The crate root's import is lib.rs's, not a
+// binary's of the same crate importing the name from the library (use
+// lns_ledger::provider), every time; a path from the global root
+// (::lns_tls::provider) or through an alias leaves the crate as well.
 func TestRustModulePathFollowsTheModulesImport(t *testing.T) {
 	units := []unit.Unit{
 		fn("tls/src/lib.rs", "provider"),
-		fn("ledger/src/history.rs", "connect", path("crate::tls", "provider"), path("crate::rand", "random")),
+		fn("tls/src/lib.rs", "store"),
+		fn("ledger/src/history.rs", "connect", path("crate", "provider"), path("crate::tls", "provider"),
+			path("crate::tls", "keep"), path("crate::rand", "random")),
 		fn("ledger/src/management_api.rs", "provider"),
+		fn("ledger/src/management_api.rs", "keep"),
 		fn("ledger/src/management_api.rs", "random"),
 	}
 	in := Inputs{
-		Imports: map[string]map[string]string{"ledger/src/tls.rs": {"provider": "lns_tls::provider"}, "ledger/src/rand.rs": {"random": "rand::random"}},
-		Crates:  map[string]string{"tls": "lns_tls", "ledger": "lns_ledger"},
-		RustFiles: []string{"tls/src/lib.rs", "ledger/src/lib.rs", "ledger/src/tls.rs", "ledger/src/rand.rs",
-			"ledger/src/history.rs", "ledger/src/management_api.rs"},
+		Imports: map[string]map[string]string{
+			"ledger/src/lib.rs":  {"provider": "::lns_tls::provider"},
+			"ledger/src/main.rs": {"provider": "lns_ledger::provider"},
+			"ledger/src/tls.rs":  {"provider": "lns_tls::provider", "keep": "lns_tls::store"},
+			"ledger/src/rand.rs": {"random": "rand::random"},
+		},
+		Crates: map[string]string{"tls": "lns_tls", "ledger": "lns_ledger"},
+		RustFiles: []string{"tls/src/lib.rs", "ledger/src/lib.rs", "ledger/src/main.rs", "ledger/src/tls.rs",
+			"ledger/src/rand.rs", "ledger/src/history.rs", "ledger/src/management_api.rs"},
 	}
-	wantCallees(t, Build(in, units), "ledger/src/history.rs connect", "[tls/src/lib.rs provider]")
+	for range 50 {
+		wantCallees(t, Build(in, units), "ledger/src/history.rs connect", "[tls/src/lib.rs provider tls/src/lib.rs store]")
+	}
 }
 
 // Rust calls through fields follow the struct declarations of crate a,

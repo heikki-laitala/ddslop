@@ -8,6 +8,7 @@ package flow
 
 import (
 	"cmp"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -56,6 +57,7 @@ type index struct {
 	rustModules  map[string]map[string]bool      // Rust crate directory -> its modules' paths (foo::bar), from its files' paths
 	crates       map[string]string               // workspace crate name -> crate directory
 	imports      map[string]map[string]string    // file -> imported name -> path
+	modImports   map[string]map[string]string    // Rust "crate directory#module" -> imported name -> path, lib.rs's before main.rs's
 	deps         map[string]map[string]bool      // crate directory -> workspace crates it imports from
 	fields       map[string]map[string]FieldType // package or crate directory -> "Struct.field" -> its type
 	modules      map[string]string               // go.mod directory -> module path
@@ -116,7 +118,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		if langs[ext] == nil {
 			langs[ext] = &index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{}, owners: map[string]bool{},
 				impls: map[string][]string{}, rustModules: map[string]map[string]bool{},
-				crates: map[string]string{}, imports: in.Imports, deps: map[string]map[string]bool{},
+				crates: map[string]string{}, imports: in.Imports, modImports: map[string]map[string]string{}, deps: map[string]map[string]bool{},
 				fields: in.Fields, modules: in.Modules, tsPackages: in.TSPackages, tsFields: map[string][]FieldType{}, tsImpls: map[string][]unit.Impl{}, tsInterfaces: in.TSInterfaces,
 				libraries: in.Libraries}
 		}
@@ -172,6 +174,20 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 	for _, file := range in.RustFiles {
 		if m, ok := in.Libraries.ModuleOf(file); ok {
 			indexOf(file).addModules(m, in.Libraries.CrateOf(file))
+		}
+	}
+	// Sorted, so that a crate root's names are lib.rs's before main.rs's.
+	for _, file := range slices.Sorted(maps.Keys(in.Imports)) {
+		if m, ok := in.Libraries.ModuleOf(file); ok && strings.HasSuffix(file, ".rs") {
+			ix, key := indexOf(file), in.Libraries.CrateOf(file)+"#"+m
+			if ix.modImports[key] == nil {
+				ix.modImports[key] = map[string]string{}
+			}
+			for name, path := range in.Imports[file] {
+				if _, seen := ix.modImports[key][name]; !seen {
+					ix.modImports[key][name] = path
+				}
+			}
 		}
 	}
 	for file, imported := range in.Imports {
@@ -774,7 +790,7 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 // imports: the only one of its name in that workspace crate, or -1 for an
 // outside crate's, such as tokio's.
 func (ix index) imported(units []unit.Unit, path string) int {
-	dir, ok := ix.crates[firstSegment(path)]
+	dir, ok := ix.crates[firstSegment(strings.TrimPrefix(path, "::"))]
 	if !ok {
 		return -1
 	}
@@ -786,7 +802,7 @@ func (ix index) imported(units []unit.Unit, path string) int {
 // crate leaves the crate: its root is another crate's name, not crate,
 // self, super, the crate's own name or a child module's.
 func (ix index) fromOtherCrate(crate, module, path string) bool {
-	root := firstSegment(path)
+	root := firstSegment(strings.TrimPrefix(path, "::"))
 	if dir, ok := ix.crates[root]; ok {
 		return dir != crate
 	}
@@ -798,14 +814,8 @@ func (ix index) fromOtherCrate(crate, module, path string) bool {
 // The path's root is a crate's name, crate, self, super or a child
 // module's name.
 func (ix index) moduleImport(crate, module, name string) (string, bool) {
-	for file, imported := range ix.imports {
-		if m, ok := ix.libraries.ModuleOf(file); ok && m == module && ix.libraries.CrateOf(file) == crate {
-			if path, ok := imported[name]; ok && strings.Contains(path, "::") {
-				return path, true
-			}
-		}
-	}
-	return "", false
+	path, ok := ix.modImports[crate+"#"+module][name]
+	return path, ok && strings.Contains(path, "::")
 }
 
 // resolveTypeScript resolves a TypeScript call. A name the file does not
