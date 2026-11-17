@@ -814,11 +814,20 @@ func (ix index) fromOtherCrate(crate, module, path string) bool {
 
 // moduleImport returns the path a module of a crate imports a name by
 // (use, or pub use re-exporting it), and whether its file imports it.
-// The path's root is a crate's name, crate, self, super or a child
-// module's name.
+// A root the module imports itself (use lns_tls as tls; pub use
+// tls::provider) is read through that import, so the path's root is a
+// crate's name, crate, self, super or a child module's name.
 func (ix index) moduleImport(crate, module, name string) (string, bool) {
-	path, ok := ix.modImports[crate+"#"+module][name]
-	return path, ok && strings.Contains(path, "::")
+	imported := ix.modImports[crate+"#"+module]
+	path, ok := imported[name]
+	if !ok || !strings.Contains(path, "::") {
+		return "", false
+	}
+	root, rest, _ := strings.Cut(path, "::")
+	if full, ok := imported[root]; ok && root != name {
+		path = full + "::" + rest
+	}
+	return path, true
 }
 
 // resolveTypeScript resolves a TypeScript call. A name the file does not
