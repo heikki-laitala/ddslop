@@ -1798,9 +1798,12 @@ Only Rust modules within a crate, and TypeScript directories, can form
 one: Go's compiler forbids import cycles between packages, and Cargo
 cycles between crates. A TypeScript directory, the module `map`
 describes, depends on another it calls or imports from by a relative
-path. An import of types only (`import type`) is none, as compiling
-removes it; nor is a re-export (`export * from`, a barrel's) or a
-dynamic `import()`, which loads later, as code breaking a cycle does.
+path. An import of types only is none, as it uses no value of the
+module: `import type { A }`, which compiling removes, or
+`import { type A }`, which `verbatimModuleSyntax` keeps as an empty
+import that still loads the module, so a cycle through it is missed.
+Nor is a re-export (`export * from`, a barrel's) or a dynamic
+`import()`, which loads later, as code breaking a cycle does.
 Measured: 37 cycles on Excalidraw, 12 on Hono, 14 on tRPC; most are a
 directory and one below it, where the upper one holds both the code
 wiring the lower ones together and a module they import back (a

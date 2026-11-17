@@ -269,33 +269,47 @@ func wholeImports(root *sitter.Node, src []byte) []string {
 }
 
 // typesOnly reports whether an import statement imports types only
-// (import type { A }, import { type A, type B }), which compiling removes.
+// (import type { A }, import { type A, type B }): no value of the module
+// is used. Compiling removes the first form; the second, under
+// verbatimModuleSyntax, keeps an empty import that loads the module, but
+// counts as types only here too.
 func typesOnly(n *sitter.Node) bool {
 	if hasChild(n, "type") {
 		return true
 	}
-	clause := n.NamedChild(0)
-	if clause == nil || clause.Kind() != "import_clause" || clause.NamedChildCount() != 1 || clause.NamedChild(0).Kind() != "named_imports" {
+	clause := clauseOf(n)
+	if clause == nil || clause.NamedChildCount() != 1 || clause.NamedChild(0).Kind() != "named_imports" {
 		return false // import "./x", or a default or namespace import
 	}
 	names := clause.NamedChild(0)
+	specifiers := 0
 	for i := uint(0); i < names.NamedChildCount(); i++ {
-		if !hasChild(names.NamedChild(i), "type") {
-			return false
+		if s := names.NamedChild(i); s.Kind() == "import_specifier" {
+			if !hasChild(s, "type") {
+				return false
+			}
+			specifiers++
 		}
 	}
-	return names.NamedChildCount() > 0
+	return specifiers > 0 // a comment is no name
 }
 
 // hasNamespaceImport reports whether an import statement imports its
 // module whole (import * as schema).
 func hasNamespaceImport(n *sitter.Node) bool {
+	clause := clauseOf(n)
+	return clause != nil && hasChild(clause, "namespace_import")
+}
+
+// clauseOf returns an import statement's clause, the names it imports,
+// comments before it aside; nil for import "./x".
+func clauseOf(n *sitter.Node) *sitter.Node {
 	for i := uint(0); i < n.NamedChildCount(); i++ {
-		if clause := n.NamedChild(i); clause.Kind() == "import_clause" && hasChild(clause, "namespace_import") {
-			return true
+		if c := n.NamedChild(i); c.Kind() == "import_clause" {
+			return c
 		}
 	}
-	return false
+	return nil
 }
 
 // hasChild reports whether a node has a child of a kind, named or not:

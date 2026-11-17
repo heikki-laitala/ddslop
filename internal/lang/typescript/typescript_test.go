@@ -752,3 +752,18 @@ export const getRepo = (): IRepo => memoryRepo;
 	testutil.Lines(t, "impls", testutil.Format(decls.Impls, func(im unit.Impl) string { return im.Type + " " + im.TraitPath }),
 		[]string{"memoryRepo ./repo.IRepo", "createRepo ./repo.IRepo", "createCached ./repo.IRepo"})
 }
+
+// An import is a dependency on its module unless it imports types only,
+// comments between the names aside.
+func TestImportsOfValuesAreRecorded(t *testing.T) {
+	_, decls := testutil.Parse(t, Parse, "src/api/routes.ts", `import { connect } from "../db/client";
+import type { Row } from "../db/row";
+import { type Conn, /* the pool's */ type Pool } from "../db/pool";
+import Db, { type Options } from "../db";
+import "./polyfill";
+import /* types */ { type Query } from "../db/query";
+`)
+	testutil.Lines(t, "imports", testutil.Format(decls.Imports, func(im unit.Import) string {
+		return fmt.Sprintf("%s %d", im.Module, im.Line)
+	}), []string{"../db/client 1", "../db 4", "./polyfill 5"})
+}

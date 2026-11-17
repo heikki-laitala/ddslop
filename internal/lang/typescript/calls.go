@@ -18,6 +18,7 @@ type imported struct {
 
 // imports returns the names a file's imports bind. A default import is
 // taken under its local name, which usually is the exported function's.
+// ddslop:ignore reads TypeScript's import statements as the Rust adapter's usesIn reads use declarations; each follows its own grammar
 func imports(root *sitter.Node, src []byte) map[string]imported {
 	names := map[string]imported{}
 	for i := uint(0); i < root.NamedChildCount(); i++ {
@@ -27,10 +28,8 @@ func imports(root *sitter.Node, src []byte) map[string]imported {
 			continue
 		}
 		module := strings.Trim(source.Utf8Text(src), `"'`)
-		for j := uint(0); j < n.NamedChildCount(); j++ {
-			if clause := n.NamedChild(j); clause.Kind() == "import_clause" {
-				importClause(clause, module, src, names)
-			}
+		if clause := clauseOf(n); clause != nil {
+			importClause(clause, module, src, names)
 		}
 	}
 	return names
