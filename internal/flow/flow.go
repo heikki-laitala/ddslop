@@ -59,6 +59,7 @@ type index struct {
 	imports      map[string]map[string]string    // file -> imported name -> path
 	modImports   map[string]map[string]string    // Rust "crate directory#module" -> its own scope's imported name -> path, lib.rs's before main.rs's
 	topImports   map[string]map[string]string    // Rust file -> its own scope's imported name -> path
+	selfAliases  map[string]map[string]bool      // Rust crate directory -> the names it gives itself (extern crate self as name)
 	deps         map[string]map[string]bool      // crate directory -> workspace crates it imports from
 	fields       map[string]map[string]FieldType // package or crate directory -> "Struct.field" -> its type
 	modules      map[string]string               // go.mod directory -> module path
@@ -128,7 +129,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		if langs[ext] == nil {
 			langs[ext] = &index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{}, owners: map[string]bool{},
 				impls: map[string][]string{}, rustModules: map[string]map[string]bool{},
-				crates: map[string]string{}, imports: in.Imports, modImports: map[string]map[string]string{}, topImports: in.TopImports, deps: map[string]map[string]bool{},
+				crates: map[string]string{}, imports: in.Imports, modImports: map[string]map[string]string{}, topImports: in.TopImports, selfAliases: map[string]map[string]bool{}, deps: map[string]map[string]bool{},
 				fields: in.Fields, modules: in.Modules, tsPackages: in.TSPackages, tsFields: map[string][]FieldType{}, tsImpls: map[string][]unit.Impl{}, tsInterfaces: in.TSInterfaces,
 				libraries: in.Libraries}
 		}
@@ -163,12 +164,12 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 			}
 		}
 	}
-	// A crate's name for itself is its own (extern crate self as name), not
-	// another crate's: a path rooted at it stays in the crate.
 	for alias, file := range in.SelfAliases {
-		if ix := indexOf(file); ix.crates[alias] == "" {
-			ix.crates[alias] = in.Libraries.CrateOf(file)
+		ix, crate := indexOf(file), in.Libraries.CrateOf(file)
+		if ix.selfAliases[crate] == nil {
+			ix.selfAliases[crate] = map[string]bool{}
 		}
+		ix.selfAliases[crate][alias] = true
 	}
 	for _, im := range in.Impls {
 		if tsfile.IsSource(im.File) {
@@ -823,9 +824,13 @@ func (ix index) imported(units []unit.Unit, path string) int {
 
 // fromOtherCrate reports whether a use path written in a module of a
 // crate leaves the crate: its root is another crate's name, not crate,
-// self, super, the crate's own name or a child module's.
+// self, super, the crate's own name or one it gives itself (extern crate
+// self as name), or a child module's.
 func (ix index) fromOtherCrate(crate, module, path string) bool {
 	root := firstSegment(strings.TrimPrefix(path, "::"))
+	if ix.selfAliases[crate][root] {
+		return false
+	}
 	if dir, ok := ix.crates[root]; ok {
 		return dir != crate
 	}

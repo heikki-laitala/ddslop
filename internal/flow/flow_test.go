@@ -878,7 +878,8 @@ func TestRustModulePathFallbackSkipsTheCallersOwnFunction(t *testing.T) {
 // (mod facade { ... } pub use facade::report) stays in the crate, and a
 // target root a manifest places outside src reads its own imports. A
 // root naming the crate itself (extern crate self as project_api) stays
-// in the crate too.
+// in the crate too, and only in that crate: another crate's path rooted
+// at the same name is none of the first crate's.
 func TestRustModulePathFollowsTheModulesImport(t *testing.T) {
 	units := []unit.Unit{
 		fn("tls/src/lib.rs", "provider"),
@@ -888,6 +889,7 @@ func TestRustModulePathFollowsTheModulesImport(t *testing.T) {
 		fn("tls/src/other.rs", "sign"),
 		fn("tls/src/lib.rs", "seal"),
 		fn("other/src/lib.rs", "provider"),
+		fn("other/src/lib.rs", "leak", path("project_api::management_api", "ping")),
 		fn("ledger/src/main.rs", "main", path("crate", "provider")),
 		fn("ledger/tools/tool.rs", "main", path("crate", "provider"), path("crate", "summary")),
 		{File: "ledger/tools/tool.rs", Name: "summary", Module: "facade"},
@@ -929,6 +931,7 @@ func TestRustModulePathFollowsTheModulesImport(t *testing.T) {
 		wantCallees(t, g, "ledger/src/history.rs connect",
 			"[tls/src/lib.rs provider tls/src/lib.rs store ledger/src/management_api.rs keep tls/src/lib.rs verify ledger/src/management_api.rs audit tls/src/api.rs sign tls/src/lib.rs seal ledger/src/management_api.rs report ledger/src/management_api.rs ping]")
 		wantCallees(t, g, "ledger/src/main.rs main", "[other/src/lib.rs provider]")
+		wantCallees(t, g, "other/src/lib.rs leak", "[]")
 		wantCallees(t, g, "ledger/tools/tool.rs main", "[tls/src/lib.rs provider ledger/tools/tool.rs summary]")
 	}
 }
