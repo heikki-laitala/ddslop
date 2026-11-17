@@ -87,6 +87,9 @@ type Inputs struct {
 	// InlineModules maps a Rust file to the modules it declares inline
 	// at its top level (mod facade { ... }).
 	InlineModules map[string][]string
+	// SelfAliases maps each name a Rust crate gives itself (extern crate
+	// self as name) to the root file declaring it.
+	SelfAliases map[string]string
 	// Crates maps a crate directory to the name code uses for the crate.
 	// A directory missing here is named after itself, dashes as
 	// underscores.
@@ -158,6 +161,13 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 				ix := indexOf(ft.File)
 				ix.tsFields[key] = append(ix.tsFields[key], ft)
 			}
+		}
+	}
+	// A crate's name for itself is its own (extern crate self as name), not
+	// another crate's: a path rooted at it stays in the crate.
+	for alias, file := range in.SelfAliases {
+		if ix := indexOf(file); ix.crates[alias] == "" {
+			ix.crates[alias] = in.Libraries.CrateOf(file)
 		}
 	}
 	for _, im := range in.Impls {
