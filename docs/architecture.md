@@ -1149,10 +1149,11 @@ that crosses it.
   names wins (`crate::store::endpoint` is `store.rs`'s `endpoint`, not
   `config.rs`'s); a function the module's own scope imports by name
   from another crate (`pub use lns_tls::provider`, a crate root's from
-  `lib.rs` before `main.rs`, a root the module imports read through
-  its imports) is that crate's, in the module the path names
-  (`lns_tls::api::provider`) first, or none for an outside
-  crate's, and one re-exported from elsewhere in the crate falls back to
+  `lib.rs` before `main.rs` but `main.rs`'s for a call written there,
+  a root or item alias the module imports read through its imports)
+  is that crate's, in the module the path names
+  (`lns_tls::api::provider`) first, or none for an outside crate's,
+  and one re-exported from elsewhere in the crate falls back to
   the crate's only one of that name. Without the import, a
   `crate::tls::provider()` call reached an unrelated `provider` of the
   caller's crate and reported a false cycle. A module re-exported from
