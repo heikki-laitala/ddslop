@@ -796,7 +796,7 @@ func TestRustModulePathsPickTheNamedModulesFunction(t *testing.T) {
 	}
 	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{
 		"a/src/lib.rs", "a/src/config.rs", "a/src/store.rs", "a/src/config/inner.rs", "a/src/api.rs", "a/src/store/helpers.rs",
-	}, Imports: map[string]map[string]string{"a/src/store.rs": {"helper": "helpers::helper"}}}
+	}, TopImports: map[string]map[string]string{"a/src/store.rs": {"helper": "helpers::helper"}}}
 	g := Build(in, units)
 	for caller, want := range map[string]string{
 		"a/src/lib.rs root":       "[a/src/store.rs endpoint]",
@@ -868,29 +868,35 @@ func TestRustModulePathFallbackSkipsTheCallersOwnFunction(t *testing.T) {
 // binary's of the same crate importing the name from the library (use
 // lns_ledger::provider), every time; a path from the global root
 // (::lns_tls::provider) or through an alias leaves the crate as well.
+// Only the module's own scope's imports count, not a function's.
 func TestRustModulePathFollowsTheModulesImport(t *testing.T) {
 	units := []unit.Unit{
 		fn("tls/src/lib.rs", "provider"),
 		fn("tls/src/lib.rs", "store"),
 		fn("ledger/src/history.rs", "connect", path("crate", "provider"), path("crate::tls", "provider"),
-			path("crate::tls", "keep"), path("crate::rand", "random")),
+			path("crate::tls", "keep"), path("crate::rand", "random"), path("crate::inner", "keep")),
 		fn("ledger/src/management_api.rs", "provider"),
 		fn("ledger/src/management_api.rs", "keep"),
 		fn("ledger/src/management_api.rs", "random"),
 	}
+	top := map[string]map[string]string{
+		"ledger/src/lib.rs":   {"provider": "::lns_tls::provider"},
+		"ledger/src/main.rs":  {"provider": "lns_ledger::provider"},
+		"ledger/src/tls.rs":   {"provider": "lns_tls::provider", "keep": "lns_tls::store"},
+		"ledger/src/rand.rs":  {"random": "rand::random"},
+		"ledger/src/inner.rs": {"keep": "crate::management_api::keep"},
+	}
 	in := Inputs{
-		Imports: map[string]map[string]string{
-			"ledger/src/lib.rs":  {"provider": "::lns_tls::provider"},
-			"ledger/src/main.rs": {"provider": "lns_ledger::provider"},
-			"ledger/src/tls.rs":  {"provider": "lns_tls::provider", "keep": "lns_tls::store"},
-			"ledger/src/rand.rs": {"random": "rand::random"},
-		},
-		Crates: map[string]string{"tls": "lns_tls", "ledger": "lns_ledger"},
+		// A function's own use in inner.rs is no import of the module.
+		Imports:    map[string]map[string]string{"ledger/src/inner.rs": {"keep": "lns_tls::store"}},
+		TopImports: top,
+		Crates:     map[string]string{"tls": "lns_tls", "ledger": "lns_ledger"},
 		RustFiles: []string{"tls/src/lib.rs", "ledger/src/lib.rs", "ledger/src/main.rs", "ledger/src/tls.rs",
-			"ledger/src/rand.rs", "ledger/src/history.rs", "ledger/src/management_api.rs"},
+			"ledger/src/rand.rs", "ledger/src/inner.rs", "ledger/src/history.rs", "ledger/src/management_api.rs"},
 	}
 	for range 50 {
-		wantCallees(t, Build(in, units), "ledger/src/history.rs connect", "[tls/src/lib.rs provider tls/src/lib.rs store]")
+		wantCallees(t, Build(in, units), "ledger/src/history.rs connect",
+			"[tls/src/lib.rs provider tls/src/lib.rs store ledger/src/management_api.rs keep]")
 	}
 }
 

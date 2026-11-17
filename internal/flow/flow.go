@@ -57,7 +57,7 @@ type index struct {
 	rustModules  map[string]map[string]bool      // Rust crate directory -> its modules' paths (foo::bar), from its files' paths
 	crates       map[string]string               // workspace crate name -> crate directory
 	imports      map[string]map[string]string    // file -> imported name -> path
-	modImports   map[string]map[string]string    // Rust "crate directory#module" -> imported name -> path, lib.rs's before main.rs's
+	modImports   map[string]map[string]string    // Rust "crate directory#module" -> its own scope's imported name -> path, lib.rs's before main.rs's
 	deps         map[string]map[string]bool      // crate directory -> workspace crates it imports from
 	fields       map[string]map[string]FieldType // package or crate directory -> "Struct.field" -> its type
 	modules      map[string]string               // go.mod directory -> module path
@@ -80,6 +80,9 @@ type FieldType struct {
 type Inputs struct {
 	// Imports maps a file to the names it imports and their paths.
 	Imports map[string]map[string]string
+	// TopImports maps a Rust file to the imports of its own scope (see
+	// rust.Imports): what a path through its module reaches.
+	TopImports map[string]map[string]string
 	// Crates maps a crate directory to the name code uses for the crate.
 	// A directory missing here is named after itself, dashes as
 	// underscores.
@@ -177,13 +180,13 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		}
 	}
 	// Sorted, so that a crate root's names are lib.rs's before main.rs's.
-	for _, file := range slices.Sorted(maps.Keys(in.Imports)) {
+	for _, file := range slices.Sorted(maps.Keys(in.TopImports)) {
 		if m, ok := in.Libraries.ModuleOf(file); ok && strings.HasSuffix(file, ".rs") {
 			ix, key := indexOf(file), in.Libraries.CrateOf(file)+"#"+m
 			if ix.modImports[key] == nil {
 				ix.modImports[key] = map[string]string{}
 			}
-			for name, path := range in.Imports[file] {
+			for name, path := range in.TopImports[file] {
 				if _, seen := ix.modImports[key][name]; !seen {
 					ix.modImports[key][name] = path
 				}
