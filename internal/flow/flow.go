@@ -721,12 +721,17 @@ func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, 
 			return -1 // Go qualifies only with package names: an outside package
 		case ok, pathKeyword(root), ix.isChildModule(caller, root):
 			// The path names a module of the caller's crate: its function,
-			// else (a re-export, say) the crate's only one of that name,
-			// never the caller's own file's by preference.
-			if u := ix.libraries.inModule(units, ix.free[c.Name], ix.libraries.CrateOf(caller.File), ix.libraries.modulePath(c.Qualifier, caller)); u >= 0 {
+			// else what the module imports by that name from another crate
+			// (pub use lns_tls::provider), else (a re-export within the
+			// crate) the crate's only one of that name, never the caller's
+			// own file's by preference.
+			crate, module := ix.libraries.CrateOf(caller.File), ix.libraries.modulePath(c.Qualifier, caller)
+			if u := ix.libraries.inModule(units, ix.free[c.Name], crate, module); u >= 0 {
 				return u
 			}
-			crate := ix.libraries.CrateOf(caller.File)
+			if path, ok := ix.moduleImport(crate, module, c.Name); ok && ix.fromOtherCrate(crate, module, path) {
+				return ix.imported(units, path)
+			}
 			return only(units, ix.free[c.Name], func(u unit.Unit) bool { return ix.libraries.CrateOf(u.File) == crate })
 		}
 		return -1
@@ -759,15 +764,48 @@ func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) in
 	if i := strings.LastIndex(path, "::"); i >= 0 {
 		target = path[i+2:] // the imported name, before any alias
 	}
-	root := firstSegment(path)
-	if pathKeyword(root) {
+	if pathKeyword(firstSegment(path)) {
 		return ix.libraries.pickLocal(units, caller, ix.free[target])
 	}
-	dir, ok := ix.crates[root]
+	return ix.imported(units, path)
+}
+
+// imported returns the function a use path rooted at a crate's name
+// imports: the only one of its name in that workspace crate, or -1 for an
+// outside crate's, such as tokio's.
+func (ix index) imported(units []unit.Unit, path string) int {
+	dir, ok := ix.crates[firstSegment(path)]
 	if !ok {
-		return -1 // an outside crate, such as tokio
+		return -1
 	}
-	return only(units, ix.free[target], func(u unit.Unit) bool { return ix.libraries.CrateOf(u.File) == dir })
+	_, name := split(path)
+	return only(units, ix.free[name], func(u unit.Unit) bool { return ix.libraries.CrateOf(u.File) == dir })
+}
+
+// fromOtherCrate reports whether a use path written in a module of a
+// crate leaves the crate: its root is another crate's name, not crate,
+// self, super, the crate's own name or a child module's.
+func (ix index) fromOtherCrate(crate, module, path string) bool {
+	root := firstSegment(path)
+	if dir, ok := ix.crates[root]; ok {
+		return dir != crate
+	}
+	return !pathKeyword(root) && !ix.rustModules[crate][joinModule(module, root)]
+}
+
+// moduleImport returns the path a module of a crate imports a name by
+// (use, or pub use re-exporting it), and whether its file imports it.
+// The path's root is a crate's name, crate, self, super or a child
+// module's name.
+func (ix index) moduleImport(crate, module, name string) (string, bool) {
+	for file, imported := range ix.imports {
+		if m, ok := ix.libraries.ModuleOf(file); ok && m == module && ix.libraries.CrateOf(file) == crate {
+			if path, ok := imported[name]; ok && strings.Contains(path, "::") {
+				return path, true
+			}
+		}
+	}
+	return "", false
 }
 
 // resolveTypeScript resolves a TypeScript call. A name the file does not

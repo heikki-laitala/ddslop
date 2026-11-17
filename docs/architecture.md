@@ -1147,8 +1147,12 @@ that crosses it.
   rule, such calls linked modules that never call each other. Of the
   free functions with the called name, the one in the module the path
   names wins (`crate::store::endpoint` is `store.rs`'s `endpoint`, not
-  `config.rs`'s); a function re-exported from elsewhere falls back to
-  the crate's only one of that name. Before, a name several modules
+  `config.rs`'s); a function the module imports from another crate
+  (`pub use lns_tls::provider`) is that crate's, or none for an outside
+  crate's, and one re-exported from elsewhere in the crate falls back to
+  the crate's only one of that name. Without the import, a
+  `crate::tls::provider()` call reached an unrelated `provider` of the
+  caller's crate and reported a false cycle. Before, a name several modules
   define (`plan`, `resolve`, `new`) stayed unresolved, or went to the
   caller's own file's: on the 739k-line workspace, naming the module
   resolved 362 more calls and found 4 more real cycles. On a

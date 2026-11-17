@@ -796,7 +796,7 @@ func TestRustModulePathsPickTheNamedModulesFunction(t *testing.T) {
 	}
 	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{
 		"a/src/lib.rs", "a/src/config.rs", "a/src/store.rs", "a/src/config/inner.rs", "a/src/api.rs", "a/src/store/helpers.rs",
-	}}
+	}, Imports: map[string]map[string]string{"a/src/store.rs": {"helper": "helpers::helper"}}}
 	g := Build(in, units)
 	for caller, want := range map[string]string{
 		"a/src/lib.rs root":       "[a/src/store.rs endpoint]",
@@ -859,6 +859,26 @@ func TestRustModulePathFallbackSkipsTheCallersOwnFunction(t *testing.T) {
 	}
 	in := Inputs{Crates: map[string]string{"a": "a"}, RustFiles: []string{"a/src/lib.rs", "a/src/other.rs"}}
 	wantCallees(t, Build(in, units), "a/src/lib.rs root", "[]")
+}
+
+// A path naming a module that re-exports the name from another crate
+// (pub use lns_tls::provider) reaches that crate's function, or none for
+// an outside crate's, never the caller crate's single function of that
+// name.
+func TestRustModulePathFollowsTheModulesImport(t *testing.T) {
+	units := []unit.Unit{
+		fn("tls/src/lib.rs", "provider"),
+		fn("ledger/src/history.rs", "connect", path("crate::tls", "provider"), path("crate::rand", "random")),
+		fn("ledger/src/management_api.rs", "provider"),
+		fn("ledger/src/management_api.rs", "random"),
+	}
+	in := Inputs{
+		Imports: map[string]map[string]string{"ledger/src/tls.rs": {"provider": "lns_tls::provider"}, "ledger/src/rand.rs": {"random": "rand::random"}},
+		Crates:  map[string]string{"tls": "lns_tls", "ledger": "lns_ledger"},
+		RustFiles: []string{"tls/src/lib.rs", "ledger/src/lib.rs", "ledger/src/tls.rs", "ledger/src/rand.rs",
+			"ledger/src/history.rs", "ledger/src/management_api.rs"},
+	}
+	wantCallees(t, Build(in, units), "ledger/src/history.rs connect", "[tls/src/lib.rs provider]")
 }
 
 // Rust calls through fields follow the struct declarations of crate a,
