@@ -510,8 +510,48 @@ func run(db *DB, items []Item) {
 				`12 Save qualifier="" type="DB" field=""`,
 				`14 Save qualifier="" type="Remote" field=""`,
 				`16 Save qualifier="" type="DB" field=""`,
-				`18 Save qualifier="" type="" field=""`,
+				`18 Save qualifier="" type="Item" field=""`,
 				`20 Save qualifier="" type="DB" field=""`,
+			},
+		},
+		"elements of a typed slice or array take their type": {
+			src: `package api
+
+import st "example.com/app/internal/store"
+
+func run(units []st.Unit, rows [4]*Row, byName map[string]Unit, grid [][]Unit, rest ...Item) {
+	for _, u := range units {
+		u.ViaInterface()
+	}
+	for i := range units {
+		i.Next()
+	}
+	units[0].ViaInterface()
+	rows[1].Load()
+	rest[0].Fill()
+	byName["x"].Fill()
+	grid[0][1].Fill()
+	r := rows[2]
+	r.Load()
+	units[0].Store.Save()
+	var more []Item
+	for _, m := range more {
+		m.Fill()
+	}
+}
+`,
+			line: methodType,
+			want: []string{
+				`7 ViaInterface qualifier="" type="example.com/app/internal/store.Unit" field=""`,
+				`10 Next qualifier="" type="" field=""`,
+				`12 ViaInterface qualifier="" type="example.com/app/internal/store.Unit" field=""`,
+				`13 Load qualifier="" type="Row" field=""`,
+				`14 Fill qualifier="" type="Item" field=""`,
+				`15 Fill qualifier="" type="" field=""`,
+				`16 Fill qualifier="" type="" field=""`,
+				`18 Load qualifier="" type="Row" field=""`,
+				`19 Save qualifier="" type="example.com/app/internal/store.Unit" field="Store"`,
+				`22 Fill qualifier="" type="Item" field=""`,
 			},
 		},
 		"an assignment's right side sees the type before it": {

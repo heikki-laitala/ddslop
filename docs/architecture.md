@@ -350,8 +350,10 @@ and delegate to different services.
 
 Go method calls resolve by type where the code states it. The adapter
 records the type of a method call's operand (`unit.Call.Type`) when it
-is a parameter or named result, a `var x T`, or a variable set from a composite literal
-(`x := T{}`, `&T{}`, `var x = T{}`), qualified by the file's imports
+is a parameter or named result, a `var x T`, a variable set from a composite literal
+(`x := T{}`, `&T{}`, `var x = T{}`), or an element of a variable so
+declared as a slice or array (`for _, u := range units`, `units[i]`,
+with `units []T`, `[4]*T` or `...T`), qualified by the file's imports
 (`example.com/app/store.DB`), and the fields a call follows from the
 receiver, a typed variable or a call's result (`s.cfg.store.Save()`,
 `in.Libraries.CrateOf()`, `r.Summary.Health.Limit()` after `r, err :=
@@ -402,6 +404,8 @@ the Go service this removed three wrong edges into the repository's own
 receiver's own fields resolved 7 more calls on ddslop's own code (1,454
 to 1,461 of 5,143) and turned 11 guesses by name into calls by type; on
 the Go service it changed nothing, and no finding changed on either.
+Typing the elements of typed slices resolved 3 more there (1,464) and
+again changed nothing on the service.
 
 On the Go service this resolved 882 of 2820 calls (723 before, some of
 them guesses): the store package, which handlers and the dashboard reach

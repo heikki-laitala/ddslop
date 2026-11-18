@@ -119,7 +119,7 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 			for i, name := range names {
 				op := g.valueOf(values, uint(i), uint(len(names)), s.Src) // var x = T{}, var x = f()
 				if t != nil {
-					op = syntax.Operand{Type: g.typeOf(syntax.Compact(t.Utf8Text(s.Src)))}
+					op = operandOf(syntax.Compact(t.Utf8Text(s.Src)), g.packages, g.generic)
 				}
 				g.declare(name.Utf8Text(s.Src), op, true)
 			}
@@ -148,7 +148,7 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 	case "func_literal":
 		s.Closures++
 		restore := g.scope(false)
-		eachOwn(n, s.Src, func(name, typ string) { g.declare(name, syntax.Operand{Type: g.typeOf(typ)}, true) })
+		eachOwn(n, s.Src, func(name, typ string) { g.declare(name, operandOf(typ, g.packages, g.generic), true) })
 		return func() { s.Closures--; restore() }
 	case "block":
 		// An if's body or else is a branch; other blocks run in sequence.
@@ -272,6 +272,15 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 	return c, true
 }
 
+// element returns what an element of a slice or array variable holds
+// (units in units[i], or ranged over), or the zero Operand.
+func (g grammar) element(n *sitter.Node, src []byte) syntax.Operand {
+	if n == nil || n.Kind() != "identifier" {
+		return syntax.Operand{}
+	}
+	return syntax.Operand{Type: g.vars[n.Utf8Text(src)].Elem}
+}
+
 // fieldChain returns where a selector chain starts and the fields it
 // follows from there: s and [cfg store] for s.cfg.store, x and none for
 // x. The start is nil for a selector without its field.
@@ -290,7 +299,8 @@ func fieldChain(n *sitter.Node, src []byte) (*sitter.Node, []string) {
 
 // chained returns what a selector chain holds, by where it starts (see
 // fieldChain): the receiver's fields, or a variable's of known type or
-// value, or a call's result's, followed by the chain's fields. ok is
+// value, a typed slice's element (units[i]), or a call's result's,
+// followed by the chain's fields. ok is
 // false for any other start, such as a package or an untyped variable. A
 // call not yet visited, as a method call's operand is not, has its From
 // set later (see grammar.chains).
@@ -302,6 +312,10 @@ func (g grammar) chained(base *sitter.Node, fields []string, src []byte) (syntax
 	case base.Kind() == "call_expression":
 		if k, ok := g.calls[syntax.Span(base)]; ok {
 			op.From = k + 1
+		}
+	case base.Kind() == "index_expression":
+		if op = g.element(base.ChildByFieldName("operand"), src); op == (syntax.Operand{}) {
+			return op, false // m[k], a map's or an untyped slice's
 		}
 	case base.Kind() != "identifier":
 		return op, false
@@ -390,8 +404,11 @@ func (g grammar) assign(n *sitter.Node, src []byte) {
 			continue
 		}
 		var op syntax.Operand
-		if n.Kind() != "range_clause" {
+		switch {
+		case n.Kind() != "range_clause":
 			op = g.valueOf(right, i, left.NamedChildCount(), src)
+		case i == 1:
+			op = g.element(right, src) // for _, u := range units
 		}
 		g.declare(name.Utf8Text(src), op, declares)
 	}
@@ -420,8 +437,8 @@ func (g grammar) valueOf(values *sitter.Node, i, names uint, src []byte) syntax.
 	if result > 0 {
 		return syntax.Operand{}
 	}
-	if base, fields := fieldChain(value, src); len(fields) > 0 {
-		op, _ := g.chained(base, fields, src) // x := cfg.Store
+	if base, fields := fieldChain(value, src); len(fields) > 0 || base.Kind() == "index_expression" {
+		op, _ := g.chained(base, fields, src) // x := cfg.Store, x := units[i]
 		return op
 	}
 	return syntax.Operand{Type: g.literalType(value, src)}
@@ -437,6 +454,20 @@ func (g grammar) literalType(value *sitter.Node, src []byte) string {
 		return g.typeOf(syntax.Compact(t.Utf8Text(src)))
 	}
 	return ""
+}
+
+// operandOf returns what a variable of a declared type holds: a value of
+// that type (see typeOf), or, for a slice or array ([]T, [4]*T, a
+// variadic ...T), elements of that type.
+func operandOf(typ string, packages map[string]string, generic map[string]bool) syntax.Operand {
+	if elem, ok := strings.CutPrefix(typ, "..."); ok {
+		return syntax.Operand{Elem: typeOf(elem, packages, generic)}
+	}
+	if rest, ok := strings.CutPrefix(typ, "["); ok {
+		_, elem, _ := strings.Cut(rest, "]")
+		return syntax.Operand{Elem: typeOf(elem, packages, generic)}
+	}
+	return syntax.Operand{Type: typeOf(typ, packages, generic)}
 }
 
 // typeOf returns a type as typeOf writes it, with the function's type
@@ -654,8 +685,8 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 	vars, own, generic := map[string]syntax.Operand{}, map[string]bool{}, typeParams(n, src)
 	eachOwn(n, src, func(name, typ string) {
 		own[name] = true
-		if t := typeOf(typ, packages, generic); t != "" {
-			vars[name] = syntax.Operand{Type: t}
+		if op := operandOf(typ, packages, generic); op != (syntax.Operand{}) {
+			vars[name] = op
 		}
 	})
 	g := grammar{receiver: receiverName(n, src), packages: packages, vars: vars,
