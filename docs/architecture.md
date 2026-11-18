@@ -404,8 +404,9 @@ the Go service this removed three wrong edges into the repository's own
 receiver's own fields resolved 7 more calls on ddslop's own code (1,454
 to 1,461 of 5,143) and turned 11 guesses by name into calls by type; on
 the Go service it changed nothing, and no finding changed on either.
-Typing the elements of typed slices resolved 3 more there (1,464) and
-again changed nothing on the service.
+Typing the elements of typed slices resolved 3 more there (1,464), and
+telling a Go local by its scope (see below) 3 more (1,467), each time
+changing nothing on the service.
 
 On the Go service this resolved 882 of 2820 calls (723 before, some of
 them guesses): the store package, which handlers and the dashboard reach
@@ -1177,7 +1178,12 @@ that crosses it.
   function value, `let unsigned = |v| ...`) is not a function call,
   except the caller's own name: `walk()` in `walk` recurses, and
   `CrateOf()` in the method `Libraries.CrateOf` calls the function of
-  that name, unless a local of the name shadows it. Otherwise it
+  that name, unless a local of the name shadows it. In Go, which the
+  Go adapter tells by the scopes open at the call (`unit.Call.Local`),
+  a name is local only where a variable of it is in scope: one declared
+  in an inner block (`if params := params(n); ...`), or by the call's own
+  statement (`manifest := manifest(root, dir)`), leaves the package's
+  function callable elsewhere. Otherwise it
   prefers the caller's file, then a unique function in its crate. It
   leaves the crate only through a `use` import, and only into a
   workspace crate (aliases followed); an import from an outside crate

@@ -704,6 +704,48 @@ func (s *Server) Get(in flow.Inputs) {
 				`13 Locate qualifier="" type="" field=""`,
 			},
 		},
+		"bare calls by a variable's name in scope are local": {
+			src: `package api
+
+func run(n *Node, src []byte, check func() bool) {
+	if params := params(n, src); len(params) > 0 {
+		params(n, src)
+	}
+	params(n, src)
+	for _, x := range n.Items {
+		shared := shared(x)
+		shared(x)
+	}
+	shared(n)
+	check()
+	walk := func() { helper() }
+	walk()
+	var visit func()
+	visit = func() { visit() }
+	run(n, src, check)
+}
+`,
+			line: func(c unit.Call) string {
+				if c.Kind != unit.FreeCall {
+					return ""
+				}
+				return fmt.Sprintf("%d %s local=%v", c.Line, c.Name, c.Local)
+			},
+			want: []string{
+				`4 params local=false`,
+				`4 len local=false`,
+				`5 params local=true`,
+				`7 params local=false`,
+				`9 shared local=false`,
+				`10 shared local=true`,
+				`12 shared local=false`,
+				`13 check local=true`,
+				`14 helper local=false`,
+				`15 walk local=true`,
+				`17 visit local=true`,
+				`18 run local=false`,
+			},
+		},
 		"variables shadow imports and named results are typed": {
 			src: `package api
 

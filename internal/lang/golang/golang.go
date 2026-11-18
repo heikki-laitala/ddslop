@@ -245,6 +245,7 @@ func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
 		return c, false
 	case fn.Kind() == "identifier":
 		c.Kind, c.Name = unit.FreeCall, fn.Utf8Text(src)
+		c.Local = g.isVariable(c.Name) // walk := func() {..}; walk()
 	case fn.Kind() == "selector_expression":
 		operand, field := fn.ChildByFieldName("operand"), fn.ChildByFieldName("field")
 		if operand == nil || field == nil {

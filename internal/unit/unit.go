@@ -216,6 +216,12 @@ type Call struct {
 	// it takes it out as ? does. A library's is looked through to the
 	// call it adapts; one the repository defines is a call like any other.
 	Adapts int
+	// Local is true for a Go free call by the name of a variable in scope
+	// at the call (a closure or function value), which is no function.
+	// Go's other free calls are not local, whatever the function declares
+	// elsewhere; other languages leave it unset, and the graph reads the
+	// unit's own declarations (Leaf.Declares) instead.
+	Local bool
 	// Ignored is true when a ddslop:ignore comment marks the call's line.
 	Ignored bool
 }
