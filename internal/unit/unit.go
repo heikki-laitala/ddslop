@@ -201,9 +201,9 @@ type Call struct {
 	Type string
 	// Field is the field a method is called on, followed from the
 	// operand: the receiver's (store in s.store.Save(), Go's and Rust's
-	// self.store.get()) or, in Rust, a dotted path from the receiver, a
-	// typed variable (Type) or a call's result (From): ctx.db in
-	// self.ctx.db.query(), store in req.store.get(); or, in TypeScript,
+	// self.store.get()) or, in Go and Rust, a dotted path from the
+	// receiver, a typed variable (Type) or a call's result (From): ctx.db
+	// in self.ctx.db.query(), store in req.store.get(); or, in TypeScript,
 	// this.store.get() and a typed variable's: repo in deps.repo.find().
 	Field string
 	// From is 1 + the index, among its unit's calls, of the call whose

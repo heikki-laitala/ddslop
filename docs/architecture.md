@@ -352,10 +352,15 @@ Go method calls resolve by type where the code states it. The adapter
 records the type of a method call's operand (`unit.Call.Type`) when it
 is a parameter or named result, a `var x T`, or a variable set from a composite literal
 (`x := T{}`, `&T{}`, `var x = T{}`), qualified by the file's imports
-(`example.com/app/store.DB`), and the field for a call on a receiver's
-field (`s.store.Save()`, `unit.Call.Field`), whose type comes from the
+(`example.com/app/store.DB`), and the fields a call follows from the
+receiver, a typed variable or a call's result (`s.cfg.store.Save()`,
+`in.Libraries.CrateOf()`, `r.Summary.Health.Limit()` after `r, err :=
+check()`, or a variable holding such a chain: `libraries :=
+load().Libraries`; `unit.Call.Field`). Each field's type comes from its
 struct's declaration (`Decls.FieldTypes`), qualified by its own file's
-imports; a test file's fields are left out. Variables keep to their
+imports and read in that struct's package; a test file's fields are left
+out, and a chain through a field of unknown type, or a struct of another
+module, types nothing. Variables keep to their
 lexical scope: a block, statement or function literal that declares one
 restores the outer one when it ends, an outer variable assigned in a
 nested scope is unknown after it (the scope may not have run), though
@@ -393,7 +398,10 @@ so a method on its result is still guessed. An import binds the name Go's tools 
 its package (`github.com/redis/go-redis/v9` is `redis`, `gopkg.in/yaml.v3`
 is `yaml`), so a field of type `*redis.Client` is that outside type. On
 the Go service this removed three wrong edges into the repository's own
-`Ping` methods, and changed no finding.
+`Ping` methods, and changed no finding. Following field chains past the
+receiver's own fields resolved 7 more calls on ddslop's own code (1,454
+to 1,461 of 5,143) and turned 11 guesses by name into calls by type; on
+the Go service it changed nothing, and no finding changed on either.
 
 On the Go service this resolved 882 of 2820 calls (723 before, some of
 them guesses): the store package, which handlers and the dashboard reach

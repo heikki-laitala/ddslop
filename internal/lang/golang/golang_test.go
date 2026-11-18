@@ -631,11 +631,37 @@ func (s *Server) Run() {
 			want: []string{
 				`4 Save qualifier="" type="" field="store"`,
 				`5 Flush qualifier="self" type="" field=""`,
-				`8 Save qualifier="" type="" field=""`,
+				`8 Save qualifier="" type="Other" field="store"`,
 				`9 Flush qualifier="" type="Other" field=""`,
 				`12 Flush qualifier="" type="Remote" field=""`,
 				`14 Flush qualifier="self" type="" field=""`,
 				`16 Load qualifier="" type="DB" field=""`,
+			},
+		},
+		"field chains start from the receiver or a typed variable": {
+			src: `package api
+
+import "example.com/app/flow"
+
+func (s *Server) Get(in flow.Inputs) {
+	s.cfg.store.Save()
+	in.Libraries.CrateOf()
+	db := s.store
+	db.Save()
+	libraries := in.Libraries
+	libraries.Locate()
+	unknown.Libraries.Locate()
+	flow.Default.Locate()
+}
+`,
+			line: methodType,
+			want: []string{
+				`6 Save qualifier="" type="" field="cfg.store"`,
+				`7 CrateOf qualifier="" type="example.com/app/flow.Inputs" field="Libraries"`,
+				`9 Save qualifier="" type="" field="store"`,
+				`11 Locate qualifier="" type="example.com/app/flow.Inputs" field="Libraries"`,
+				`12 Locate qualifier="" type="" field=""`,
+				`13 Locate qualifier="" type="" field=""`,
 			},
 		},
 		"variables shadow imports and named results are typed": {
@@ -889,24 +915,35 @@ func run(s *Server) {
 	c.Fill()
 	var d = one()
 	d.Fill()
+	r, _ := check()
+	r.Summary.Health.Limit()
+	libraries := load().Libraries
+	libraries.Locate()
+	load().Libraries.Locate()
 }
 `
 	units, _ := testutil.Parse(t, Parse, "api/run.go", src)
 	calls := units[0].Calls
 	got := testutil.Format(calls, func(c unit.Call) string {
-		return fmt.Sprintf("%d %s from=%s", c.Line, c.Name, testutil.Producer(calls, c))
+		return fmt.Sprintf("%d %s from=%s field=%q", c.Line, c.Name, testutil.Producer(calls, c), c.Field)
 	})
 	want := []string{
-		"4 open from=-",
-		"5 Save from=open#0",
-		"6 Error from=open#1",
-		"7 one from=-",
-		"8 Fill from=one#0",
-		"9 Save from=Store#0",
-		"9 Store from=-",
-		"11 Fill from=-",
-		"12 one from=-",
-		"13 Fill from=one#0",
+		`4 open from=- field=""`,
+		`5 Save from=open#0 field=""`,
+		`6 Error from=open#1 field=""`,
+		`7 one from=- field=""`,
+		`8 Fill from=one#0 field=""`,
+		`9 Save from=Store#0 field=""`,
+		`9 Store from=- field=""`,
+		`11 Fill from=- field=""`,
+		`12 one from=- field=""`,
+		`13 Fill from=one#0 field=""`,
+		`14 check from=- field=""`,
+		`15 Limit from=check#0 field="Summary.Health"`,
+		`16 load from=- field=""`,
+		`17 Locate from=load#0 field="Libraries"`,
+		`18 Locate from=load#0 field="Libraries"`,
+		`18 load from=- field=""`,
 	}
 	testutil.Lines(t, "calls", got, want)
 }

@@ -325,16 +325,20 @@ func (r *callResolver) resolveCall(c unit.Call) (int, bool, bool) {
 		}
 		if callee >= 0 && !guessed && c.Result < len(r.units[callee].Results) {
 			producer := r.units[callee]
-			typ, home := producer.Results[c.Result], producer
-			if c.Field != "" && strings.HasSuffix(producer.File, ".rs") {
+			typ, home, dir := producer.Results[c.Result], producer, r.ix.libraries.CrateOf(producer.File)
+			switch {
+			case c.Field == "":
+			case strings.HasSuffix(producer.File, ".rs"):
 				typ, home = r.ix.followFields(typ, home, c.Field) // make().inner.run()
+			default:
+				typ, dir = r.ix.followGoFields(typ, dir, c.Field) // open().store.Save()
 			}
 			if typ != "" {
 				resolve := func() (int, bool) {
 					if strings.HasSuffix(producer.File, ".rs") {
 						return r.ix.resolveRust(r.units, r.caller, home, typ, c.Name)
 					}
-					return r.ix.resolveTyped(r.units, r.ix.libraries.CrateOf(producer.File), typ, c.Name)
+					return r.ix.resolveTyped(r.units, dir, typ, c.Name)
 				}
 				if u, known := resolve(); known {
 					return u, false, isTrait(typ)
@@ -388,18 +392,18 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 	if c.Kind != unit.MethodCall || c.Qualifier == "self" {
 		return ix.resolveNamed(units, caller, owner, c), false, false
 	}
-	typ, home := c.Type, caller
+	typ, home, dir := c.Type, caller, ix.libraries.CrateOf(caller.File)
+	if c.Field != "" && typ == "" {
+		typ = owner // self.ctx.db, s.cfg.store
+	}
 	switch {
 	case c.Field == "":
-	case strings.HasSuffix(caller.File, ".rs") && c.From > 0:
+	case c.From > 0:
 		typ = "" // a field of a call's result: followed in resolveCall, or not at all
 	case strings.HasSuffix(caller.File, ".rs"):
-		if typ == "" {
-			typ = owner // self.ctx.db
-		}
 		typ, home = ix.followFields(typ, home, c.Field)
 	default:
-		typ = ix.fields[ix.libraries.CrateOf(caller.File)][owner+"."+c.Field].Type
+		typ, dir = ix.followGoFields(typ, dir, c.Field)
 	}
 	switch {
 	case typ == "":
@@ -408,7 +412,7 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 			return u, false, isTrait(typ)
 		}
 	default:
-		if u, known := ix.resolveTyped(units, ix.libraries.CrateOf(caller.File), typ, c.Name); known {
+		if u, known := ix.resolveTyped(units, dir, typ, c.Name); known {
 			return u, false, false
 		}
 	}
@@ -732,6 +736,29 @@ func (ix index) resolveTyped(units []unit.Unit, home, typ, method string) (int, 
 	}
 	u := only(units, ix.owned[name+"::"+method], func(u unit.Unit) bool { return ix.libraries.CrateOf(u.File) == dir })
 	return u, u >= 0
+}
+
+// followGoFields follows a Go field path (cfg.store) from a type written
+// as unit.Call.Type, unqualified for a type of the package in directory
+// dir, through the struct declarations: each field's declared type, read
+// in its struct's package. It returns the last field's type and that
+// package's directory, or "" when a field's type is not known, as for a
+// struct of another module.
+func (ix index) followGoFields(typ, dir, path string) (string, string) {
+	for _, field := range strings.Split(path, ".") {
+		name := typ
+		if i := strings.LastIndex(typ, "."); i >= 0 {
+			var inRepo bool
+			if dir, inRepo = ix.packageDir(typ[:i]); !inRepo {
+				return "", dir
+			}
+			name = typ[i+1:]
+		}
+		if typ = ix.fields[dir][name+"."+field].Type; typ == "" {
+			return "", dir
+		}
+	}
+	return typ, dir
 }
 
 // packageDir returns the directory of the repository's Go package with

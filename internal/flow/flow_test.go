@@ -500,6 +500,34 @@ func TestGoMethodCallsOnACallsResultResolveByItsResultType(t *testing.T) {
 	}
 }
 
+// A field chain is followed through the structs' declarations from where
+// it starts, each field's type read in its struct's package: the
+// receiver (s.cfg.store.Save()), a typed variable (in.Libraries.CrateOf())
+// or a call's result (r.Summary.Health.Limit() after r := check()). The
+// caller's package's own methods of those names are not the ones called.
+func TestGoMethodCallsResolveThroughFieldChains(t *testing.T) {
+	g := Build(Inputs{Modules: map[string]string{".": "example.com/app"},
+		Fields: map[string]map[string]FieldType{
+			"api":    {"Server.cfg": {Type: "Config"}, "Config.store": {Type: "example.com/app/internal/store.Store"}},
+			"flow":   {"Inputs.Libraries": {Type: "Libraries"}},
+			"report": {"Report.Summary": {Type: "Summary"}, "Summary.Health": {Type: "Health"}},
+		}}, []unit.Unit{
+		fn("api/server.go", "Server.Get",
+			unit.Call{Kind: unit.MethodCall, Field: "cfg.store", Name: "Save"},
+			unit.Call{Kind: unit.MethodCall, Type: "example.com/app/flow.Inputs", Field: "Libraries", Name: "CrateOf"},
+			free("check"),
+			unit.Call{Kind: unit.MethodCall, From: 3, Field: "Summary.Health", Name: "Limit"}),
+		{File: "api/check.go", Name: "check", Results: []string{"example.com/app/report.Report"}},
+		fn("internal/store/store.go", "Store.Save"),
+		fn("flow/flow.go", "Libraries.CrateOf"),
+		fn("report/report.go", "Health.Limit"),
+		fn("api/local.go", "local.Save"),
+		fn("api/local.go", "local.CrateOf"),
+		fn("api/local.go", "local.Limit"),
+	})
+	wantCallees(t, g, "api/server.go Server.Get", "[internal/store/store.go Store.Save flow/flow.go Libraries.CrateOf api/check.go check report/report.go Health.Limit]")
+}
+
 // A method called on the result of an outside package's constructor
 // (New..., Open..., Dial..., Connect...) is a method of that package's
 // value: none of ours, not one guessed by its name (pool :=
