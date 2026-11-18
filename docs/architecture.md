@@ -502,7 +502,15 @@ separators read as slashes, and a relative
 say itself (a `null` `paths` or `baseUrl` clears what it inherits),
 each read with all it extends, through a chain of any
 length that ends where a file would extend itself; a package's `extends`
-(`@tsconfig/node20`), project references and `rootDirs` are not read. A
+(`@tsconfig/node20`) and `rootDirs` are not read. A solution
+`tsconfig.json` that only references others (Vite's, naming
+`tsconfig.app.json` and `tsconfig.node.json`) holds none of this
+itself: a file reads the first referenced config whose `include` covers
+it (`src/**/*` covers `src/`; no `include`, all of its directory), else
+the solution's own. On a 1,700-file monorepo whose Vite apps import
+through `src/`, this resolved 549 more calls (3,722, from 3,173), and
+two directories' shared files, imported back by those below them, came
+up as `move-shared-down`. A
 relative import, a path alias and a package name resolve through one
 `tsfile.Modules`, for calls, whole imports and directory cycles alike.
 On a 630-file TypeScript monorepo whose apps import through `@/`, this

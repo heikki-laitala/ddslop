@@ -251,3 +251,30 @@ func reader(files map[string]string) func(file string) ([]byte, error) {
 		return nil, os.ErrNotExist
 	}
 }
+
+// A solution tsconfig.json (Vite's) only references the configs that say
+// how paths resolve: a file reads the referenced config whose include
+// covers it, extends and all, and one none covers the solution's own.
+func TestModulesFollowAProjectReference(t *testing.T) {
+	files := map[string]string{
+		"app/tsconfig.app.json":  `{"extends": "./tsconfig.base.json", "include": ["src/**/*"]}`,
+		"app/tsconfig.base.json": `{"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["./src/*"]}}}`,
+		"app/tsconfig.node.json": `{"compilerOptions": {"baseUrl": "./tools"}, "include": ["vite.config.ts"]}`,
+	}
+	config, ok := ReadConfig("app", []byte(`{"files": [], "references": [{"path": "./tsconfig.app.json"}, {"path": "./tsconfig.node.json"}]}`), reader(files))
+	m := Modules{Configs: map[string]Config{"app": config}, Stems: map[string]bool{
+		"app/src/hooks/useAuth": true, "app/tools/plugin": true,
+	}}
+	for _, c := range []struct{ importer, module, want string }{
+		{"app/src/pages/home.tsx", "src/hooks/useAuth", "app/src/hooks/useAuth"},
+		{"app/src/pages/home.tsx", "@/hooks/useAuth", "app/src/hooks/useAuth"},
+		{"app/vite.config.ts", "plugin", "app/tools/plugin"},
+	} {
+		if got, found := m.Path(c.importer, c.module); !ok || !found || got != c.want {
+			t.Errorf("Path(%s, %s) = %s, %v (read %v); want %s", c.importer, c.module, got, found, ok, c.want)
+		}
+	}
+	if got, found := m.Path("app/vite.config.ts", "src/hooks/useAuth"); found {
+		t.Errorf("Path(vite.config.ts, src/hooks/useAuth) = %s: the node config, not the app's, covers it", got)
+	}
+}

@@ -197,7 +197,7 @@ func (m Modules) targets(importer, module string) []string {
 	if !ok {
 		return nil
 	}
-	return c.targets(module)
+	return c.project(importer).targets(module)
 }
 
 // Files reports, for a file, whether it is the module a module path names
