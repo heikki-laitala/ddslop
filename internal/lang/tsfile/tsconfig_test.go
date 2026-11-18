@@ -133,6 +133,9 @@ func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 			t.Errorf("Files(%s) is not the index file of the directory it names", c.module)
 		}
 	}
+	if m.Files("apps/web/src/pages/home.tsx", "../config/")("apps/web/src/config.ts") {
+		t.Error("Files(../config/) is config.ts, though the directory it names has no index file")
+	}
 }
 
 // A tsconfig's paths come before the workspace packages, as tsc looks in

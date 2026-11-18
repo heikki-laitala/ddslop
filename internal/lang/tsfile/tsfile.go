@@ -212,10 +212,10 @@ func (m Modules) Files(importer, module string) func(file string) bool {
 		if stem, ok := m.pick(named); ok {
 			return func(file string) bool { return Stem(file) == stem }
 		}
-		named = strings.TrimSuffix(named, "/")
-		return func(file string) bool { // our files unknown: either
+		dir, asDir := strings.CutSuffix(named, "/")
+		return func(file string) bool { // our files unknown: either, a directory's index alone
 			stem := Stem(file)
-			return stem == named || stem == named+"/index"
+			return !asDir && stem == dir || stem == path.Join(dir, "index")
 		}
 	}
 	inPackage := func(dir string) func(file string) bool {
