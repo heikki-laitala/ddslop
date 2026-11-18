@@ -782,12 +782,19 @@ func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, 
 }
 
 // resolveFree resolves a bare call foo(). A name the caller declares itself
-// is a closure or function value, not a function. Otherwise the caller's
-// file and crate come first; a function of another crate is reachable only
-// through a use import, and only a workspace crate's is resolved.
+// is a closure or function value, not a function, except its own name: a
+// call by it recurses, or from a method calls the function of that name.
+// Otherwise the caller's file and crate come first; a function of another
+// crate is reachable only through a use import, and only a workspace
+// crate's is resolved.
 func (ix index) resolveFree(units []unit.Unit, caller unit.Unit, name string) int {
+	_, own := split(caller.Name)
 	for _, l := range caller.Leaves {
 		if l.Declares && l.Text == name {
+			if l.Text == own {
+				own = "" // its own name, declared once
+				continue
+			}
 			return -1
 		}
 	}

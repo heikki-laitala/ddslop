@@ -1126,9 +1126,12 @@ than linking to every candidate, because a wrong edge pollutes every slice
 that crosses it.
 
 - A bare call `foo()` to a name the caller declares itself (a closure or
-  function value, `let unsigned = |v| ...`) is not a function call.
-  Otherwise it prefers the caller's file, then a unique function in its
-  crate. It leaves the crate only through a `use` import, and only into a
+  function value, `let unsigned = |v| ...`) is not a function call,
+  except the caller's own name: `walk()` in `walk` recurses, and
+  `CrateOf()` in the method `Libraries.CrateOf` calls the function of
+  that name, unless a local of the name shadows it. Otherwise it
+  prefers the caller's file, then a unique function in its crate. It
+  leaves the crate only through a `use` import, and only into a
   workspace crate (aliases followed); an import from an outside crate
   such as `tokio` is never resolved to a repository function.
 - `Type::f` matches methods of `Type` (generics ignored), `Self::f` the

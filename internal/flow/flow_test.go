@@ -181,6 +181,31 @@ func TestCallsToLocalClosuresAreNotResolved(t *testing.T) {
 	wantCallees(t, g, "a/src/api.rs capacity_of", "[]")
 }
 
+// A function's own name is no local: a call by it is the function itself
+// (recursion), or, from a method, the package's function of that name. A
+// local of the name still shadows it.
+func TestBareCallsByTheCallersOwnNameAreNotLocal(t *testing.T) {
+	ownName := func(file, name string, declared ...string) unit.Unit {
+		_, short := split(name)
+		u := local(file, name, short, free(short))
+		for _, d := range declared {
+			u.Leaves = append(u.Leaves, unit.Leaf{Kind: unit.Identifier, Text: d, Declares: true})
+		}
+		return u
+	}
+	g := Build(Inputs{}, []unit.Unit{
+		ownName("tree/walk.go", "walk"),
+		ownName("flow/flow.go", "Libraries.CrateOf"),
+		fn("flow/crate.go", "CrateOf"),
+		// visit := func() { ... }; visit()
+		ownName("tree/visit.go", "visit", "visit"),
+	})
+
+	wantCallees(t, g, "tree/walk.go walk", "[tree/walk.go walk]")
+	wantCallees(t, g, "flow/flow.go Libraries.CrateOf", "[flow/crate.go CrateOf]")
+	wantCallees(t, g, "tree/visit.go visit", "[]")
+}
+
 func TestBareCallsLeaveTheCrateOnlyThroughImports(t *testing.T) {
 	imports := map[string]map[string]string{
 		"crates/translation/src/a.rs": { //nolint:gosec // crate and function names, not credentials
