@@ -116,12 +116,20 @@ func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 }
 
 // A tsconfig's paths come before the workspace packages, as tsc looks in
-// node_modules only for a path they do not resolve.
+// node_modules only for a path they do not resolve; one whose target is a
+// workspace package's directory names that package, as its name would
+// (its manifest picks the entry file).
 func TestModulesFilesPreferATsconfigPathToAPackage(t *testing.T) {
 	m := Modules{
-		Packages: map[string]string{"packages/ui": "@acme/ui"},
-		Configs:  map[string]Config{"apps/web": {Paths: []Pattern{{"@acme/ui", []string{"apps/web/src/ui-shim"}}}}},
-		Stems:    map[string]bool{"apps/web/src/ui-shim": true, "packages/ui/src/index": true},
+		Packages: map[string]string{"packages/ui": "@acme/ui", "packages/foo": "@acme/foo"},
+		Configs: map[string]Config{"apps/web": {Paths: []Pattern{
+			{"@acme/ui", []string{"apps/web/src/ui-shim"}},
+			{"@foo", []string{"packages/foo"}},
+		}}},
+		Stems: map[string]bool{"apps/web/src/ui-shim": true, "packages/ui/src/index": true, "packages/foo/src/index": true},
+	}
+	if foo := m.Files("apps/web/src/app.ts", "@foo"); !foo("packages/foo/src/index.ts") || foo("packages/ui/src/index.ts") {
+		t.Error("Files(@foo) is not the package its alias names the directory of")
 	}
 	names := m.Files("apps/web/src/app.ts", "@acme/ui")
 	if !names("apps/web/src/ui-shim.ts") || names("packages/ui/src/index.ts") {

@@ -477,8 +477,9 @@ through a path alias (`@/lib/db`) resolves as tsc resolves it, before
 the workspace packages: by the `compilerOptions.paths` of the nearest
 `tsconfig.json` above the importing file, the exact pattern, else the
 wildcard one of the longest prefix (the first declared of two alike), to
-the first of its targets that is a file of ours, or, with no pattern
-matching, under its `baseUrl`. Targets are read from the effective
+the first of its targets that is a file of ours, or a workspace
+package's directory, which stands for the package as its name does, or,
+with no pattern matching, under its `baseUrl`. Targets are read from the effective
 `baseUrl`, else from the directory of the file declaring the paths, so
 inherited paths follow a child's own `baseUrl`. The file is JSON with
 comments, trailing commas, perhaps a byte order mark and Windows

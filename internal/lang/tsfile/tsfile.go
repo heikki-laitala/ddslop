@@ -138,32 +138,61 @@ func (m Modules) Path(importer, module string) (string, bool) {
 	if named, ok := ModulePath(importer, module); ok {
 		return named, true
 	}
-	c, ok := m.Configs[PackageDir(importer, m.Configs)]
-	if !ok {
-		return "", false
-	}
-	for _, target := range c.targets(module) {
-		if m.Stems[target] || m.Stems[target+"/index"] {
+	for _, target := range m.targets(importer, module) {
+		if m.isFile(target) {
 			return target, true
 		}
 	}
 	return "", false
 }
 
+// targets returns the paths the nearest tsconfig.json above importer maps
+// a non-relative module path to, in tsc's order (see Config).
+func (m Modules) targets(importer, module string) []string {
+	c, ok := m.Configs[PackageDir(importer, m.Configs)]
+	if !ok {
+		return nil
+	}
+	return c.targets(module)
+}
+
+// isFile reports whether a path, without extension, is a file of ours or
+// a directory with an index file.
+func (m Modules) isFile(stem string) bool {
+	return m.Stems[stem] || m.Stems[stem+"/index"]
+}
+
 // Files reports, for a file, whether it is the module a module path names
 // as importer imports it: the file a path names (see Path) or its
-// directory's index file, else one of the workspace package a package
-// path names (@acme/db, @acme/db/query), outside the packages nested in
-// it.
+// directory's index file, or, for a tsconfig path whose first target of
+// ours is a workspace package's directory, one of that package's files,
+// as its name would; else one of the workspace package a package path
+// names (@acme/db, @acme/db/query), outside the packages nested in it.
 func (m Modules) Files(importer, module string) func(file string) bool {
-	if named, ok := m.Path(importer, module); ok {
+	file := func(named string) func(file string) bool {
 		return func(file string) bool {
 			stem := Stem(file)
 			return stem == named || stem == named+"/index"
 		}
 	}
-	dir, ok := packageNamed(module, m.Packages)
-	return func(file string) bool { return ok && PackageDir(file, m.Packages) == dir }
+	inPackage := func(dir string) func(file string) bool {
+		return func(file string) bool { return PackageDir(file, m.Packages) == dir }
+	}
+	if named, ok := ModulePath(importer, module); ok {
+		return file(named)
+	}
+	for _, target := range m.targets(importer, module) {
+		if m.isFile(target) {
+			return file(target)
+		}
+		if _, ok := m.Packages[target]; ok {
+			return inPackage(target)
+		}
+	}
+	if dir, ok := packageNamed(module, m.Packages); ok {
+		return inPackage(dir)
+	}
+	return func(string) bool { return false }
 }
 
 // packageNamed returns the directory of the workspace package a module
