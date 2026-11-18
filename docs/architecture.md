@@ -481,7 +481,8 @@ the first of its targets that is a file of ours, or, with no pattern
 matching, under its `baseUrl`. Targets are read from the effective
 `baseUrl`, else from the directory of the file declaring the paths, so
 inherited paths follow a child's own `baseUrl`. The file is JSON with
-comments, trailing commas and perhaps a byte order mark, and a relative
+comments, trailing commas, perhaps a byte order mark and Windows
+separators read as slashes, and a relative
 `extends`, or each of an array of them in turn, gives what it does not
 say itself, each read with all it extends, through a chain of any
 length that ends where a file would extend itself; a package's `extends`

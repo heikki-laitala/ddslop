@@ -57,6 +57,7 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 	}
 	var c Config
 	for _, parent := range extendsOf(raw.Extends) {
+		parent = slashed(parent)
 		if !relative(parent) {
 			continue
 		}
@@ -77,12 +78,18 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 		delete(seen, file) // another branch may extend it as well
 	}
 	if b := raw.CompilerOptions.BaseURL; b != nil {
-		c.BaseURL = path.Join(dir, *b)
+		c.BaseURL = path.Join(dir, slashed(*b))
 	}
 	if paths != nil {
 		c.Paths, c.PathsDir = paths, dir
 	}
 	return c, true
+}
+
+// slashed returns a path a tsconfig writes with slashes: tsc reads a
+// Windows separator (.\base.json) as one on every system.
+func slashed(p string) string {
+	return strings.ReplaceAll(p, `\`, "/")
 }
 
 // extendsOf returns the configs an extends names: one, or an array of them.
@@ -131,6 +138,9 @@ func orderedPaths(raw json.RawMessage) ([]Pattern, bool) {
 		var targets []string
 		if err != nil || !isString || d.Decode(&targets) != nil {
 			return nil, false
+		}
+		for i, t := range targets {
+			targets[i] = slashed(t)
 		}
 		out = append(out, Pattern{Pattern: pattern, Targets: targets})
 	}
