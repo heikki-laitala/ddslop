@@ -66,7 +66,7 @@ func describe(c Config) string {
 // pattern matching, a path under its baseUrl does. The exact pattern wins
 // over a wildcard, the longest prefix over a shorter one; a file wins over
 // a directory's index file of the same path, unless a trailing slash, of
-// the path or of its target, names the directory.
+// the path or of its target, or a path of . or .., names the directory.
 func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 	m := Modules{
 		Configs: map[string]Config{
@@ -83,7 +83,7 @@ func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 		Stems: map[string]bool{
 			"apps/web/src/lib/db": true, "apps/web/generated/schema": true, "apps/web/src/hooks/index": true,
 			"packages/ui/src/button": true, "apps/web/src/config": true, "apps/api/src/services/mail": true,
-			"apps/web/src/pwa-register": true, "apps/legacy/src/lib/db": true, "apps/web/src/lib/db/index": true, "apps/api/src/services/mail/index": true,
+			"apps/web/src/pwa-register": true, "apps/legacy/src/lib/db": true, "apps/web/src/lib/db/index": true, "apps/api/src/services/mail/index": true, "index": true,
 		},
 	}
 	for _, c := range []struct {
@@ -125,9 +125,12 @@ func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 		{"apps/web/src/pages/home.tsx", "../lib/db/", "apps/web/src/lib/db.ts", "apps/web/src/lib/db/index.ts"},
 		{"apps/web/src/pages/home.tsx", "@dbdir", "apps/web/src/lib/db.ts", "apps/web/src/lib/db/index.ts"},
 		{"apps/api/src/routes/send.ts", "services/mail/", "apps/api/src/services/mail.ts", "apps/api/src/services/mail/index.ts"},
+		{"apps/web/src/lib/db/client.ts", ".", "apps/web/src/lib/db.ts", "apps/web/src/lib/db/index.ts"},
+		{"apps/web/src/lib/db/pool/conn.ts", "..", "apps/web/src/lib/db.ts", "apps/web/src/lib/db/index.ts"},
+		{"main.ts", ".", "main.ts", "index.ts"},
 	} {
 		if names := m.Files(c.importer, c.module); names(c.file) || !names(c.index) {
-			t.Errorf("Files(%s) is not the directory's index file its trailing slash names", c.module)
+			t.Errorf("Files(%s) is not the index file of the directory it names", c.module)
 		}
 	}
 }

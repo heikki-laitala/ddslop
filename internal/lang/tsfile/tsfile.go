@@ -166,11 +166,11 @@ func (m Modules) File(importer, module string) (string, bool) {
 	return m.pick(named)
 }
 
-// relativePath is ModulePath, ending in a slash as the module path does
-// (see resolve).
+// relativePath is ModulePath, ending in a slash when the module path
+// names a directory (see resolve): it ends in a slash, or in . or ..
 func relativePath(importer, module string) (string, bool) {
 	named, ok := ModulePath(importer, module)
-	if ok && strings.HasSuffix(module, "/") {
+	if last := path.Base(module); ok && (strings.HasSuffix(module, "/") || last == "." || last == "..") {
 		named += "/"
 	}
 	return named, ok
@@ -184,8 +184,8 @@ func (m Modules) pick(named string) (string, bool) {
 	if !asDir && m.Stems[named] {
 		return named, true
 	}
-	if m.Stems[dir+"/index"] {
-		return dir + "/index", true
+	if index := path.Join(dir, "index"); m.Stems[index] {
+		return index, true
 	}
 	return "", false
 }
