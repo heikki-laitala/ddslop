@@ -861,6 +861,24 @@ func TestRustModulePathFallbackSkipsTheCallersOwnFunction(t *testing.T) {
 	wantCallees(t, Build(in, units), "a/src/lib.rs root", "[]")
 }
 
+// A path rooted at the crate's own name, as its binary and tests write
+// it (lns_ledger::mock::install_panic_hook), names the crate's module as
+// crate:: does: of two functions with the name, that module's.
+func TestRustOwnCrateNamePathPicksTheNamedModule(t *testing.T) {
+	units := []unit.Unit{
+		fn("ledger/src/mock.rs", "install_panic_hook"),
+		fn("ledger/src/http.rs", "install_panic_hook"),
+		fn("ledger/src/lib.rs", "start"),
+		fn("ledger/src/startup.rs", "start"),
+		fn("ledger/src/main.rs", "main", path("lns_ledger::mock", "install_panic_hook"), path("lns_ledger", "start")),
+	}
+	in := Inputs{
+		Crates:    map[string]string{"ledger": "lns_ledger"},
+		RustFiles: []string{"ledger/src/lib.rs", "ledger/src/main.rs", "ledger/src/mock.rs", "ledger/src/http.rs", "ledger/src/startup.rs"},
+	}
+	wantCallees(t, Build(in, units), "ledger/src/main.rs main", "[ledger/src/mock.rs install_panic_hook ledger/src/lib.rs start]")
+}
+
 // A path naming a module that re-exports the name from another crate
 // (pub use lns_tls::provider) reaches that crate's function, or none for
 // an outside crate's (rand::random), never the caller crate's single

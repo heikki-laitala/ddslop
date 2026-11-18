@@ -1147,7 +1147,9 @@ that crosses it.
   rule, such calls linked modules that never call each other. Of the
   free functions with the called name, the one in the module the path
   names wins (`crate::store::endpoint` is `store.rs`'s `endpoint`, not
-  `config.rs`'s); a function the module's own scope imports by name
+  `config.rs`'s, and so is `acme::store::endpoint` from the crate's own
+  binary or tests, its own name rooting the path as `crate::` does); a
+  function the module's own scope imports by name
   from another crate (`pub use lns_tls::provider`, a crate root's from
   `lib.rs` before `main.rs` but a root file's own for a call written
   there, `main.rs` or a target's a manifest places,
