@@ -506,8 +506,9 @@ length that ends where a file would extend itself; a package's `extends`
 `tsconfig.json` that only references others (Vite's, naming
 `tsconfig.app.json` and `tsconfig.node.json`) holds none of this
 itself: a file reads the first referenced config that covers it, as
-tsc decides it (listed in its `files`, or matched by an `include` glob
-whose wildcards reach into no hidden directory, and by no `exclude` glob
+tsc decides it (listed in its `files`, or matched by an `include` glob,
+brackets in it literal (`src/pages/[id]`), whose wildcards reach no
+hidden directory or file, and by no `exclude` glob
 for it or a directory above it, a pattern with no wildcard naming a file
 or a directory; one with neither covers all of its directory), the configs
 a referenced solution references in turn before it, else the

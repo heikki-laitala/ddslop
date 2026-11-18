@@ -257,7 +257,8 @@ func reader(files map[string]string) func(file string) ([]byte, error) {
 // it, extends and all, as tsc decides it: listed in its files, or matched
 // by an include glob and no exclude one (a pattern with no wildcard is a
 // file or a directory, an exclude one matching a directory all below
-// it, and a wildcard no hidden directory), through solutions it
+// it, a wildcard no hidden directory or file, and brackets nothing but
+// themselves), through solutions it
 // references in turn; one none covers reads the solution's own.
 func TestModulesFollowAProjectReference(t *testing.T) {
 	files := map[string]string{
@@ -270,12 +271,13 @@ func TestModulesFollowAProjectReference(t *testing.T) {
 		"app/libs/tsconfig.json":    `{"files": [], "references": [{"path": "./ui"}, {"path": "../tsconfig.app.json"}]}`,
 		"app/libs/ui/tsconfig.json": `{"compilerOptions": {"baseUrl": "./lib"}}`,
 		"app/tsconfig.rest.json":    `{"compilerOptions": {"baseUrl": "./rest"}}`,
+		"app/tsconfig.pages.json":   `{"include": ["src/pages/[id]/**/*"], "compilerOptions": {"baseUrl": "./pages"}}`,
 	}
-	solution := `{"files": [], "references": [{"path": "./tsconfig.scripts.json"}, {"path": "./tsconfig.top.json"},
+	solution := `{"files": [], "references": [{"path": "./tsconfig.pages.json"}, {"path": "./tsconfig.scripts.json"}, {"path": "./tsconfig.top.json"},
 		{"path": "./tsconfig.app.json"}, {"path": "./tsconfig.test.json"}, {"path": "./tsconfig.node.json"}, {"path": "./libs"}, {"path": "./tsconfig.rest.json"}]}`
 	config, ok := ReadConfig("app", []byte(solution), reader(files))
 	m := Modules{Configs: map[string]Config{"app": config}, Stems: map[string]bool{
-		"app/src/hooks/useAuth": true, "app/tools/plugin": true, "app/top/lib": true, "app/testing/helper": true, "app/scripts/util": true, "app/libs/ui/lib/button": true, "app/rest/util": true,
+		"app/src/hooks/useAuth": true, "app/tools/plugin": true, "app/top/lib": true, "app/testing/helper": true, "app/scripts/util": true, "app/libs/ui/lib/button": true, "app/rest/util": true, "app/pages/util": true,
 	}}
 	for _, c := range []struct{ importer, module, want string }{
 		{"app/src/pages/home.tsx", "src/hooks/useAuth", "app/src/hooks/useAuth"},
@@ -287,6 +289,7 @@ func TestModulesFollowAProjectReference(t *testing.T) {
 		{"app/libs/ui/src/card.tsx", "button", "app/libs/ui/lib/button"}, // through a solution it references
 		{"app/other/x.ts", "util", "app/rest/util"},                      // the last, covering all of app
 		{"app/src/foo/generated/model.ts", "util", "app/rest/util"},      // the app excludes its directory
+		{"app/src/pages/[id]/view.tsx", "util", "app/pages/util"},        // [id] is a directory's name
 	} {
 		if got, found := m.Path(c.importer, c.module); !ok || !found || got != c.want {
 			t.Errorf("Path(%s, %s) = %s, %v (read %v); want %s", c.importer, c.module, got, found, ok, c.want)
@@ -295,7 +298,12 @@ func TestModulesFollowAProjectReference(t *testing.T) {
 	if got, found := m.Path("app/vite.config.ts", "src/hooks/useAuth"); found {
 		t.Errorf("Path(vite.config.ts, src/hooks/useAuth) = %s: the node config, not the app's, covers it", got)
 	}
-	if got, found := m.Path("app/.storybook/main.ts", "util"); found {
-		t.Errorf("Path(.storybook/main.ts, util) = %s: a wildcard covers no hidden directory", got)
+	for _, c := range []struct{ importer, module string }{
+		{"app/.storybook/main.ts", "util"}, // the catch-all's, but for the hidden directory
+		{"app/src/.generated.ts", "lib"},   // src/*.ts's, but for the hidden file
+	} {
+		if got, found := m.Path(c.importer, c.module); found {
+			t.Errorf("Path(%s, %s) = %s: a wildcard covers no hidden directory or file", c.importer, c.module, got)
+		}
 	}
 }

@@ -143,12 +143,12 @@ func (c Config) covers(file string) bool {
 	return slices.Contains(c.files, file) || slices.ContainsFunc(c.include, included) && !slices.ContainsFunc(c.exclude, excluded)
 }
 
-// hiddenFrom reports whether a file is under a hidden directory (one
-// whose name starts with a dot) that a pattern does not name itself: tsc's
-// wildcards, and a directory pattern's, do not reach into one.
+// hiddenFrom reports whether a file is hidden, or under a hidden
+// directory (a name starting with a dot), that a pattern does not name
+// itself: tsc's wildcards, and a directory pattern's, reach no such one.
 func hiddenFrom(pattern, file string) bool {
 	named := strings.Split(pattern, "/")
-	for _, segment := range strings.Split(path.Dir(file), "/") {
+	for _, segment := range strings.Split(file, "/") {
 		if strings.HasPrefix(segment, ".") && segment != "." && !slices.Contains(named, segment) {
 			return true
 		}
@@ -167,7 +167,8 @@ func matchGlob(pattern, file string) bool {
 	if !strings.ContainsAny(pattern, "*?") {
 		return file == pattern || strings.HasPrefix(file, pattern+"/")
 	}
-	return config.MatchGlob(pattern, file)
+	// brackets name themselves in a tsconfig (src/pages/[id]), not a set
+	return config.MatchGlob(strings.NewReplacer("[", `\[`, "]", `\]`).Replace(pattern), file)
 }
 
 func readConfig(dir string, data []byte, read func(file string) ([]byte, error), seen map[string]bool) (Config, bool) {
