@@ -262,6 +262,17 @@ func TestCheckReportsATypeScriptCycleThroughAnImport(t *testing.T) {
 	wantSites(t, r, "src/api/routes.ts:serve:6 src/db/client.ts:import:2")
 }
 
+// An import through a tsconfig path alias is a dependency as a relative
+// one is.
+func TestCheckReportsATypeScriptCycleThroughAPathAlias(t *testing.T) {
+	r := wantCycleBetween(t, "src/api -> src/db, src/db -> src/api", repo(t, map[string]string{
+		"tsconfig.json":     `{"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["src/*"]}}}`,
+		"src/api/routes.ts": "import { TABLE } from \"@/db/schema\";\n\nexport const LIMIT = TABLE.length;\n",
+		"src/db/schema.ts":  "import { LIMIT } from \"@/api/routes\";\n\nexport const TABLE = \"rows\";\nexport const MAX = LIMIT;\n",
+	}))
+	wantSites(t, r, "src/api/routes.ts:import:1 src/db/schema.ts:import:1")
+}
+
 // What closes no TypeScript cycle: files of one directory, a barrel
 // re-exporting a directory below it, a dynamic import (loaded later, as
 // code breaking a cycle does), an import of types only (compiled away), a

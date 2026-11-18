@@ -472,9 +472,22 @@ package, by its `package.json` name or a subpath of it (`@acme/db`,
 anywhere in the package's directory outside the packages nested in it,
 when exactly one is there: its `main` and `exports` often name build
 output (`dist/`), and its entry file re-exports the rest, so the
-directory is what the name stands for, as a Go package's is. An outside
-package's import (`node:fs`, `lodash`) resolves to nothing, and nor does
-a method call on a value of no stated type: JavaScript's own method
+directory is what the name stands for, as a Go package's is. An import
+through a path alias (`@/lib/db`) resolves as tsc resolves it, before
+the workspace packages: by the `compilerOptions.paths` of the nearest
+`tsconfig.json` above the importing file, the exact pattern, else the
+wildcard one of the longest prefix, to the first of its targets that is
+a file of ours, or, with no pattern matching, under its `baseUrl`. The
+file is JSON with comments and trailing commas, and a relative `extends`
+gives what it does not say itself; a package's `extends`
+(`@tsconfig/node20`), project references and `rootDirs` are not read. A
+relative import, a path alias and a package name resolve through one
+`tsfile.Modules`, for calls, whole imports and directory cycles alike.
+On a 630-file TypeScript monorepo whose apps import through `@/`, this
+resolved 502 more calls (14% of them, from 9%), and its directories'
+imports closed two cycles, both real. An outside package's import
+(`node:fs`, `lodash`) resolves to nothing, and nor does a method call
+on a value of no stated type: JavaScript's own method
 names (`map`, `get`, `then`) are too many to tell from the code's.
 Wrappers work as in Go, but a function giving a parameter a default
 value (`opts = {}`) or taking an optional one (`id?: string`) is no
@@ -484,7 +497,7 @@ an iterator, not the call's value; class members are left out, as they
 may implement an interface, which TypeScript checks by shape. All
 TypeScript extensions share one call index, so a `.tsx` component calls
 a `.ts` helper. What the call graph needs to know of TypeScript files by
-name (which are source, which file a relative import names) lives in
+name (which are source, which file an import names) lives in
 `internal/lang/tsfile`, which holds no parser, so `flow` links no
 grammar. A TypeScript package serves only the analysed code when its
 `package.json`, the nearest above a file, is `"private": true`, which
@@ -514,8 +527,9 @@ website), a first measure without these rules gave 15 unused exports,
 among them a drizzle schema's relations and a page's `getStaticPaths`;
 with them, 6, all named nowhere else (`useMenuState`, `highlightCode`);
 none on Excalidraw and Hono, and the wrappers stayed the same. Calls
-through path aliases (`@/lib/x`) are not followed, nor method calls on a
-value of no stated type or of an interface several classes implement. A
+through an alias only a bundler's configuration declares (Vite's
+`resolve.alias`) are not followed, nor method calls on a value of no
+stated type or of an interface several classes implement. A
 name bound again inside a function (a nested function's parameter, a
 `for`-`of` loop's, a `catch` clause's, a destructuring) loses the outer
 one's type, and a name a nested function or block binds is that scope's:
@@ -1824,8 +1838,9 @@ Only Rust modules within a crate, and TypeScript directories, can form
 one: Go's compiler forbids import cycles between packages, and Cargo
 cycles between crates. A TypeScript directory, the module `map`
 describes, depends on another it calls or imports from by a relative
-path. An import of types only is none, as it uses no value of the
-module: `import type { A }`, which compiling removes, or
+path or a tsconfig path alias. An import of types only is none, as it
+uses no value of the module: `import type { A }`, which compiling
+removes, or
 `import { type A }`, which `verbatimModuleSyntax` keeps as an empty
 import that still loads the module, so a cycle through it is missed.
 Nor is a re-export (`export * from`, a barrel's) or a dynamic

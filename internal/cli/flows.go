@@ -207,9 +207,26 @@ func tsPackageNames(root string, files []index.File) map[string]string {
 }
 
 // tsModules gathers what resolves the module paths TypeScript files
-// import: the names of the workspace packages.
+// import: the names of the workspace packages, the tsconfig.json of every
+// directory holding a TypeScript file or above one, and the stems of the
+// TypeScript files.
 func tsModules(root string, files []index.File) tsfile.Modules {
-	return tsfile.Modules{Packages: tsPackageNames(root, files)}
+	m := tsfile.Modules{Packages: tsPackageNames(root, files), Configs: map[string]tsfile.Config{}, Stems: map[string]bool{}}
+	read := func(file string) ([]byte, error) {
+		return os.ReadFile(filepath.Join(root, filepath.FromSlash(file))) //nolint:gosec // a tsconfig the analysed one extends
+	}
+	raw := manifests(root, files, tsfile.IsSource, "tsconfig.json", func(data []byte) ([]byte, bool) { return data, true })
+	for dir, data := range raw {
+		if c, ok := tsfile.ReadConfig(dir, data, read); ok {
+			m.Configs[dir] = c
+		}
+	}
+	for _, f := range files {
+		if tsfile.IsSource(f.Path) {
+			m.Stems[tsfile.Stem(f.Path)] = true
+		}
+	}
+	return m
 }
 
 // graphInputs collects what call resolution needs: each file's imports,

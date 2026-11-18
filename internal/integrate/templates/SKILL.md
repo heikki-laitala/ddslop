@@ -221,17 +221,17 @@ What to do per `kind`:
   leave the cycle unless asked. Mark a deliberate pair with
   `ddslop:ignore` on one of its sites, saying why. In TypeScript the
   modules are directories, depending on each other through calls and
-  relative imports (an `import type`, a re-export or a dynamic
-  `import()` is none); an occurrence named `import` is an import line.
-  Two directories are a cycle only when files of them really loop. A
-  directory that both imports directories below it and is imported back
-  by them, with no loop of files, is one candidate for the upper
-  directory with the action `move-shared-down`: `values` pairs each
-  directory below (`lib -> lib/card`) with the file of the upper one it
-  imports back (`lib/card -> lib/helpers.ts`), each occurrence that
-  import or call. Move those files down, out of the directory wiring
-  the others together (a `lib/shared/` beside the others), and keep the
-  wiring where it is.
+  relative or tsconfig-aliased imports (an `import type`, a re-export or
+  a dynamic `import()` is none); an occurrence named `import` is an
+  import line. Two directories are a cycle only when files of them
+  really loop. A directory that both imports directories below it and
+  is imported back by them, with no loop of files, is one candidate for
+  the upper directory with the action `move-shared-down`: `values` pairs
+  each directory below (`lib -> lib/card`) with the file of the upper
+  one it imports back (`lib/card -> lib/helpers.ts`), each occurrence
+  that import or call. Move those files down, out of the directory
+  wiring the others together (a `lib/shared/` beside the others), and
+  keep the wiring where it is.
 - `duplicate-type`: structs with the same field names, or enums with the
   same variants (often one error enum per module). Keep one type and
   use it everywhere. Differences list field types that differ; when one

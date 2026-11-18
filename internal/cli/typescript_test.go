@@ -322,6 +322,18 @@ func TestCheckFollowsTypeScriptWorkspacePackages(t *testing.T) {
 	})
 }
 
+// A call through a tsconfig path alias (@/lib/db) finds the function the
+// file the alias maps to exports, so a wrapper around it is one.
+func TestCheckFollowsTypeScriptPathAliases(t *testing.T) {
+	r := oneCandidate[jsonReport](t, repo(t, map[string]string{
+		"apps/web/tsconfig.json":      "{\n  // the app's aliases\n  \"compilerOptions\": {\"paths\": {\"@/*\": [\"./src/*\"],},},\n}\n",
+		"apps/web/src/lib/db.ts":      "export function query(sql: string) {\n  const trimmed = sql.trim();\n  return trimmed.length;\n}\n",
+		"apps/web/src/api/handler.ts": "import { query } from \"@/lib/db\";\n\nexport function select(sql: string) {\n  return query(sql);\n}\n",
+	}))
+
+	testutil.Lines(t, "wrappers", candidateLines(r), []string{"typescript pass-through [apps/web/src/api/handler.ts select]"})
+}
+
 // A private package's exports serve only the analysed code: one nothing
 // names is unused. A default export, a framework's function and the
 // exports of a module imported whole are called without their names.
