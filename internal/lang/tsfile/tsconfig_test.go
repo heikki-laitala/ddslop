@@ -64,7 +64,8 @@ func describe(c Config) string {
 // A module path through the nearest tsconfig.json's paths names the first
 // of the pattern's targets that is a file of ours, as tsc's does; with no
 // pattern matching, a path under its baseUrl does. The exact pattern wins
-// over a wildcard, the longest prefix over a shorter one.
+// over a wildcard, the longest prefix over a shorter one; a file wins over
+// a directory's index file of the same path.
 func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 	m := Modules{
 		Configs: map[string]Config{
@@ -80,7 +81,7 @@ func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 		Stems: map[string]bool{
 			"apps/web/src/lib/db": true, "apps/web/generated/schema": true, "apps/web/src/hooks/index": true,
 			"packages/ui/src/button": true, "apps/web/src/config": true, "apps/api/src/services/mail": true,
-			"apps/web/src/pwa-register": true, "apps/legacy/src/lib/db": true,
+			"apps/web/src/pwa-register": true, "apps/legacy/src/lib/db": true, "apps/web/src/lib/db/index": true,
 		},
 	}
 	for _, c := range []struct {
@@ -112,6 +113,11 @@ func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 	}
 	if !m.Files("apps/web/src/pages/home.tsx", "@/hooks")("apps/web/src/hooks/index.ts") {
 		t.Error("Files(@/hooks) is not the directory's index file")
+	}
+	for _, module := range []string{"@/lib/db", "../lib/db"} {
+		if names := m.Files("apps/web/src/pages/home.tsx", module); !names("apps/web/src/lib/db.ts") || names("apps/web/src/lib/db/index.ts") {
+			t.Errorf("Files(%s) is not only db.ts, which tsc takes over db/index.ts", module)
+		}
 	}
 }
 

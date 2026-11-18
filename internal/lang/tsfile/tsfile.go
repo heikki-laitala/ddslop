@@ -163,16 +163,17 @@ func (m Modules) isFile(stem string) bool {
 }
 
 // Files reports, for a file, whether it is the module a module path names
-// as importer imports it: the file a path names (see Path) or its
+// as importer imports it: the file a path names (see Path), else its
 // directory's index file, or, for a tsconfig path whose first target of
 // ours is a workspace package's directory, one of that package's files,
 // as its name would; else one of the workspace package a package path
 // names (@acme/db, @acme/db/query), outside the packages nested in it.
 func (m Modules) Files(importer, module string) func(file string) bool {
 	file := func(named string) func(file string) bool {
+		direct := m.Stems[named] // tsc takes db.ts over db/index.ts
 		return func(file string) bool {
 			stem := Stem(file)
-			return stem == named || stem == named+"/index"
+			return stem == named || !direct && stem == named+"/index"
 		}
 	}
 	inPackage := func(dir string) func(file string) bool {

@@ -451,7 +451,8 @@ types the code states (below): a free call to the caller's file's
 function (a name a file does not import is its own, or a global, unless
 the caller declares the name, as a parameter does), a relative import to
 the exported function of that name in the file it names, extension or
-not, or in its `index` file (a default import is taken under its local
+not, else, with no such file, in its `index` file, as tsc takes `db.ts`
+over `db/index.ts` (a default import is taken under its local
 name, which a private function of the module may share), and a self call
 to the class's method. A method call on a value whose type the code
 states resolves to that class's method: a typed parameter
