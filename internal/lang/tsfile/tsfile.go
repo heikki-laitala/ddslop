@@ -35,13 +35,25 @@ func IsSource(file string) bool {
 // JavaScript one, or the index file of a directory of that path. A
 // package's path names none.
 func ModulePath(importer, module string) (string, bool) {
-	if module != "." && module != ".." && !strings.HasPrefix(module, "./") && !strings.HasPrefix(module, "../") {
+	if !relative(module) {
 		return "", false
 	}
+	return path.Join(path.Dir(filepath.ToSlash(importer)), trimExtension(module)), true
+}
+
+// relative reports whether a module path is relative to its importer's
+// directory.
+func relative(module string) bool {
+	return module == "." || module == ".." || strings.HasPrefix(module, "./") || strings.HasPrefix(module, "../")
+}
+
+// trimExtension drops a TypeScript or JavaScript extension a module path
+// may be written with.
+func trimExtension(module string) string {
 	if ext := path.Ext(module); slices.Contains(Extensions, ext) || slices.Contains([]string{".js", ".jsx", ".mjs", ".cjs"}, ext) {
-		module = strings.TrimSuffix(module, ext)
+		return strings.TrimSuffix(module, ext)
 	}
-	return path.Join(path.Dir(filepath.ToSlash(importer)), module), true
+	return module
 }
 
 // Stem returns a file's slashed path without its extension.
@@ -109,29 +121,49 @@ type Modules struct {
 	// Packages maps the directory of each named workspace package to its
 	// name (@acme/db).
 	Packages map[string]string
+	// Configs maps the directory of each tsconfig.json to what it says of
+	// module paths.
+	Configs map[string]Config
+	// Stems are the paths, without extension, of our TypeScript files.
+	Stems map[string]bool
 }
 
 // Path returns the path, without extension, that a module path names as
 // importer imports it: a file of that stem, or the index file of a
-// directory of that path. Only a relative path names one (see
-// ModulePath).
+// directory of that path. A relative path names one (see ModulePath); a
+// non-relative one ("@/lib/db") names the first of the targets the
+// nearest tsconfig.json above importer maps it to that is a file of ours
+// (see Config), as tsc resolves it. A package's path names none.
 func (m Modules) Path(importer, module string) (string, bool) {
-	return ModulePath(importer, module)
+	if named, ok := ModulePath(importer, module); ok {
+		return named, true
+	}
+	c, ok := m.Configs[PackageDir(importer, m.Configs)]
+	if !ok {
+		return "", false
+	}
+	for _, target := range c.targets(module) {
+		if m.Stems[target] || m.Stems[target+"/index"] {
+			return target, true
+		}
+	}
+	return "", false
 }
 
 // Files reports, for a file, whether it is the module a module path names
 // as importer imports it: the file a path names (see Path) or its
-// directory's index file, or one of the workspace package a package path
-// names (@acme/db, @acme/db/query), outside the packages nested in it.
+// directory's index file, else one of the workspace package a package
+// path names (@acme/db, @acme/db/query), outside the packages nested in
+// it.
 func (m Modules) Files(importer, module string) func(file string) bool {
-	if dir, ok := packageNamed(module, m.Packages); ok {
-		return func(file string) bool { return PackageDir(file, m.Packages) == dir }
+	if named, ok := m.Path(importer, module); ok {
+		return func(file string) bool {
+			stem := Stem(file)
+			return stem == named || stem == named+"/index"
+		}
 	}
-	named, ok := m.Path(importer, module)
-	return func(file string) bool {
-		stem := Stem(file)
-		return ok && (stem == named || stem == named+"/index")
-	}
+	dir, ok := packageNamed(module, m.Packages)
+	return func(file string) bool { return ok && PackageDir(file, m.Packages) == dir }
 }
 
 // packageNamed returns the directory of the workspace package a module
