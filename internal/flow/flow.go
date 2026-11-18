@@ -416,7 +416,11 @@ func (ix index) resolve(units []unit.Unit, caller unit.Unit, owner string, c uni
 			return u, false, false
 		}
 	}
-	if stdMethods[c.Name] || (strings.HasSuffix(caller.File, ".go") && goStdMethods[c.Name]) {
+	std := stdMethods
+	if strings.HasSuffix(caller.File, ".go") {
+		std = goStdMethods // an unexported Go method is its own package's
+	}
+	if std[c.Name] {
 		return -1, false, false // most likely a standard-library method
 	}
 	return ix.pick(units, caller, ix.methods[c.Name]), true, false

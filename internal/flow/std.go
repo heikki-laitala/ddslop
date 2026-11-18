@@ -50,9 +50,10 @@ func setOf(names ...string) map[string]bool {
 
 // goStdMethods are method names of common Go standard-library types and
 // interfaces (http.ResponseWriter, io, fmt.Stringer, error, context, sync,
-// database/sql, time, strings.Builder, bytes.Buffer, encoding/json). Like
-// stdMethods, calls by these names from Go code are not resolved by
-// uniqueness: w.Header() is an http.ResponseWriter's.
+// database/sql, time, strings.Builder, bytes.Buffer, encoding/json). In
+// place of stdMethods, calls by these names from Go code are not resolved
+// by uniqueness: w.Header() is an http.ResponseWriter's. Rust's names
+// (take, len) are unexported in Go: such a method is its own package's.
 var goStdMethods = setOf(
 	// net/http
 	"Header", "Write", "WriteHeader", "ServeHTTP", "Do", "Get", "Post", "Set", "Add", "Del",

@@ -344,17 +344,20 @@ func TestEntriesIncludeGoMethodsNamedInGeneratedInterfaces(t *testing.T) {
 }
 
 // w.Header() on an http.ResponseWriter is the standard library's, even
-// when the code defines a single Header method; other names still resolve.
+// when the code defines a single Header method; other names still resolve,
+// Rust's standard method names too: an unexported Go method (b.take()) is
+// its own package's.
 func TestGoStandardLibraryMethodsAreNotGuessed(t *testing.T) {
 	units := []unit.Unit{
 		fn("api/auth.go", "writeError", method("", "Header")),
 		fn("api/writer.go", "bufferingWriter.Header"),
-		fn("api/cache.go", "lookup", method("", "fetchCached")),
+		fn("api/cache.go", "lookup", method("", "fetchCached"), method("", "take")),
 		fn("api/store.go", "cache.fetchCached"),
+		fn("api/limit.go", "bucket.take"),
 	}
 	g := Build(Inputs{}, units)
 	wantCallees(t, g, "api/auth.go writeError", "[]")
-	wantCallees(t, g, "api/cache.go lookup", "[api/store.go cache.fetchCached]")
+	wantCallees(t, g, "api/cache.go lookup", "[api/store.go cache.fetchCached api/limit.go bucket.take]")
 }
 
 func TestCalleesFoundOnlyByMethodNameAreMarked(t *testing.T) {
