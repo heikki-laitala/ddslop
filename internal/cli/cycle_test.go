@@ -374,3 +374,13 @@ func TestCheckReportsTheRootDirectoryItsSubdirectoriesImportBack(t *testing.T) {
 		t.Errorf("values = %s, want the root and card", got)
 	}
 }
+
+// An import ending in a slash names the directory's index file, not a
+// file of the same path: tsc loads b/index.ts for "../b/" beside b.ts.
+func TestCheckReportsATypeScriptCycleThroughADirectoryImport(t *testing.T) {
+	wantCycleBetween(t, "src/a -> src/b, src/b -> src/a", repo(t, map[string]string{
+		"src/a/x.ts":     "import { y } from \"../b/\";\n\nexport const X = 1;\n\nexport function x() {\n  return y;\n}\n",
+		"src/b/index.ts": "import { X } from \"../a/x\";\n\nexport const y = X + 1;\n",
+		"src/b.ts":       "export const y = 2;\n",
+	}))
+}

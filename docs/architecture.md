@@ -452,7 +452,8 @@ function (a name a file does not import is its own, or a global, unless
 the caller declares the name, as a parameter does), a relative import to
 the exported function of that name in the file it names, extension or
 not, else, with no such file, in its `index` file, as tsc takes `db.ts`
-over `db/index.ts` (a default import is taken under its local
+over `db/index.ts` and `./db/`, ending in a slash, as the directory's
+`index` alone (a default import is taken under its local
 name, which a private function of the module may share), and a self call
 to the class's method. A method call on a value whose type the code
 states resolves to that class's method: a typed parameter

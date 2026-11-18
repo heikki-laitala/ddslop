@@ -1058,7 +1058,7 @@ func appendCycles(out []report.Cycle, g *flow.Graph, name string, cycles []codem
 
 // tsDependencies lists the imports of a TypeScript file of another group
 // than the importer's, as group names a file ("" to leave it out): one
-// whose path names a file of ours (see tsfile.Modules.Path), in files
+// whose path names a file of ours (see tsfile.Modules.File), in files
 // order and each file's source order. Test files' imports count only with
 // tests; a re-export (export * from) or a dynamic import is none.
 func tsDependencies(files []index.File, modules tsfile.Modules, tests bool, group func(file string) string) []codemap.Dependency {
@@ -1075,14 +1075,11 @@ func tsDependencies(files []index.File, modules tsfile.Modules, tests bool, grou
 			continue
 		}
 		for _, im := range f.Decls.Imports {
-			named, ok := modules.Path(f.Path, im.Module)
+			stem, ok := modules.File(f.Path, im.Module)
 			if !ok || (im.Test && !tests) {
 				continue
 			}
-			file, found := stems[named]
-			if !found {
-				file, found = stems[named+"/index"]
-			}
+			file, found := stems[stem]
 			if to := group(file); found && to != "" && to != from {
 				deps = append(deps, codemap.Dependency{From: from, To: to, File: f.Path, Item: "import", Target: file, Line: im.Line, Ignored: im.Ignored})
 			}

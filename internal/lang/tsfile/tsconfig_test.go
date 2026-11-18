@@ -65,7 +65,8 @@ func describe(c Config) string {
 // of the pattern's targets that is a file of ours, as tsc's does; with no
 // pattern matching, a path under its baseUrl does. The exact pattern wins
 // over a wildcard, the longest prefix over a shorter one; a file wins over
-// a directory's index file of the same path.
+// a directory's index file of the same path, unless a trailing slash
+// names the directory.
 func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 	m := Modules{
 		Configs: map[string]Config{
@@ -118,6 +119,9 @@ func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 		if names := m.Files("apps/web/src/pages/home.tsx", module); !names("apps/web/src/lib/db.ts") || names("apps/web/src/lib/db/index.ts") {
 			t.Errorf("Files(%s) is not only db.ts, which tsc takes over db/index.ts", module)
 		}
+	}
+	if names := m.Files("apps/web/src/pages/home.tsx", "../lib/db/"); names("apps/web/src/lib/db.ts") || !names("apps/web/src/lib/db/index.ts") {
+		t.Error("Files(../lib/db/) is not the directory's index file its trailing slash names")
 	}
 }
 

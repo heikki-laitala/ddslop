@@ -146,6 +146,30 @@ func (m Modules) Path(importer, module string) (string, bool) {
 	return "", false
 }
 
+// File returns the stem of the file of ours a module path names as
+// importer imports it (see Path): the file of that path, else its
+// directory's index file, which a path ending in a slash ("./db/") names
+// alone, as tsc takes them.
+func (m Modules) File(importer, module string) (string, bool) {
+	named, ok := m.Path(importer, module)
+	if !ok {
+		return "", false
+	}
+	return m.pick(named, module)
+}
+
+// pick returns the stem of the file of ours that named, a path module
+// resolves to, is (see File).
+func (m Modules) pick(named, module string) (string, bool) {
+	if !strings.HasSuffix(module, "/") && m.Stems[named] {
+		return named, true
+	}
+	if m.Stems[named+"/index"] {
+		return named + "/index", true
+	}
+	return "", false
+}
+
 // targets returns the paths the nearest tsconfig.json above importer maps
 // a non-relative module path to, in tsc's order (see Config).
 func (m Modules) targets(importer, module string) []string {
@@ -163,17 +187,19 @@ func (m Modules) isFile(stem string) bool {
 }
 
 // Files reports, for a file, whether it is the module a module path names
-// as importer imports it: the file a path names (see Path), else its
-// directory's index file, or, for a tsconfig path whose first target of
+// as importer imports it: the one File names, or, our files unknown, the
+// file a path names (see Path) or its directory's index file, or, for a tsconfig path whose first target of
 // ours is a workspace package's directory, one of that package's files,
 // as its name would; else one of the workspace package a package path
 // names (@acme/db, @acme/db/query), outside the packages nested in it.
 func (m Modules) Files(importer, module string) func(file string) bool {
 	file := func(named string) func(file string) bool {
-		direct := m.Stems[named] // tsc takes db.ts over db/index.ts
-		return func(file string) bool {
+		if stem, ok := m.pick(named, module); ok {
+			return func(file string) bool { return Stem(file) == stem }
+		}
+		return func(file string) bool { // our files unknown: either
 			stem := Stem(file)
-			return stem == named || !direct && stem == named+"/index"
+			return stem == named || stem == named+"/index"
 		}
 	}
 	inPackage := func(dir string) func(file string) bool {
