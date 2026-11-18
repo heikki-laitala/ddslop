@@ -253,22 +253,32 @@ func reader(files map[string]string) func(file string) ([]byte, error) {
 }
 
 // A solution tsconfig.json (Vite's) only references the configs that say
-// how paths resolve: a file reads the referenced config whose include
-// covers it, extends and all, and one none covers the solution's own.
+// how paths resolve: a file reads the first referenced config that covers
+// it, extends and all, as tsc decides it: listed in its files, or matched
+// by an include glob and no exclude one (a pattern with no wildcard is a
+// file or a directory); one none covers reads the solution's own.
 func TestModulesFollowAProjectReference(t *testing.T) {
 	files := map[string]string{
-		"app/tsconfig.app.json":  `{"extends": "./tsconfig.base.json", "include": ["src/**/*"]}`,
-		"app/tsconfig.base.json": `{"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["./src/*"]}}}`,
-		"app/tsconfig.node.json": `{"compilerOptions": {"baseUrl": "./tools"}, "include": ["vite.config.ts"]}`,
+		"app/tsconfig.scripts.json": `{"files": ["scripts/gen.ts"], "compilerOptions": {"baseUrl": "./scripts"}}`,
+		"app/tsconfig.top.json":     `{"include": ["src/*.ts"], "compilerOptions": {"baseUrl": "./top"}}`,
+		"app/tsconfig.app.json":     `{"extends": "./tsconfig.base.json", "include": ["src/**/*"], "exclude": ["src/test/**/*"]}`,
+		"app/tsconfig.base.json":    `{"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["./src/*"]}}}`,
+		"app/tsconfig.test.json":    `{"include": ["src/test"], "compilerOptions": {"baseUrl": "./testing"}}`,
+		"app/tsconfig.node.json":    `{"compilerOptions": {"baseUrl": "./tools"}, "include": ["vite.config.ts"]}`,
 	}
-	config, ok := ReadConfig("app", []byte(`{"files": [], "references": [{"path": "./tsconfig.app.json"}, {"path": "./tsconfig.node.json"}]}`), reader(files))
+	solution := `{"files": [], "references": [{"path": "./tsconfig.scripts.json"}, {"path": "./tsconfig.top.json"},
+		{"path": "./tsconfig.app.json"}, {"path": "./tsconfig.test.json"}, {"path": "./tsconfig.node.json"}]}`
+	config, ok := ReadConfig("app", []byte(solution), reader(files))
 	m := Modules{Configs: map[string]Config{"app": config}, Stems: map[string]bool{
-		"app/src/hooks/useAuth": true, "app/tools/plugin": true,
+		"app/src/hooks/useAuth": true, "app/tools/plugin": true, "app/top/lib": true, "app/testing/helper": true, "app/scripts/util": true,
 	}}
 	for _, c := range []struct{ importer, module, want string }{
 		{"app/src/pages/home.tsx", "src/hooks/useAuth", "app/src/hooks/useAuth"},
 		{"app/src/pages/home.tsx", "@/hooks/useAuth", "app/src/hooks/useAuth"},
 		{"app/vite.config.ts", "plugin", "app/tools/plugin"},
+		{"app/src/main.ts", "lib", "app/top/lib"},                      // src/*.ts: this file, not nested ones
+		{"app/src/test/login.test.ts", "helper", "app/testing/helper"}, // the app excludes it
+		{"app/scripts/gen.ts", "util", "app/scripts/util"},             // listed in files
 	} {
 		if got, found := m.Path(c.importer, c.module); !ok || !found || got != c.want {
 			t.Errorf("Path(%s, %s) = %s, %v (read %v); want %s", c.importer, c.module, got, found, ok, c.want)

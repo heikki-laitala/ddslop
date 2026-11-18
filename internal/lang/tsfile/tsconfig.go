@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"path"
+	"slices"
 	"strings"
+
+	"github.com/heikki-laitala/ddslop/internal/config"
 )
 
 // Config is what a tsconfig.json says of the module paths its files
@@ -24,7 +27,10 @@ type Config struct {
 	// tsconfig.app.json and tsconfig.node.json): a file reads the first
 	// whose include covers it (see project), else this one.
 	Projects []Config
-	include  []string // the directories and files include covers, from the root; none for all
+	// include, exclude and files are the globs and files the config's
+	// include, exclude and files name, from the analysed root (see
+	// covers); none of include and files covers all.
+	include, exclude, files []string
 }
 
 // Pattern is one entry of a tsconfig's paths: the pattern and its
@@ -61,8 +67,8 @@ func ReadConfig(dir string, data []byte, read func(file string) ([]byte, error))
 		}
 		if data, err := read(file); err == nil {
 			if p, ok := readConfig(path.Dir(file), data, read, map[string]bool{file: true}); ok {
-				if p.include == nil {
-					p.include = []string{path.Dir(file)} // tsc's default include: all of its directory
+				if p.include == nil && p.files == nil {
+					p.include = []string{path.Join(path.Dir(file), "**/*")} // tsc's default: all of its directory
 				}
 				c.Projects = append(c.Projects, p)
 			}
@@ -77,14 +83,12 @@ func decode(data []byte, v any) bool {
 	return json.Unmarshal(stripJSONC(bytes.TrimPrefix(data, []byte("\ufeff"))), v) == nil
 }
 
-// includes returns what an include written in dir covers, from the root:
-// each pattern up to its first wildcard ("src/**/*" is src, "**/*" all of
-// dir), as a directory or a file.
-func includes(dir string, patterns []string) []string {
+// fromDir returns the paths or globs a config written in dir names, from
+// the analysed root.
+func fromDir(dir string, patterns []string) []string {
 	out := []string{}
 	for _, p := range patterns {
-		p, _, _ = strings.Cut(slashed(p), "*")
-		out = append(out, path.Join(dir, strings.TrimSuffix(p, "/")))
+		out = append(out, path.Join(dir, slashed(p)))
 	}
 	return out
 }
@@ -100,24 +104,37 @@ func (c Config) project(file string) Config {
 	return c
 }
 
-// covers reports whether a config's include covers a file: one of its
-// directories holds it or names it; a config with no include covers all.
+// covers reports whether a config covers a file, as tsc decides it: its
+// files list it, or an include pattern matches it and no exclude one
+// does; a config with no include and no files covers all.
 func (c Config) covers(file string) bool {
-	if c.include == nil {
+	if c.include == nil && c.files == nil {
 		return true
 	}
-	for _, in := range c.include {
-		if in == "." || file == in || strings.HasPrefix(file, in+"/") {
-			return true
-		}
+	matches := func(p string) bool { return matchGlob(p, file) }
+	return slices.Contains(c.files, file) || slices.ContainsFunc(c.include, matches) && !slices.ContainsFunc(c.exclude, matches)
+}
+
+// matchGlob reports whether a tsconfig include or exclude pattern
+// matches a file: * and ? within a segment, ** for any number of
+// directories, and a pattern with no wildcard the file itself or a
+// directory holding it.
+func matchGlob(pattern, file string) bool {
+	if pattern == "." {
+		return true
 	}
-	return false
+	if !strings.ContainsAny(pattern, "*?") {
+		return file == pattern || strings.HasPrefix(file, pattern+"/")
+	}
+	return config.MatchGlob(pattern, file)
 }
 
 func readConfig(dir string, data []byte, read func(file string) ([]byte, error), seen map[string]bool) (Config, bool) {
 	var raw struct {
 		Extends         any      `json:"extends"`
 		Include         []string `json:"include"`
+		Exclude         []string `json:"exclude"`
+		Files           []string `json:"files"`
 		CompilerOptions struct {
 			BaseURL json.RawMessage `json:"baseUrl"`
 			Paths   json.RawMessage `json:"paths"`
@@ -166,7 +183,13 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 		c.Paths, c.PathsDir = paths, dir
 	}
 	if raw.Include != nil {
-		c.include = includes(dir, raw.Include)
+		c.include = fromDir(dir, raw.Include)
+	}
+	if raw.Exclude != nil {
+		c.exclude = fromDir(dir, raw.Exclude)
+	}
+	if raw.Files != nil {
+		c.files = fromDir(dir, raw.Files)
 	}
 	return c, true
 }
@@ -204,6 +227,12 @@ func (c Config) over(base Config) Config {
 	}
 	if c.include != nil {
 		base.include = c.include
+	}
+	if c.exclude != nil {
+		base.exclude = c.exclude
+	}
+	if c.files != nil {
+		base.files = c.files
 	}
 	return base
 }

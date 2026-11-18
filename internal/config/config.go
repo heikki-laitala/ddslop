@@ -60,13 +60,18 @@ func Load(root string) (Config, error) {
 // Excluded reports whether a path (relative to the root, "/" separators)
 // matches one of the exclude patterns.
 func (c Config) Excluded(file string) bool {
-	segments := strings.Split(file, "/")
 	for _, p := range c.Exclude {
-		if match(strings.Split(p, "/"), segments) {
+		if MatchGlob(p, file) {
 			return true
 		}
 	}
 	return false
+}
+
+// MatchGlob reports whether a slashed glob matches a slashed path: * and ?
+// within a segment, ** for any number of segments.
+func MatchGlob(pattern, file string) bool {
+	return match(strings.Split(pattern, "/"), strings.Split(file, "/"))
 }
 
 // match matches path segments against pattern segments, where "**"

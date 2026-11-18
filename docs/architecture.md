@@ -505,9 +505,11 @@ length that ends where a file would extend itself; a package's `extends`
 (`@tsconfig/node20`) and `rootDirs` are not read. A solution
 `tsconfig.json` that only references others (Vite's, naming
 `tsconfig.app.json` and `tsconfig.node.json`) holds none of this
-itself: a file reads the first referenced config whose `include` covers
-it (`src/**/*` covers `src/`; no `include`, all of its directory), else
-the solution's own. On a 1,700-file monorepo whose Vite apps import
+itself: a file reads the first referenced config that covers it, as
+tsc decides it (listed in its `files`, or matched by an `include` glob
+and no `exclude` one, a pattern with no wildcard naming a file or a
+directory; one with neither covers all of its directory), else the
+solution's own. On a 1,700-file monorepo whose Vite apps import
 through `src/`, this resolved 549 more calls (3,722, from 3,173), and
 two directories' shared files, imported back by those below them, came
 up as `move-shared-down`. A
