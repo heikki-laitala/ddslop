@@ -60,18 +60,19 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 		if !relative(parent) {
 			continue
 		}
-		if !strings.HasSuffix(parent, ".json") {
-			parent += ".json"
-		}
+		// as written, else with .json added, as tsc reads it
 		file := path.Join(dir, parent)
-		if seen[file] {
-			continue // a file extending itself, through the chain read so far
+		data, err := read(file)
+		if err != nil && !strings.HasSuffix(file, ".json") {
+			file += ".json"
+			data, err = read(file)
+		}
+		if err != nil || seen[file] {
+			continue // missing, or a file extending itself through the chain read so far
 		}
 		seen[file] = true
-		if data, err := read(file); err == nil {
-			if p, ok := readConfig(path.Dir(file), data, read, seen); ok {
-				c = p.over(c)
-			}
+		if p, ok := readConfig(path.Dir(file), data, read, seen); ok {
+			c = p.over(c)
 		}
 		delete(seen, file) // another branch may extend it as well
 	}
