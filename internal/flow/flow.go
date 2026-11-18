@@ -854,10 +854,11 @@ func (ix index) fromOtherCrate(crate, module, path string) bool {
 // no function of the name, through what the module's own scope imports
 // from another crate: the name itself (pub use lns_tls::provider), or a
 // module the path goes through (pub use lns_tls::inner, called as
-// tls::inner::provider) when no module of the crate has that name; see
-// imported for which function the path then reaches. ok is false when
-// the module imports neither from another crate: the name is the crate's
-// own, re-exported from elsewhere in it.
+// tls::inner::provider) when no module of the crate has that name, by
+// name or else by a glob (see globbed); see imported for which function
+// the path then reaches. ok is false when the module imports neither from
+// another crate: the name is the crate's own, re-exported from elsewhere
+// in it.
 func (ix index) reexported(units []unit.Unit, from, crate, module, name string) (int, bool) {
 	segments := []string{name}
 	if module != "" {
@@ -874,8 +875,38 @@ func (ix index) reexported(units []unit.Unit, from, crate, module, name string) 
 			}
 			return ix.imported(units, joinModule(path, rest)), true
 		}
+		if u, ok := ix.globbed(units, from, crate, scope, joinModule(segments[i], rest)); ok {
+			return u, true
+		}
 	}
 	return -1, false
+}
+
+// globbed resolves a path (a name and what follows it) through the globs
+// of a module's own scope (pub use lns_tls::*), each read through the
+// module's aliases: when every glob leaves the crate, the first to reach a
+// workspace crate's function (see imported), else none. ok is false when
+// the module has no glob, or one within the crate, which may supply the
+// name as well.
+func (ix index) globbed(units []unit.Unit, from, crate, module, path string) (int, bool) {
+	imported := ix.moduleScope(from, crate, module)
+	var globs []string
+	for _, key := range slices.Sorted(maps.Keys(imported)) {
+		if !strings.HasPrefix(key, "*") {
+			continue
+		}
+		glob := throughAliases(imported, imported[key], key)
+		if !ix.fromOtherCrate(crate, module, glob) {
+			return -1, false
+		}
+		globs = append(globs, glob)
+	}
+	for _, glob := range globs {
+		if u := ix.imported(units, glob+"::"+path); u >= 0 {
+			return u, true
+		}
+	}
+	return -1, len(globs) > 0
 }
 
 // moduleImport returns the path a module of a crate imports a name by
@@ -888,16 +919,30 @@ func (ix index) reexported(units []unit.Unit, from, crate, module, name string) 
 // (lib.rs, main.rs, a target's a manifest places) is its own file's:
 // each roots its own crate.
 func (ix index) moduleImport(from, crate, module, name string) (string, bool) {
-	imported := ix.modImports[crate+"#"+module]
-	if m, ok := ix.libraries.rootOrModule(from); module == "" && ok && m == "" {
-		imported = ix.topImports[from]
-	}
+	imported := ix.moduleScope(from, crate, module)
 	path, ok := imported[name]
-	for seen := map[string]bool{name: true}; ok; {
+	path = throughAliases(imported, path, name)
+	return path, ok && strings.Contains(path, "::")
+}
+
+// moduleScope returns the imports of a module's own scope by imported
+// name, for a call written in from (see moduleImport).
+func (ix index) moduleScope(from, crate, module string) map[string]string {
+	if m, ok := ix.libraries.rootOrModule(from); module == "" && ok && m == "" {
+		return ix.topImports[from]
+	}
+	return ix.modImports[crate+"#"+module]
+}
+
+// throughAliases reads a path a scope imports name by through the scope's
+// own import of its root, and of that one's root in turn, until the root
+// is none of them or one followed already.
+func throughAliases(imported map[string]string, path, name string) string {
+	for seen := map[string]bool{name: true}; ; {
 		root, rest, more := strings.Cut(path, "::")
 		full, alias := imported[root]
 		if !alias || seen[root] {
-			break
+			return path
 		}
 		seen[root] = true
 		path = full
@@ -905,7 +950,6 @@ func (ix index) moduleImport(from, crate, module, name string) (string, bool) {
 			path += "::" + rest
 		}
 	}
-	return path, ok && strings.Contains(path, "::")
 }
 
 // resolveTypeScript resolves a TypeScript call. A name the file does not

@@ -987,18 +987,34 @@ func TestRustModulePathFollowsTheModulesImport(t *testing.T) {
 	}
 }
 
+// ledgerCall is a call ledger/src/history.rs makes, and the callees it
+// should resolve to.
+type ledgerCall struct {
+	call unit.Call
+	want string
+}
+
+// wantLedgerCalls adds a function of ledger/src/history.rs making each
+// call, named after it, to units, builds the graph of crates lns_tls and
+// lns_ledger and checks what each call resolves to.
+func wantLedgerCalls(t *testing.T, in Inputs, units []unit.Unit, calls map[string]ledgerCall) {
+	t.Helper()
+	for name, c := range calls {
+		units = append(units, fn("ledger/src/history.rs", name, c.call))
+	}
+	in.Crates = map[string]string{"tls": "lns_tls", "ledger": "lns_ledger"}
+	g := Build(in, units)
+	for name, c := range calls {
+		wantCallees(t, g, "ledger/src/history.rs "+name, c.want)
+	}
+}
+
 // A module path call whose module re-exports a module of another crate
 // (pub use lns_tls::inner, called as crate::tls::inner::provider) is that
 // crate's function in the module the path names, else its only one of
 // the name, and none for an outside crate's module, never the caller's
 // crate's unrelated function of the name.
 func TestRustModulePathFollowsAReexportedModuleOfAnotherCrate(t *testing.T) {
-	calls := map[string]unit.Call{
-		"module":  path("crate::tls::inner", "provider"),
-		"deeper":  path("crate::tls::inner::deep", "provider"),
-		"only":    path("crate::tls::inner", "verify"),
-		"outside": path("crate::tls::crypto", "provider"),
-	}
 	units := []unit.Unit{
 		fn("tls/src/lib.rs", "provider"),
 		fn("tls/src/inner.rs", "provider"),
@@ -1007,24 +1023,50 @@ func TestRustModulePathFollowsAReexportedModuleOfAnotherCrate(t *testing.T) {
 		fn("ledger/src/management_api.rs", "provider"),
 		fn("ledger/src/management_api.rs", "verify"),
 	}
-	for name, c := range calls {
-		units = append(units, fn("ledger/src/history.rs", name, c))
-	}
 	in := Inputs{
 		TopImports: map[string]map[string]string{"ledger/src/tls.rs": {"inner": "lns_tls::inner", "crypto": "rustls::crypto"}},
-		Crates:     map[string]string{"tls": "lns_tls", "ledger": "lns_ledger"},
 		RustFiles: []string{"tls/src/lib.rs", "tls/src/inner.rs", "tls/src/inner/deep.rs", "tls/src/api.rs",
 			"ledger/src/lib.rs", "ledger/src/tls.rs", "ledger/src/history.rs", "ledger/src/management_api.rs"},
 	}
-	g := Build(in, units)
-	for name, want := range map[string]string{
-		"module":  "[tls/src/inner.rs provider]",
-		"deeper":  "[tls/src/inner/deep.rs provider]",
-		"only":    "[tls/src/api.rs verify]",
-		"outside": "[]",
-	} {
-		wantCallees(t, g, "ledger/src/history.rs "+name, want)
+	wantLedgerCalls(t, in, units, map[string]ledgerCall{
+		"module":  {path("crate::tls::inner", "provider"), "[tls/src/inner.rs provider]"},
+		"deeper":  {path("crate::tls::inner::deep", "provider"), "[tls/src/inner/deep.rs provider]"},
+		"only":    {path("crate::tls::inner", "verify"), "[tls/src/api.rs verify]"},
+		"outside": {path("crate::tls::crypto", "provider"), "[]"},
+	})
+}
+
+// A module path call whose module re-exports another crate by a glob
+// (pub use lns_tls::*, called as crate::tls::provider) is that crate's
+// function in the module the glob and the path name, else its only one
+// of the name, read through the module's aliases (use lns_tls as t; pub
+// use t::inner::*); none when all its globs are of outside crates
+// (rustls), and a glob within the crate, or a module of the crate the
+// path goes through, still falls back to the crate's only one.
+func TestRustModulePathFollowsAGlobOfAnotherCrate(t *testing.T) {
+	units := []unit.Unit{
+		fn("tls/src/lib.rs", "provider"),
+		fn("tls/src/inner.rs", "provider"),
+		fn("ledger/src/management_api.rs", "provider"),
 	}
+	in := Inputs{
+		TopImports: map[string]map[string]string{
+			"ledger/src/tls.rs":     {"*lns_tls": "lns_tls"},
+			"ledger/src/aliased.rs": {"t": "lns_tls", "*t::inner": "t::inner"},
+			"ledger/src/outside.rs": {"*rustls::crypto": "rustls::crypto", "*rustls": "rustls"},
+			"ledger/src/local.rs":   {"*lns_tls": "lns_tls", "*crate::management_api": "crate::management_api"},
+		},
+		RustFiles: []string{"tls/src/lib.rs", "tls/src/inner.rs", "ledger/src/lib.rs", "ledger/src/tls.rs", "ledger/src/tls/real.rs",
+			"ledger/src/aliased.rs", "ledger/src/outside.rs", "ledger/src/local.rs", "ledger/src/history.rs", "ledger/src/management_api.rs"},
+	}
+	wantLedgerCalls(t, in, units, map[string]ledgerCall{
+		"root":    {path("crate::tls", "provider"), "[tls/src/lib.rs provider]"},
+		"through": {path("crate::tls::inner", "provider"), "[tls/src/inner.rs provider]"},
+		"alias":   {path("crate::aliased", "provider"), "[tls/src/inner.rs provider]"},
+		"outside": {path("crate::outside", "provider"), "[]"},
+		"local":   {path("crate::local", "provider"), "[ledger/src/management_api.rs provider]"},
+		"real":    {path("crate::tls::real", "provider"), "[ledger/src/management_api.rs provider]"},
+	})
 }
 
 // Rust calls through fields follow the struct declarations of crate a,

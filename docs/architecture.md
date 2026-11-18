@@ -1162,14 +1162,18 @@ that crosses it.
   and so is one in a module the path goes through that the module
   imports from another crate rather than declares (`pub use
   lns_tls::inner` in `tls.rs`, called as `crate::tls::inner::provider()`,
-  is `lns_tls::inner::provider`),
-  and one re-exported from elsewhere in the crate (an inline module
-  counts as the crate's) falls back to
+  is `lns_tls::inner::provider`). A name the module's own scope
+  imports by neither comes from its globs (`pub use lns_tls::*`, read
+  through its aliases) when all of them leave the crate: the first to
+  reach a workspace crate's function, as a named import does, else none
+  (`pub use rustls::*`). One re-exported from elsewhere in the crate,
+  by name or by a glob of the module's (an inline module
+  counts as the crate's), falls back to
   the crate's only one of that name. Without the import, a
   `crate::tls::provider()` call reached an unrelated `provider` of the
-  caller's crate and reported a false cycle. A glob of another crate
-  and an inline module's re-export (`mod tls { pub use
-  lns_tls::provider; }`) still fall back. Before, a name several modules
+  caller's crate and reported a false cycle. An inline module's
+  re-export (`mod tls { pub use lns_tls::provider; }`) still falls
+  back: the adapter keeps only each file's own scope's imports. Before, a name several modules
   define (`plan`, `resolve`, `new`) stayed unresolved, or went to the
   caller's own file's: on the 739k-line workspace, naming the module
   resolved 362 more calls and found 4 more real cycles. On a
