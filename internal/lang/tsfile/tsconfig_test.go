@@ -83,7 +83,7 @@ func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 		Stems: map[string]bool{
 			"apps/web/src/lib/db": true, "apps/web/generated/schema": true, "apps/web/src/hooks/index": true,
 			"packages/ui/src/button": true, "apps/web/src/config": true, "apps/api/src/services/mail": true,
-			"apps/web/src/pwa-register": true, "apps/legacy/src/lib/db": true, "apps/web/src/lib/db/index": true,
+			"apps/web/src/pwa-register": true, "apps/legacy/src/lib/db": true, "apps/web/src/lib/db/index": true, "apps/api/src/services/mail/index": true,
 		},
 	}
 	for _, c := range []struct {
@@ -121,9 +121,13 @@ func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 			t.Errorf("Files(%s) is not only db.ts, which tsc takes over db/index.ts", module)
 		}
 	}
-	for _, module := range []string{"../lib/db/", "@dbdir"} {
-		if names := m.Files("apps/web/src/pages/home.tsx", module); names("apps/web/src/lib/db.ts") || !names("apps/web/src/lib/db/index.ts") {
-			t.Errorf("Files(%s) is not the directory's index file its trailing slash names", module)
+	for _, c := range []struct{ importer, module, file, index string }{
+		{"apps/web/src/pages/home.tsx", "../lib/db/", "apps/web/src/lib/db.ts", "apps/web/src/lib/db/index.ts"},
+		{"apps/web/src/pages/home.tsx", "@dbdir", "apps/web/src/lib/db.ts", "apps/web/src/lib/db/index.ts"},
+		{"apps/api/src/routes/send.ts", "services/mail/", "apps/api/src/services/mail.ts", "apps/api/src/services/mail/index.ts"},
+	} {
+		if names := m.Files(c.importer, c.module); names(c.file) || !names(c.index) {
+			t.Errorf("Files(%s) is not the directory's index file its trailing slash names", c.module)
 		}
 	}
 }

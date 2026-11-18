@@ -184,17 +184,22 @@ func (c Config) targets(module string) []string {
 	var out []string
 	if best >= 0 {
 		for _, t := range matched {
-			target := strings.Replace(t, "*", star, 1)
-			resolved := trimExtension(path.Join(from, target))
-			if strings.HasSuffix(target, "/") {
-				resolved += "/" // a directory: its index file, not a file of the path
-			}
-			out = append(out, resolved)
+			out = append(out, under(from, strings.Replace(t, "*", star, 1)))
 		}
 	} else if c.BaseURL != "" {
-		out = append(out, trimExtension(path.Join(c.BaseURL, module)))
+		out = append(out, under(c.BaseURL, module))
 	}
 	return out
+}
+
+// under returns a path a tsconfig resolves under dir, without extension,
+// ending in a slash as p does: a directory, whose index file it names.
+func under(dir, p string) string {
+	resolved := trimExtension(path.Join(dir, p))
+	if strings.HasSuffix(p, "/") {
+		resolved += "/"
+	}
+	return resolved
 }
 
 // stripJSONC turns JSON with comments and trailing commas, as tsconfig.json
