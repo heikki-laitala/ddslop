@@ -56,8 +56,9 @@ type Dependency struct {
 // also the weak ones the layers set aside as upward breaks, as they close
 // loops too. A site is a call where one makes the edge, else its first
 // dependency.
-func Cycles(g *flow.Graph, group Grouping, deps []Dependency) []Cycle {
-	names, all, members := loopGraph(g, group, deps)
+func (m Graph) Cycles() []Cycle {
+	g, group, deps := m.Calls, m.Group, m.Deps
+	names, all, members := m.loops()
 	// site returns the first call from module a into module b.
 	site := func(a, b int) Site {
 		for _, caller := range all[a][b].callers {
@@ -109,10 +110,19 @@ func Cycles(g *flow.Graph, group Grouping, deps []Dependency) []Cycle {
 	return out
 }
 
-// Sites returns every way module from depends on module to in the
-// grouping: each call that reaches it by name or type (as a cycle's site
-// does), in unit and call order, then each of deps from it to it.
-func Sites(g *flow.Graph, group Grouping, deps []Dependency, from, to string) []Site {
+// Graph is the modules a grouping makes of a call graph's units, and the
+// dependencies between them besides calls.
+type Graph struct {
+	Calls *flow.Graph
+	Group Grouping
+	Deps  []Dependency
+}
+
+// Sites returns every way module from depends on module to: each call
+// that reaches it by name or type (as a cycle's site does), in unit and
+// call order, then each dependency from it to it.
+func (m Graph) Sites(from, to string) []Site {
+	g, group, deps := m.Calls, m.Group, m.Deps
 	var out []Site
 	for caller, callees := range g.Callees {
 		if group(g.Units[caller]) != from {
@@ -136,11 +146,11 @@ func Sites(g *flow.Graph, group Grouping, deps []Dependency, from, to string) []
 	return out
 }
 
-// Loops returns the groups of the grouping whose calls, and deps, form a
-// loop: each group's members, sorted, for each strongly connected set of
-// two or more, as Cycles counts them.
-func Loops(g *flow.Graph, group Grouping, deps []Dependency) [][]string {
-	names, _, members := loopGraph(g, group, deps)
+// Loops returns the modules whose calls, and dependencies, form a loop:
+// each loop's modules, sorted, for each strongly connected set of two or
+// more, as Cycles counts them.
+func (m Graph) Loops() [][]string {
+	names, _, members := m.loops()
 	var out [][]string
 	for _, ms := range members {
 		if len(ms) < 2 {
@@ -157,12 +167,12 @@ func Loops(g *flow.Graph, group Grouping, deps []Dependency) [][]string {
 	return out
 }
 
-// loopGraph builds the module graph Cycles and Loops read: the modules,
-// their edges, calls and deps, and the members of each strongly connected
-// component, by component.
-func loopGraph(g *flow.Graph, group Grouping, deps []Dependency) ([]string, edges, map[int][]int) {
-	names, all := moduleGraph(g, group)
-	names, all = withDependencies(names, all, deps)
+// loops builds the module graph Cycles and Loops read: the modules, their
+// edges, calls and dependencies, and the members of each strongly
+// connected component, by component.
+func (m Graph) loops() ([]string, edges, map[int][]int) {
+	names, all := moduleGraph(m.Calls, m.Group)
+	names, all = withDependencies(names, all, m.Deps)
 	members := map[int][]int{}
 	for m, c := range all.components() {
 		members[c] = append(members[c], m)

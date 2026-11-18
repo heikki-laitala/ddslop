@@ -1829,7 +1829,7 @@ as Rust's are, was measured and dropped: Excalidraw's cycles went from
 
 A pair of directories is a cycle only when their files loop: a
 directory's dependency on another counts when it joins two files of
-one loop of files (`codemap.Loops`, the strongly connected sets of the
+one loop of files (`codemap.Graph.Loops`, the strongly connected sets of the
 file graph of the same calls and imports), each loop grouped by
 directory on its own so that edges of different loops close nothing.
 The rest were one finding read many times. Sibling directories
