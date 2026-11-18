@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -870,13 +871,77 @@ func dependencyCycles(g *flow.Graph, files []index.File, crates *codemap.Package
 		})
 		out = appendCycles(out, g, name, codemap.Cycles(g, group, dependencies(files, crates, name, generated, libraries, tests)))
 	}
-	directory := codemap.Grouping(func(u unit.Unit) string {
-		if !tsfile.IsSource(u.File) {
+	return appendCycles(out, g, "typescript", tsCycles(g, files, tests))
+}
+
+// tsCycles finds the TypeScript directories depending on each other in a
+// loop that files close: a directory's dependency counts only between two
+// files of one loop of files (see codemap.Loops), so an aggregator file
+// importing a directory below it, beside a file that directory imports,
+// is no cycle. Each loop of files is grouped by directory on its own, so
+// edges of different loops close none either.
+func tsCycles(g *flow.Graph, files []index.File, tests bool) []codemap.Cycle {
+	file := func(path string) string {
+		if !tsfile.IsSource(path) {
 			return ""
 		}
-		return codemap.Module(u.File, nil)
-	})
-	return appendCycles(out, g, "typescript", codemap.Cycles(g, directory, tsDependencies(files, tests)))
+		return path
+	}
+	loopOf := map[string]string{}
+	for i, loop := range codemap.Loops(g, func(u unit.Unit) string { return file(u.File) }, tsDependencies(files, tests, file)) {
+		for _, f := range loop {
+			loopOf[f] = strconv.Itoa(i)
+		}
+	}
+	directory := func(path string) string {
+		if loop, ok := loopOf[path]; ok {
+			return codemap.Module(path, nil) + "\x00" + loop
+		}
+		return ""
+	}
+	cycles := codemap.Cycles(g, func(u unit.Unit) string { return directory(u.File) }, tsDependencies(files, tests, directory))
+	return dropLoopIDs(cycles)
+}
+
+// dropLoopIDs names the directories of cycles tsCycles found as the
+// directories themselves, without the loop of files each is grouped by,
+// reporting each pair of directories once, and each loop of a set of
+// directories with no such pair once: their names key a cycle's
+// fingerprint, the same with or without the grouping.
+func dropLoopIDs(cycles []codemap.Cycle) []codemap.Cycle {
+	strip := func(name string) string { return strings.Split(name, "\x00")[0] }
+	seen := map[string]bool{}
+	firstTime := func(names ...string) bool {
+		key := strings.Join(names, "\x00")
+		if seen[key] {
+			return false
+		}
+		seen[key] = true
+		return true
+	}
+	var out []codemap.Cycle
+	for _, c := range cycles {
+		for i := range c.Modules {
+			c.Modules[i] = strip(c.Modules[i])
+		}
+		for i := range c.Loop {
+			c.Loop[i].From, c.Loop[i].To = strip(c.Loop[i].From), strip(c.Loop[i].To)
+		}
+		var links []codemap.Link
+		for _, l := range c.Links {
+			if l.A, l.B = strip(l.A), strip(l.B); firstTime(l.A, l.B) {
+				links = append(links, l)
+			}
+		}
+		switch {
+		case len(c.Links) > 0 && len(links) > 0:
+			c.Links = links
+			out = append(out, c)
+		case len(c.Links) == 0 && firstTime(c.Modules...):
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // appendCycles adds the cycles among the modules of one crate, or of a
@@ -901,11 +966,12 @@ func appendCycles(out []report.Cycle, g *flow.Graph, name string, cycles []codem
 	return out
 }
 
-// tsDependencies lists the TypeScript directories' imports of a file of
-// another directory: a relative import (see tsfile.ModulePath), in files
-// order and each file's source order. Test files' imports count only with
-// tests; a re-export (export * from) or a dynamic import is none.
-func tsDependencies(files []index.File, tests bool) []codemap.Dependency {
+// tsDependencies lists the imports of a TypeScript file of another group
+// than the importer's, as group names a file ("" to leave it out): a
+// relative import (see tsfile.ModulePath), in files order and each file's
+// source order. Test files' imports count only with tests; a re-export
+// (export * from) or a dynamic import is none.
+func tsDependencies(files []index.File, tests bool, group func(file string) string) []codemap.Dependency {
 	stems := map[string]string{}
 	for _, f := range files {
 		if tsfile.IsSource(f.Path) {
@@ -914,7 +980,10 @@ func tsDependencies(files []index.File, tests bool) []codemap.Dependency {
 	}
 	var deps []codemap.Dependency
 	for _, f := range files {
-		from := codemap.Module(f.Path, nil)
+		from := group(f.Path)
+		if from == "" {
+			continue
+		}
 		for _, im := range f.Decls.Imports {
 			named, ok := tsfile.ModulePath(f.Path, im.Module)
 			if !ok || (im.Test && !tests) {
@@ -924,7 +993,7 @@ func tsDependencies(files []index.File, tests bool) []codemap.Dependency {
 			if !found {
 				file, found = stems[named+"/index"]
 			}
-			if to := codemap.Module(file, nil); found && to != from {
+			if to := group(file); found && to != "" && to != from {
 				deps = append(deps, codemap.Dependency{From: from, To: to, File: f.Path, Item: "import", Line: im.Line, Ignored: im.Ignored})
 			}
 		}

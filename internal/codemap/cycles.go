@@ -55,12 +55,7 @@ type Dependency struct {
 // loops too. A site is a call where one makes the edge, else its first
 // dependency.
 func Cycles(g *flow.Graph, group Grouping, deps []Dependency) []Cycle {
-	names, all := moduleGraph(g, group)
-	names, all = withDependencies(names, all, deps)
-	members := map[int][]int{}
-	for m, c := range all.components() {
-		members[c] = append(members[c], m)
-	}
+	names, all, members := loopGraph(g, group, deps)
 	// site returns the first call from module a into module b.
 	site := func(a, b int) Site {
 		for _, caller := range all[a][b].callers {
@@ -110,6 +105,40 @@ func Cycles(g *flow.Graph, group Grouping, deps []Dependency) []Cycle {
 		return cmp.Or(cmp.Compare(len(y.Modules), len(x.Modules)), cmp.Compare(x.Modules[0], y.Modules[0]))
 	})
 	return out
+}
+
+// Loops returns the groups of the grouping whose calls, and deps, form a
+// loop: each group's members, sorted, for each strongly connected set of
+// two or more, as Cycles counts them.
+func Loops(g *flow.Graph, group Grouping, deps []Dependency) [][]string {
+	names, _, members := loopGraph(g, group, deps)
+	var out [][]string
+	for _, ms := range members {
+		if len(ms) < 2 {
+			continue
+		}
+		loop := make([]string, len(ms))
+		for i, m := range ms {
+			loop[i] = names[m]
+		}
+		slices.Sort(loop)
+		out = append(out, loop)
+	}
+	slices.SortFunc(out, func(x, y []string) int { return cmp.Compare(x[0], y[0]) })
+	return out
+}
+
+// loopGraph builds the module graph Cycles and Loops read: the modules,
+// their edges, calls and deps, and the members of each strongly connected
+// component, by component.
+func loopGraph(g *flow.Graph, group Grouping, deps []Dependency) ([]string, edges, map[int][]int) {
+	names, all := moduleGraph(g, group)
+	names, all = withDependencies(names, all, deps)
+	members := map[int][]int{}
+	for m, c := range all.components() {
+		members[c] = append(members[c], m)
+	}
+	return names, all, members
 }
 
 // withDependencies adds deps to a module graph as edges, with the modules

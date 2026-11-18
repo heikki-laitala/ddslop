@@ -283,3 +283,41 @@ func TestCheckReportsNoTypeScriptCycleWithoutOne(t *testing.T) {
 		"src/store/pool.ts":     "export type Conn = number;\nexport type Pool = number;\n",
 	}))
 }
+
+// A directory and a directory below it are no cycle when no file loop
+// joins them: an aggregator importing the subdirectory, beside a shared
+// file the subdirectory imports, only share a directory.
+func TestCheckReportsNoTypeScriptCycleWithoutAFileLoop(t *testing.T) {
+	wantCycles(t, 0, "the directories loop, their files do not", repo(t, map[string]string{
+		"src/lib/library.ts":             "import { accordion } from \"./accordion/accordion\";\n\nexport function library() {\n  return [accordion()];\n}\n",
+		"src/lib/rules.ts":               "export function rules() {\n  return 1;\n}\n",
+		"src/lib/accordion/accordion.ts": "import { rules } from \"../rules\";\n\nexport function accordion() {\n  return rules();\n}\n",
+	}))
+}
+
+// A file loop through several files of a directory closes a cycle of
+// the directories: one.ts calls two.ts, which calls three.ts, which calls
+// one.ts back.
+func TestCheckReportsATypeScriptCycleThroughAFileLoop(t *testing.T) {
+	wantCycleBetween(t, "src/a -> src/b, src/b -> src/a", repo(t, map[string]string{
+		"src/a/one.ts":   "import { two } from \"../b/two\";\n\nexport function one(n: number): number {\n  return n > 0 ? two(n - 1) : 0;\n}\n",
+		"src/b/two.ts":   "import { three } from \"../a/three\";\n\nexport function two(n: number): number {\n  return three(n);\n}\n",
+		"src/a/three.ts": "import { one } from \"./one\";\n\nexport function three(n: number): number {\n  return one(n);\n}\n",
+	}))
+}
+
+// Two loops of files joining the same two directories, one of them
+// through a third directory too, are one cycle of the two: a pair is
+// reported once.
+func TestCheckReportsTwoFileLoopsOfTheSameDirectoriesOnce(t *testing.T) {
+	r := wantCycles(t, 1, "one pair", repo(t, map[string]string{
+		"src/a/one.ts":   "import { two } from \"../b/two\";\n\nexport function one(n: number): number {\n  return two(n);\n}\n",
+		"src/b/two.ts":   "import { one } from \"../a/one\";\n\nexport function two(n: number): number {\n  return n > 0 ? one(n - 1) : 0;\n}\n",
+		"src/a/three.ts": "import { four } from \"../b/four\";\n\nexport function three(n: number): number {\n  return four(n);\n}\n",
+		"src/b/four.ts":  "import { three } from \"../a/three\";\nimport { five } from \"../c/five\";\n\nexport function four(n: number): number {\n  return n > 0 ? three(n - 1) : five();\n}\n",
+		"src/c/five.ts":  "import { three } from \"../a/three\";\n\nexport function five(): number {\n  return three(0);\n}\n",
+	}))
+	if got := strings.Join(r.Candidates[0].Values, ", "); got != "src/a -> src/b, src/b -> src/a" {
+		t.Fatalf("values = %s, want the pair", got)
+	}
+}
