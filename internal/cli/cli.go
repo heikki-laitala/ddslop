@@ -1399,16 +1399,19 @@ func shapeImplemented(files []index.File) map[string]bool {
 
 // wholeImported reports the TypeScript files another file imports whole
 // (import * as schema, import("./routes")), by a relative path, a
-// workspace package's name (see tsfile.Modules.Files) or a path alias (see
-// tsfile.AliasMayBe): they may use any of its exports without naming it.
+// workspace package's name (see tsfile.Modules.Files) or a path alias,
+// the file it resolves to, else, for an alias no tsconfig resolves, any
+// it may be (see tsfile.AliasMayBe): they may use any of its exports
+// without naming it.
 func wholeImported(root string, files []index.File) map[string]bool {
 	modules := tsModules(root, files)
 	out := map[string]bool{}
 	for _, importer := range files {
 		for _, module := range importer.Decls.WholeImports {
 			names := modules.Files(importer.Path, module)
+			_, resolved := modules.File(importer.Path, module)
 			for _, f := range files {
-				if tsfile.IsSource(f.Path) && (names(f.Path) || tsfile.AliasMayBe(module, f.Path)) {
+				if tsfile.IsSource(f.Path) && (names(f.Path) || !resolved && tsfile.AliasMayBe(module, f.Path)) {
 					out[f.Path] = true
 				}
 			}
