@@ -1024,7 +1024,7 @@ func TestRustModulePathFollowsAReexportedModuleOfAnotherCrate(t *testing.T) {
 		fn("ledger/src/management_api.rs", "verify"),
 	}
 	in := Inputs{
-		TopImports: map[string]map[string]string{"ledger/src/tls.rs": {"inner": "lns_tls::inner", "crypto": "rustls::crypto"}},
+		TopImports: map[string]map[string]string{"ledger/src/tls.rs": {"inner": "lns_tls::inner", "crypto": "rustls::crypto", "whole": "lns_tls"}},
 		RustFiles: []string{"tls/src/lib.rs", "tls/src/inner.rs", "tls/src/inner/deep.rs", "tls/src/api.rs",
 			"ledger/src/lib.rs", "ledger/src/tls.rs", "ledger/src/history.rs", "ledger/src/management_api.rs"},
 	}
@@ -1033,6 +1033,7 @@ func TestRustModulePathFollowsAReexportedModuleOfAnotherCrate(t *testing.T) {
 		"deeper":  {path("crate::tls::inner::deep", "provider"), "[tls/src/inner/deep.rs provider]"},
 		"only":    {path("crate::tls::inner", "verify"), "[tls/src/api.rs verify]"},
 		"outside": {path("crate::tls::crypto", "provider"), "[]"},
+		"crate":   {path("crate::tls::whole", "provider"), "[tls/src/lib.rs provider]"},
 	})
 }
 

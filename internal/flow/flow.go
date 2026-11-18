@@ -869,7 +869,9 @@ func (ix index) reexported(units []unit.Unit, from, crate, module, name string) 
 		if rest != "" && ix.rustModules[crate][joinModule(scope, segments[i])] {
 			break // a module of the crate, whose imports were read already
 		}
-		if path, ok := ix.moduleImport(from, crate, scope, segments[i]); ok {
+		// a name imported from another crate, or a crate's root the path
+		// goes on through (pub use lns_tls as inner; tls::inner::provider)
+		if path, ok := ix.moduleImport(from, crate, scope, segments[i]); ok && (rest != "" || strings.Contains(path, "::")) {
 			if !ix.fromOtherCrate(crate, scope, path) {
 				break
 			}
@@ -910,7 +912,8 @@ func (ix index) globbed(units []unit.Unit, from, crate, module, path string) (in
 }
 
 // moduleImport returns the path a module of a crate imports a name by
-// (use, or pub use re-exporting it), and whether its file imports it.
+// (use, or pub use re-exporting it), and whether its file imports it: a
+// path, or a crate's root alone (pub use lns_tls as inner).
 // A root the module imports itself (use lns_tls as tls; pub use
 // tls::provider, or an item alias: pub use lns_tls::seal as s; pub use s
 // as check) is read through that import, and through the import of its
@@ -921,8 +924,7 @@ func (ix index) globbed(units []unit.Unit, from, crate, module, path string) (in
 func (ix index) moduleImport(from, crate, module, name string) (string, bool) {
 	imported := ix.moduleScope(from, crate, module)
 	path, ok := imported[name]
-	path = throughAliases(imported, path, name)
-	return path, ok && strings.Contains(path, "::")
+	return throughAliases(imported, path, name), ok
 }
 
 // moduleScope returns the imports of a module's own scope by imported

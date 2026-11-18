@@ -1162,7 +1162,8 @@ that crosses it.
   and so is one in a module the path goes through that the module
   imports from another crate rather than declares (`pub use
   lns_tls::inner` in `tls.rs`, called as `crate::tls::inner::provider()`,
-  is `lns_tls::inner::provider`). A name the module's own scope
+  is `lns_tls::inner::provider`, and `pub use lns_tls as inner` the
+  crate's root `provider`). A name the module's own scope
   imports by neither comes from its globs (`pub use lns_tls::*`, read
   through its aliases) when all of them leave the crate: the first to
   reach a workspace crate's function, as a named import does, else none
