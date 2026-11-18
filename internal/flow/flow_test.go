@@ -863,7 +863,9 @@ func TestRustModulePathFallbackSkipsTheCallersOwnFunction(t *testing.T) {
 
 // A path rooted at the crate's own name, as its binary and tests write
 // it (lns_ledger::mock::install_panic_hook), names the crate's module as
-// crate:: does: of two functions with the name, that module's.
+// crate:: does: of two functions with the name, that module's. A child
+// module of the caller's with the crate's name (mod shop in shop) is the
+// one Rust reads the path through instead.
 func TestRustOwnCrateNamePathPicksTheNamedModule(t *testing.T) {
 	units := []unit.Unit{
 		fn("ledger/src/mock.rs", "install_panic_hook"),
@@ -871,12 +873,18 @@ func TestRustOwnCrateNamePathPicksTheNamedModule(t *testing.T) {
 		fn("ledger/src/lib.rs", "start"),
 		fn("ledger/src/startup.rs", "start"),
 		fn("ledger/src/main.rs", "main", path("lns_ledger::mock", "install_panic_hook"), path("lns_ledger", "start")),
+		fn("shop/src/x.rs", "f"),
+		fn("shop/src/shop/x.rs", "f"),
+		fn("shop/src/main.rs", "shadowed", path("shop::x", "f")),
 	}
 	in := Inputs{
-		Crates:    map[string]string{"ledger": "lns_ledger"},
-		RustFiles: []string{"ledger/src/lib.rs", "ledger/src/main.rs", "ledger/src/mock.rs", "ledger/src/http.rs", "ledger/src/startup.rs"},
+		Crates: map[string]string{"ledger": "lns_ledger", "shop": "shop"},
+		RustFiles: []string{"ledger/src/lib.rs", "ledger/src/main.rs", "ledger/src/mock.rs", "ledger/src/http.rs", "ledger/src/startup.rs",
+			"shop/src/main.rs", "shop/src/x.rs", "shop/src/shop/x.rs"},
 	}
-	wantCallees(t, Build(in, units), "ledger/src/main.rs main", "[ledger/src/mock.rs install_panic_hook ledger/src/lib.rs start]")
+	g := Build(in, units)
+	wantCallees(t, g, "ledger/src/main.rs main", "[ledger/src/mock.rs install_panic_hook ledger/src/lib.rs start]")
+	wantCallees(t, g, "shop/src/main.rs shadowed", "[shop/src/shop/x.rs f]")
 }
 
 // A path naming a module that re-exports the name from another crate
