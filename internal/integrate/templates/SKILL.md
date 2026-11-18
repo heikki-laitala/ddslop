@@ -222,7 +222,8 @@ What to do per `kind`:
   `ddslop:ignore` on one of its sites, saying why. In TypeScript the
   modules are directories, depending on each other through calls and
   relative imports (an `import type`, a re-export or a dynamic
-  `import()` is none); an occurrence named `import` is an import line.
+  `import()` is none) within a loop of files spanning them; an
+  occurrence named `import` is an import line.
 - `duplicate-type`: structs with the same field names, or enums with the
   same variants (often one error enum per module). Keep one type and
   use it everywhere. Differences list field types that differ; when one

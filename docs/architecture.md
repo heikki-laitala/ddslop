@@ -1819,13 +1819,18 @@ module: `import type { A }`, which compiling removes, or
 import that still loads the module, so a cycle through it is missed.
 Nor is a re-export (`export * from`, a barrel's) or a dynamic
 `import()`, which loads later, as code breaking a cycle does.
-Measured: 37 cycles on Excalidraw, 12 on Hono, 14 on tRPC; most are a
-directory and one below it, where the upper one holds both the code
-wiring the lower ones together and a module they import back (a
-logger, the configuration), so moving that module down a level breaks
-them all. Taking the files directly in `src/` as modules of their own,
-as Rust's are, was measured and dropped: Excalidraw's cycles went from
-37 to 54, between single files.
+Directories form a cycle only through a loop of files: files calling or
+importing each other in a loop that spans directories, counting the
+calls and imports within the loop alone. A first measure took every
+call and import between two directories: 37 cycles on Excalidraw, 12
+on Hono, 14 on tRPC, most a directory and one below it whose two
+directions went through files that never connect, a root importing the
+lower directory and a module beside it (a logger, the configuration)
+the lower directory imports. Through loops of files alone, 16, 3 and
+none; two loops through the same directories are one cycle of them.
+Taking the files directly in `src/` as modules of their own, as Rust's
+are, was measured and dropped: Excalidraw's cycles went from 37 to 54,
+between single files.
 
 The map does not say which side of a pair is wrong. A weighted greedy
 feedback arc set (Eades, Lin and Smyth) was measured for that: it broke

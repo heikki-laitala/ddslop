@@ -283,3 +283,35 @@ func TestCheckReportsNoTypeScriptCycleWithoutOne(t *testing.T) {
 		"src/store/pool.ts":     "export type Conn = number;\nexport type Pool = number;\n",
 	}))
 }
+
+// Directories depend on each other only through a loop of files: a root
+// importing a directory, whose files import a module beside the root
+// that imports nothing back, close no cycle.
+func TestCheckReportsNoTypeScriptCycleThroughUnconnectedFiles(t *testing.T) {
+	wantCycles(t, 0, "src -> src/infra goes through index.ts, src/infra -> src to logger.ts; no file loop", repo(t, map[string]string{
+		"src/index.ts":        "import { start } from \"./infra/server\";\n\nexport function main() {\n  return start();\n}\n",
+		"src/logger.ts":       "export function log(m: string) {\n  return m;\n}\n",
+		"src/infra/server.ts": "import { log } from \"../logger\";\n\nexport function start() {\n  return log(\"up\");\n}\n",
+	}))
+}
+
+// A loop of files through two directories is a cycle of those
+// directories, however many files of one it passes.
+func TestCheckReportsATypeScriptCycleThroughAFileLoop(t *testing.T) {
+	wantCycleBetween(t, "src/x -> src/y, src/y -> src/x", repo(t, map[string]string{
+		"src/x/a.ts": "import { b } from \"../y/b\";\n\nexport function a() {\n  return b();\n}\n",
+		"src/y/b.ts": "import { c } from \"../x/c\";\n\nexport function b() {\n  return c();\n}\n",
+		"src/x/c.ts": "import { a } from \"./a\";\n\nexport function c() {\n  return a();\n}\n",
+	}))
+}
+
+// Two loops of files through the same two directories are one cycle of
+// them.
+func TestCheckReportsATypeScriptCycleOnceForTwoFileLoops(t *testing.T) {
+	wantCycleBetween(t, "src/x -> src/y, src/y -> src/x", repo(t, map[string]string{
+		"src/x/a.ts": "import { b } from \"../y/b\";\n\nexport function a() {\n  return b();\n}\n",
+		"src/y/b.ts": "import { a } from \"../x/a\";\n\nexport function b() {\n  return a();\n}\n",
+		"src/x/c.ts": "import { d } from \"../y/d\";\n\nexport function c() {\n  return d();\n}\n",
+		"src/y/d.ts": "import { c } from \"../x/c\";\n\nexport function d() {\n  return c();\n}\n",
+	}))
+}
