@@ -42,9 +42,11 @@ type Site struct {
 
 // Dependency is a module depending on another without calling it: a path
 // naming it, written in an item of a file at a line (see unit.Reference).
+// Target is the file it names, when it names one (a TypeScript import).
 type Dependency struct {
 	From, To   string
 	File, Item string
+	Target     string
 	Line       int
 	Ignored    bool
 }

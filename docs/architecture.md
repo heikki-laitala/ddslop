@@ -1827,6 +1827,29 @@ them all. Taking the files directly in `src/` as modules of their own,
 as Rust's are, was measured and dropped: Excalidraw's cycles went from
 37 to 54, between single files.
 
+A pair of directories is a cycle only when their files loop: a
+directory's dependency on another counts when it joins two files of
+one loop of files (`codemap.Loops`, the strongly connected sets of the
+file graph of the same calls and imports), each loop grouped by
+directory on its own so that edges of different loops close nothing.
+The rest were one finding read many times. Sibling directories
+depending on each other with no loop of files were mostly a directory
+mixing layers: NestJS module directories hold both a controller using
+the shared guards and a service those guards use. And a directory with
+the directories below it was reported once per directory below, though
+one move fixes them all: on a 1,600-file TypeScript monorepo, one
+directory's aggregator imported 37 component directories, which
+imported back its shared `rules.ts`, `unions.ts` and `helpers.ts`,
+16 candidates. Such a directory is now one candidate for the upper
+directory, action `move-shared-down`, keyed by it alone so it keeps its
+fingerprint as directories below come and go: its values pair each
+directory below with the file of the upper one it reaches back, each
+occurrence that way back's call or import. Sibling directories without
+a loop of files are no candidate. Measured: on that monorepo, 42
+candidates became 14 for upper directories and no cycle; on a
+1,700-file one, 69 became 22 cycles of real loops (entities importing
+each other, mostly) and 10 for upper directories.
+
 The map does not say which side of a pair is wrong. A weighted greedy
 feedback arc set (Eades, Lin and Smyth) was measured for that: it broke
 a 43-module group with 10 of its links (23 of 395 calls) and a 26-module

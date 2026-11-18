@@ -234,11 +234,18 @@ type Findings struct {
 // closing it (a pair calling each other, or each step of a shortest loop),
 // each as "from -> to" in Steps with its call site. Key names the crate
 // and the modules, so the cycle keeps its fingerprint as code moves.
+// Action is the way to break it, break-cycle when empty.
 type Cycle struct {
-	Key   string
-	Steps []string
-	Sites []CycleSite
+	Key    string
+	Steps  []string
+	Sites  []CycleSite
+	Action string
 }
+
+// MoveSharedDown is the way to break the cycles of a directory and the
+// directories below it that import files of it back: move those files
+// down, below the directory wiring the others together.
+const MoveSharedDown = "move-shared-down"
 
 // CycleSite is a call closing a cycle: the calling unit and the line.
 type CycleSite struct {
@@ -767,7 +774,7 @@ func driftCandidate(language string, d Drift) Candidate {
 // change touched one of its calls. It copies nothing.
 func cycleCandidate(language string, c Cycle) Candidate {
 	cand := newCandidate(language, DependencyCycle, DependencyCycle, c.Key,
-		Suggestion{Action: breakCycle},
+		Suggestion{Action: cmp.Or(c.Action, breakCycle)},
 		Score{Nodes: len(c.Sites), Lines: len(c.Sites), Occurrences: len(c.Sites)}, nil)
 	for _, s := range c.Sites {
 		cand.Occurrences = append(cand.Occurrences, Occurrence{File: s.Unit.File, Name: s.Unit.Name, StartLine: s.Line, EndLine: s.Line})
