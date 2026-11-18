@@ -123,14 +123,37 @@ func (c Config) project(file string) Config {
 }
 
 // covers reports whether a config covers a file, as tsc decides it: its
-// files list it, or an include pattern matches it and no exclude one
-// does; a config with no include and no files covers all.
+// files list it, or an include pattern matches it, unless the pattern's
+// wildcards reach into a hidden directory (.storybook), and no exclude
+// pattern matches it or a directory above it; a config with no include
+// and no files covers all.
 func (c Config) covers(file string) bool {
 	if c.include == nil && c.files == nil {
 		return true
 	}
-	matches := func(p string) bool { return matchGlob(p, file) }
-	return slices.Contains(c.files, file) || slices.ContainsFunc(c.include, matches) && !slices.ContainsFunc(c.exclude, matches)
+	included := func(p string) bool { return matchGlob(p, file) && !hiddenFrom(p, file) }
+	excluded := func(p string) bool {
+		for dir := file; dir != "."; dir = path.Dir(dir) {
+			if matchGlob(p, dir) {
+				return true
+			}
+		}
+		return false
+	}
+	return slices.Contains(c.files, file) || slices.ContainsFunc(c.include, included) && !slices.ContainsFunc(c.exclude, excluded)
+}
+
+// hiddenFrom reports whether a file is under a hidden directory (one
+// whose name starts with a dot) that a pattern does not name itself: tsc's
+// wildcards, and a directory pattern's, do not reach into one.
+func hiddenFrom(pattern, file string) bool {
+	named := strings.Split(pattern, "/")
+	for _, segment := range strings.Split(path.Dir(file), "/") {
+		if strings.HasPrefix(segment, ".") && segment != "." && !slices.Contains(named, segment) {
+			return true
+		}
+	}
+	return false
 }
 
 // matchGlob reports whether a tsconfig include or exclude pattern
