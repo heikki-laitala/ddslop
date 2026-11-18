@@ -508,7 +508,8 @@ length that ends where a file would extend itself; a package's `extends`
 itself: a file reads the first referenced config that covers it, as
 tsc decides it (listed in its `files`, or matched by an `include` glob
 and no `exclude` one, a pattern with no wildcard naming a file or a
-directory; one with neither covers all of its directory), else the
+directory; one with neither covers all of its directory), the configs
+a referenced solution references in turn before it, else the
 solution's own. On a 1,700-file monorepo whose Vite apps import
 through `src/`, this resolved 549 more calls (3,722, from 3,173), and
 two directories' shared files, imported back by those below them, came

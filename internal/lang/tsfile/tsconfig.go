@@ -52,29 +52,47 @@ type Pattern struct {
 // Config.Projects).
 func ReadConfig(dir string, data []byte, read func(file string) ([]byte, error)) (Config, bool) {
 	c, ok := readConfig(dir, data, read, map[string]bool{})
+	if ok {
+		c.Projects = projects(dir, data, read, map[string]bool{})
+	}
+	return c, ok
+}
+
+// projects returns the configs a tsconfig written in dir references, read
+// as ReadConfig reads them, each after the ones it references in turn, as
+// a solution referencing solutions has them: the more specific first.
+// loaded holds the files read so far: each is read once, and a loop of
+// references ends.
+func projects(dir string, data []byte, read func(file string) ([]byte, error), loaded map[string]bool) []Config {
 	var raw struct {
 		References []struct {
 			Path string `json:"path"`
 		} `json:"references"`
 	}
-	if !ok || !decode(data, &raw) {
-		return c, ok
+	if !decode(data, &raw) {
+		return nil
 	}
+	var out []Config
 	for _, ref := range raw.References {
 		file := path.Join(dir, slashed(ref.Path))
 		if !strings.HasSuffix(file, ".json") {
 			file = path.Join(file, "tsconfig.json")
 		}
-		if data, err := read(file); err == nil {
-			if p, ok := readConfig(path.Dir(file), data, read, map[string]bool{file: true}); ok {
-				if p.include == nil && p.files == nil {
-					p.include = []string{path.Join(path.Dir(file), "**/*")} // tsc's default: all of its directory
-				}
-				c.Projects = append(c.Projects, p)
-			}
+		data, err := read(file)
+		if err != nil || loaded[file] {
+			continue
 		}
+		loaded[file] = true
+		p, ok := readConfig(path.Dir(file), data, read, map[string]bool{file: true})
+		if !ok {
+			continue
+		}
+		if p.include == nil && p.files == nil {
+			p.include = []string{path.Join(path.Dir(file), "**/*")} // tsc's default: all of its directory
+		}
+		out = append(append(out, projects(path.Dir(file), data, read, loaded)...), p)
 	}
-	return c, true
+	return out
 }
 
 // decode reads a tsconfig into v: JSON with comments and trailing commas,
