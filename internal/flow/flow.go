@@ -80,7 +80,8 @@ type FieldType struct {
 
 // Inputs are what call resolution needs besides the units.
 type Inputs struct {
-	// Imports maps a file to the names it imports and their paths.
+	// Imports maps a file to the names it imports and their paths: a Rust
+	// use's, or a Go import's.
 	Imports map[string]map[string]string
 	// TopImports maps a Rust file to the imports of its own scope (see
 	// rust.Imports): what a path through its module reaches.
@@ -211,6 +212,9 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 		}
 	}
 	for file, imported := range in.Imports {
+		if !strings.HasSuffix(file, ".rs") {
+			continue // a Go import path names a package, not a crate
+		}
 		ix, crate := indexOf(file), in.Libraries.CrateOf(file)
 		for _, path := range imported {
 			if dir, ok := ix.crates[firstSegment(path)]; ok && dir != crate {
@@ -337,8 +341,27 @@ func (r *callResolver) resolveCall(c unit.Call) (int, bool, bool) {
 				}
 			}
 		}
+		if callee < 0 && r.ix.outsidePackage(r.caller.File, r.caller.Calls[c.From-1]) {
+			return -1, false, false // pgxpool.New()'s value: none of ours
+		}
 	}
 	return r.ix.resolve(r.units, r.caller, r.owner, c)
+}
+
+// outsidePackage reports whether a Go call is a function of a package
+// outside the repository's modules (pgxpool.New), through the import of
+// the file it is written in: a value it returns is that package's, whose
+// methods are none of ours.
+func (ix index) outsidePackage(file string, c unit.Call) bool {
+	if c.Kind != unit.PathCall || !strings.HasSuffix(file, ".go") || len(ix.modules) == 0 {
+		return false
+	}
+	path, ok := ix.imports[file][c.Qualifier]
+	if !ok {
+		return false
+	}
+	_, inRepo := ix.packageDir(path)
+	return !inRepo
 }
 
 // resolve returns the unit a call refers to, or -1, whether it was found

@@ -746,6 +746,15 @@ func embeddedName(typ string) string {
 	return typ
 }
 
+// Imports maps each name a Go file's imports bind to the import's path
+// (see imports): call resolution reads a package call's qualifier
+// through it.
+func Imports(src []byte) map[string]string {
+	var out map[string]string
+	_ = syntax.Parse(language, src, func(root *sitter.Node) { out = imports(root, src) })
+	return out
+}
+
 // imports returns the names a file's imports bind: an alias, or the name
 // its package is assumed to have (see assumedName).
 func imports(root *sitter.Node, src []byte) map[string]string {

@@ -1725,6 +1725,7 @@ func parseSource(file syntax.Source) (index.Parsed, error) {
 	switch language {
 	case "go":
 		parsed.Units, parsed.Decls, err = golang.Parse(path, src)
+		parsed.Imports = golang.Imports(src)
 	case "typescript":
 		parsed.Units, parsed.Decls, err = typescript.Parse(path, src)
 	case "rust":

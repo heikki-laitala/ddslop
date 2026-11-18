@@ -933,3 +933,20 @@ func Testé() {}
 		"Testé case=false",
 	})
 }
+
+// Imports maps each name a file's imports bind to the import's path: an
+// alias, or the package's assumed name.
+func TestImportsMapNamesToPaths(t *testing.T) {
+	got := Imports([]byte(`package db
+
+import (
+	"fmt"
+	pg "github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+)
+`))
+	want := map[string]string{"fmt": "fmt", "pg": "github.com/jackc/pgx/v5/pgxpool", "redis": "github.com/redis/go-redis/v9"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("Imports = %v, want %v", got, want)
+	}
+}

@@ -381,7 +381,16 @@ written) and, on the method call, which call produced the operand
 (`unit.Call.From`, `Result`). The graph resolves the producing call
 first, then the method on that result type, read in the producing
 function's package when written without one. A producing call that does
-not resolve, such as a standard-library one, leaves the operand untyped.
+not resolve, such as a standard-library one, leaves the operand untyped,
+unless it is a function of a package outside the repository's modules
+(`pool := pgxpool.New(..)`, read through the file's imports): its value
+is that package's, and a method on it (`pool.Ping()`) resolves to
+nothing, as on a type from outside does, rather than to a repository
+`Ping` guessed by name. An import binds the name Go's tools assume for
+its package (`github.com/redis/go-redis/v9` is `redis`, `gopkg.in/yaml.v3`
+is `yaml`), so a field of type `*redis.Client` is that outside type. On
+the Go service this removed three wrong edges into the repository's own
+`Ping` methods, and changed no finding.
 
 On the Go service this resolved 882 of 2820 calls (723 before, some of
 them guesses): the store package, which handlers and the dashboard reach
