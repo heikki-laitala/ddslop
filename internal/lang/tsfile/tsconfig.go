@@ -162,7 +162,8 @@ func orderedPaths(raw json.RawMessage) ([]Pattern, bool) {
 // targets returns the paths, without extension, a non-relative module
 // path may name under c, in tsc's order: those of the exact pattern of
 // the path, else of the wildcard one of the longest prefix matching it,
-// else, with no pattern matching, the path under the baseUrl.
+// else, with no pattern matching, the path under the baseUrl. A target
+// ending in a slash keeps it: it names a directory's index file.
 func (c Config) targets(module string) []string {
 	var matched []string
 	star, best := "", -1
@@ -183,7 +184,12 @@ func (c Config) targets(module string) []string {
 	var out []string
 	if best >= 0 {
 		for _, t := range matched {
-			out = append(out, trimExtension(path.Join(from, strings.Replace(t, "*", star, 1))))
+			target := strings.Replace(t, "*", star, 1)
+			resolved := trimExtension(path.Join(from, target))
+			if strings.HasSuffix(target, "/") {
+				resolved += "/" // a directory: its index file, not a file of the path
+			}
+			out = append(out, resolved)
 		}
 	} else if c.BaseURL != "" {
 		out = append(out, trimExtension(path.Join(c.BaseURL, module)))

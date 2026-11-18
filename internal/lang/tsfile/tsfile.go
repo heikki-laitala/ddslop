@@ -135,11 +135,19 @@ type Modules struct {
 // nearest tsconfig.json above importer maps it to that is a file of ours
 // (see Config), as tsc resolves it. A package's path names none.
 func (m Modules) Path(importer, module string) (string, bool) {
-	if named, ok := ModulePath(importer, module); ok {
+	named, ok := m.resolve(importer, module)
+	return strings.TrimSuffix(named, "/"), ok
+}
+
+// resolve is Path, ending in a slash when the module path or the target
+// it resolves through does: a directory's index file, not a file of the
+// path, is what it names.
+func (m Modules) resolve(importer, module string) (string, bool) {
+	if named, ok := relativePath(importer, module); ok {
 		return named, true
 	}
 	for _, target := range m.targets(importer, module) {
-		if m.isFile(target) {
+		if _, ok := m.pick(target); ok {
 			return target, true
 		}
 	}
@@ -151,21 +159,33 @@ func (m Modules) Path(importer, module string) (string, bool) {
 // directory's index file, which a path ending in a slash ("./db/") names
 // alone, as tsc takes them.
 func (m Modules) File(importer, module string) (string, bool) {
-	named, ok := m.Path(importer, module)
+	named, ok := m.resolve(importer, module)
 	if !ok {
 		return "", false
 	}
-	return m.pick(named, module)
+	return m.pick(named)
 }
 
-// pick returns the stem of the file of ours that named, a path module
-// resolves to, is (see File).
-func (m Modules) pick(named, module string) (string, bool) {
-	if !strings.HasSuffix(module, "/") && m.Stems[named] {
+// relativePath is ModulePath, ending in a slash as the module path does
+// (see resolve).
+func relativePath(importer, module string) (string, bool) {
+	named, ok := ModulePath(importer, module)
+	if ok && strings.HasSuffix(module, "/") {
+		named += "/"
+	}
+	return named, ok
+}
+
+// pick returns the stem of the file of ours a resolved path names (see
+// resolve): the file of the path, else its directory's index file, the
+// index alone for a path ending in a slash.
+func (m Modules) pick(named string) (string, bool) {
+	dir, asDir := strings.CutSuffix(named, "/")
+	if !asDir && m.Stems[named] {
 		return named, true
 	}
-	if m.Stems[named+"/index"] {
-		return named + "/index", true
+	if m.Stems[dir+"/index"] {
+		return dir + "/index", true
 	}
 	return "", false
 }
@@ -180,23 +200,19 @@ func (m Modules) targets(importer, module string) []string {
 	return c.targets(module)
 }
 
-// isFile reports whether a path, without extension, is a file of ours or
-// a directory with an index file.
-func (m Modules) isFile(stem string) bool {
-	return m.Stems[stem] || m.Stems[stem+"/index"]
-}
-
 // Files reports, for a file, whether it is the module a module path names
 // as importer imports it: the one File names, or, our files unknown, the
-// file a path names (see Path) or its directory's index file, or, for a tsconfig path whose first target of
-// ours is a workspace package's directory, one of that package's files,
-// as its name would; else one of the workspace package a package path
-// names (@acme/db, @acme/db/query), outside the packages nested in it.
+// file a path names (see Path) or its directory's index file; or, for a
+// tsconfig path whose first target of ours is a workspace package's
+// directory, one of that package's files, as its name would; else one of
+// the workspace package a package path names (@acme/db, @acme/db/query),
+// outside the packages nested in it.
 func (m Modules) Files(importer, module string) func(file string) bool {
 	file := func(named string) func(file string) bool {
-		if stem, ok := m.pick(named, module); ok {
+		if stem, ok := m.pick(named); ok {
 			return func(file string) bool { return Stem(file) == stem }
 		}
+		named = strings.TrimSuffix(named, "/")
 		return func(file string) bool { // our files unknown: either
 			stem := Stem(file)
 			return stem == named || stem == named+"/index"
@@ -205,15 +221,15 @@ func (m Modules) Files(importer, module string) func(file string) bool {
 	inPackage := func(dir string) func(file string) bool {
 		return func(file string) bool { return PackageDir(file, m.Packages) == dir }
 	}
-	if named, ok := ModulePath(importer, module); ok {
+	if named, ok := relativePath(importer, module); ok {
 		return file(named)
 	}
 	for _, target := range m.targets(importer, module) {
-		if m.isFile(target) {
+		if _, ok := m.pick(target); ok {
 			return file(target)
 		}
-		if _, ok := m.Packages[target]; ok {
-			return inPackage(target)
+		if _, ok := m.Packages[strings.TrimSuffix(target, "/")]; ok {
+			return inPackage(strings.TrimSuffix(target, "/"))
 		}
 	}
 	if dir, ok := packageNamed(module, m.Packages); ok {
