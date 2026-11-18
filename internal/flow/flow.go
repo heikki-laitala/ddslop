@@ -341,11 +341,24 @@ func (r *callResolver) resolveCall(c unit.Call) (int, bool, bool) {
 				}
 			}
 		}
-		if callee < 0 && r.ix.outsidePackage(r.caller.File, r.caller.Calls[c.From-1]) {
+		if producer := r.caller.Calls[c.From-1]; callee < 0 && constructor(producer.Name) && r.ix.outsidePackage(r.caller.File, producer) {
 			return -1, false, false // pgxpool.New()'s value: none of ours
 		}
 	}
 	return r.ix.resolve(r.units, r.caller, r.owner, c)
+}
+
+// constructor reports whether a Go function's name is a constructor's, by
+// Go's convention (New, NewClient, Open, Dial, Connect...): what it
+// returns is its own package's value, as a generic helper's (cmp.Or,
+// slices.Max) need not be.
+func constructor(name string) bool {
+	for _, prefix := range []string{"New", "Open", "Dial", "Connect"} {
+		if rest, ok := strings.CutPrefix(name, prefix); ok && (rest == "" || unicode.IsUpper(rune(rest[0]))) {
+			return true
+		}
+	}
+	return false
 }
 
 // outsidePackage reports whether a Go call is a function of a package

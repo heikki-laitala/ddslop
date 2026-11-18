@@ -500,23 +500,28 @@ func TestGoMethodCallsOnACallsResultResolveByItsResultType(t *testing.T) {
 	}
 }
 
-// A method called on the result of a call into a package outside the
-// repository's modules is a method of that package's value: none of
-// ours, not one guessed by its name (pool := pgxpool.New(); pool.Ping()
-// is not Postgres.Ping).
+// A method called on the result of an outside package's constructor
+// (New..., Open..., Dial..., Connect...) is a method of that package's
+// value: none of ours, not one guessed by its name (pool :=
+// pgxpool.New(); pool.Ping() is not Postgres.Ping). Another outside
+// function may return a value of ours (cmp.Or of two): its method is
+// still guessed.
 func TestGoMethodsOfAnOutsidePackagesValueAreNone(t *testing.T) {
 	in := Inputs{Modules: map[string]string{".": "example.com/app"},
-		Imports: map[string]map[string]string{"db/open.go": {"pgxpool": "github.com/jackc/pgx/v5/pgxpool", "dial": "example.com/app/dial"}}}
+		Imports: map[string]map[string]string{"db/open.go": {"pgxpool": "github.com/jackc/pgx/v5/pgxpool", "dial": "example.com/app/dial", "cmp": "cmp"}}}
 	g := Build(in, []unit.Unit{
 		fn("db/open.go", "Open",
 			unit.Call{Kind: unit.PathCall, Qualifier: "pgxpool", Name: "New"},
 			unit.Call{Kind: unit.MethodCall, Name: "Ping", From: 1},
 			unit.Call{Kind: unit.PathCall, Qualifier: "dial", Name: "Conn"},
-			unit.Call{Kind: unit.MethodCall, Name: "Refresh", From: 3}), // ours, untyped: still guessed
+			unit.Call{Kind: unit.MethodCall, Name: "Refresh", From: 3}, // ours, untyped: still guessed
+			unit.Call{Kind: unit.PathCall, Qualifier: "cmp", Name: "Or"},
+			unit.Call{Kind: unit.MethodCall, Name: "Validate", From: 5}), // cmp.Or(a, b) may be ours: still guessed
 		fn("db/postgres.go", "Postgres.Ping"),
 		fn("db/postgres.go", "Postgres.Refresh"),
+		fn("db/config.go", "Config.Validate"),
 	})
-	wantCallees(t, g, "db/open.go Open", "[db/postgres.go Postgres.Refresh]")
+	wantCallees(t, g, "db/open.go Open", "[db/postgres.go Postgres.Refresh db/config.go Config.Validate]")
 }
 
 // A producing call found only by its method name may be another type's

@@ -382,11 +382,14 @@ written) and, on the method call, which call produced the operand
 first, then the method on that result type, read in the producing
 function's package when written without one. A producing call that does
 not resolve, such as a standard-library one, leaves the operand untyped,
-unless it is a function of a package outside the repository's modules
-(`pool := pgxpool.New(..)`, read through the file's imports): its value
-is that package's, and a method on it (`pool.Ping()`) resolves to
-nothing, as on a type from outside does, rather than to a repository
-`Ping` guessed by name. An import binds the name Go's tools assume for
+unless it is a constructor (`New`, `NewClient`, `Open`, `Dial`,
+`Connect`, by Go's convention) of a package outside the repository's
+modules (`pool := pgxpool.New(..)`, read through the file's imports):
+its value is that package's, and a method on it (`pool.Ping()`)
+resolves to nothing, as on a type from outside does, rather than to a
+repository `Ping` guessed by name. Any other outside function may
+return a value of ours (`cmp.Or(primary, fallback)`, a generic helper),
+so a method on its result is still guessed. An import binds the name Go's tools assume for
 its package (`github.com/redis/go-redis/v9` is `redis`, `gopkg.in/yaml.v3`
 is `yaml`), so a field of type `*redis.Client` is that outside type. On
 the Go service this removed three wrong edges into the repository's own
