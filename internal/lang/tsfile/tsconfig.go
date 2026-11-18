@@ -43,7 +43,7 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 	var raw struct {
 		Extends         any `json:"extends"`
 		CompilerOptions struct {
-			BaseURL *string         `json:"baseUrl"`
+			BaseURL json.RawMessage `json:"baseUrl"`
 			Paths   json.RawMessage `json:"paths"`
 		} `json:"compilerOptions"`
 	}
@@ -77,8 +77,15 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 		}
 		delete(seen, file) // another branch may extend it as well
 	}
-	if b := raw.CompilerOptions.BaseURL; b != nil {
-		c.BaseURL = path.Join(dir, slashed(*b))
+	switch b := raw.CompilerOptions.BaseURL; {
+	case string(b) == "null":
+		c.BaseURL = "" // cleared: inherited paths read from where they are declared
+	case len(b) > 0:
+		var base string
+		if json.Unmarshal(b, &base) != nil {
+			return Config{}, false
+		}
+		c.BaseURL = path.Join(dir, slashed(base))
 	}
 	if paths != nil {
 		c.Paths, c.PathsDir = paths, dir
@@ -122,10 +129,14 @@ func (c Config) over(base Config) Config {
 
 // orderedPaths decodes a tsconfig's paths in the order it declares them:
 // tsc takes the first of two patterns matching alike. ok is false when
-// they are no object of string arrays; none (nil) is no paths.
+// they are no object of string arrays; none (nil) is no paths, and null
+// an empty set, clearing those inherited.
 func orderedPaths(raw json.RawMessage) ([]Pattern, bool) {
-	if len(raw) == 0 || string(raw) == "null" {
+	switch string(raw) {
+	case "":
 		return nil, true
+	case "null":
+		return []Pattern{}, true // cleared: no pattern, over any inherited
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	if t, err := d.Token(); err != nil || t != json.Delim('{') {

@@ -485,7 +485,8 @@ inherited paths follow a child's own `baseUrl`. The file is JSON with
 comments, trailing commas, perhaps a byte order mark and Windows
 separators read as slashes, and a relative
 `extends`, or each of an array of them in turn, gives what it does not
-say itself, each read with all it extends, through a chain of any
+say itself (a `null` `paths` or `baseUrl` clears what it inherits),
+each read with all it extends, through a chain of any
 length that ends where a file would extend itself; a package's `extends`
 (`@tsconfig/node20`), project references and `rootDirs` are not read. A
 relative import, a path alias and a package name resolve through one

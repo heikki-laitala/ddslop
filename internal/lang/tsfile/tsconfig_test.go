@@ -170,7 +170,8 @@ func TestReadConfigFollowsTsc(t *testing.T) {
 // over an earlier one's, each read with all it extends (two extending a
 // common one each have its settings); a chain of any length is followed,
 // and one looping back ends where it would read a file again. A path is
-// read as written, with .json added only when no such file is there, and
+// read as written, with .json added only when no such file is there, a
+// null setting clears the one inherited, and
 // a Windows separator (.\a.json) is a slash.
 func TestReadConfigFollowsExtendsArraysAndChains(t *testing.T) {
 	files := map[string]string{
@@ -179,6 +180,7 @@ func TestReadConfigFollowsExtendsArraysAndChains(t *testing.T) {
 		"loop.json":   `{"extends": "./back.json"}`,
 		"common.json": `{"compilerOptions": {"baseUrl": "./common"}}`,
 		"named.jsonc": `{"compilerOptions": {"baseUrl": "./named"}}`,
+		"parent.json": `{"compilerOptions": {"baseUrl": "./p", "paths": {"@/*": ["x/*"]}}}`,
 		"left.json":   `{"extends": "./common.json", "compilerOptions": {"baseUrl": "./left"}}`,
 		"right.json":  `{"extends": "./common.json", "compilerOptions": {"paths": {"@/*": ["lib/*"]}}}`,
 		"back.json":   `{"extends": "./loop.json", "compilerOptions": {"paths": {"@/*": ["back/*"]}}}`,
@@ -193,6 +195,8 @@ func TestReadConfigFollowsExtendsArraysAndChains(t *testing.T) {
 		{".", `{"extends": "./loop.json"}`, "{ @/*:back/*}"},
 		{".", `{"extends": ["./left.json", "./right.json"]}`, "{common @/*:common/lib/*}"},
 		{".", `{"extends": "./named.jsonc"}`, "{named }"},
+		{".", `{"extends": "./parent.json", "compilerOptions": {"paths": null}}`, "{p }"},
+		{".", `{"extends": "./parent.json", "compilerOptions": {"baseUrl": null}}`, "{ @/*:x/*}"},
 		{".", `{"extends": ".\\a.json", "compilerOptions": {"baseUrl": ".\\win", "paths": {"~/*": ["lib\\*"]}}}`, "{win ~/*:win/lib/*}"},
 	})
 }
