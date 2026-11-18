@@ -482,7 +482,9 @@ matching, under its `baseUrl`. Targets are read from the effective
 `baseUrl`, else from the directory of the file declaring the paths, so
 inherited paths follow a child's own `baseUrl`. The file is JSON with
 comments, trailing commas and perhaps a byte order mark, and a relative
-`extends` gives what it does not say itself; a package's `extends`
+`extends`, or each of an array of them in turn, gives what it does not
+say itself, through a chain of any length that ends where it would read
+a file again; a package's `extends`
 (`@tsconfig/node20`), project references and `rootDirs` are not read. A
 relative import, a path alias and a package name resolve through one
 `tsfile.Modules`, for calls, whole imports and directory cycles alike.

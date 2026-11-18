@@ -1,6 +1,7 @@
 package tsfile
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -22,15 +23,7 @@ func TestReadConfigReadsPathsFromItsDirectoryOrBaseURL(t *testing.T) {
 		"apps/admin/tsconfig.json": `{"extends": "../../tsconfig.base"}`,
 		"lib/tsconfig.json":        `{"extends": "@tsconfig/node20/tsconfig.json", "compilerOptions": {"paths": {"~/*": ["./src/*"]}}}`,
 	}
-	read := func(file string) ([]byte, error) {
-		if data, ok := files[file]; ok {
-			return []byte(data), nil
-		}
-		return nil, os.ErrNotExist
-	}
-	for _, c := range []struct {
-		dir, data, want string
-	}{
+	wantConfigs(t, files, []configCase{
 		{"apps/web", `{
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
@@ -44,13 +37,8 @@ func TestReadConfigReadsPathsFromItsDirectoryOrBaseURL(t *testing.T) {
 		{"apps/admin/nested", `{"extends": "../tsconfig.json"}`, "{src #shared/*:src/shared/*}"},
 		{"lib", files["lib/tsconfig.json"], "{ ~/*:lib/src/*}"},
 		{".", `{"compilerOptions": {"baseUrl": "."}}`, "{. }"},
-	} {
-		got, ok := ReadConfig(c.dir, []byte(c.data), read)
-		if s := describe(got); !ok || s != c.want {
-			t.Errorf("ReadConfig(%s) = %s, %v; want %s", c.dir, s, ok, c.want)
-		}
-	}
-	if _, ok := ReadConfig(".", []byte("not json"), read); ok {
+	})
+	if _, ok := ReadConfig(".", []byte("not json"), reader(files)); ok {
 		t.Error("ReadConfig read a tsconfig from text that is no JSON")
 	}
 }
@@ -150,12 +138,6 @@ func TestModulesFilesPreferATsconfigPathToAPackage(t *testing.T) {
 // start with a UTF-8 byte order mark.
 func TestReadConfigFollowsTsc(t *testing.T) {
 	files := map[string]string{"shared/tsconfig.json": `{"compilerOptions": {"paths": {"@/*": ["lib/*"]}}}`}
-	read := func(file string) ([]byte, error) {
-		if data, ok := files[file]; ok {
-			return []byte(data), nil
-		}
-		return nil, os.ErrNotExist
-	}
 	for _, c := range []struct {
 		name, data, module, want string
 	}{
@@ -164,7 +146,7 @@ func TestReadConfigFollowsTsc(t *testing.T) {
 		{"byte order mark", "\ufeff" + `{"compilerOptions": {"paths": {"@/*": ["src/*"]}}}`, "@/db", "apps/web/src/db"},
 	} {
 		for range 20 {
-			config, ok := ReadConfig("apps/web", []byte(c.data), read)
+			config, ok := ReadConfig("apps/web", []byte(c.data), reader(files))
 			m := Modules{Configs: map[string]Config{"apps/web": config}, Stems: map[string]bool{
 				"apps/web/src/lib/db": true, "shared/lib/db": true, "apps/web/first/x/db": true, "apps/web/second/x/db": true, "apps/web/src/db": true,
 			}}
@@ -173,5 +155,52 @@ func TestReadConfigFollowsTsc(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+// Extends may be an array, read in order, each later config's settings
+// over an earlier one's; a chain of any length is followed, and one
+// looping back ends where it would read a file again.
+func TestReadConfigFollowsExtendsArraysAndChains(t *testing.T) {
+	files := map[string]string{
+		"a.json":    `{"compilerOptions": {"paths": {"@/*": ["lib/*"]}}}`,
+		"b.json":    `{"compilerOptions": {"baseUrl": "./src"}}`,
+		"loop.json": `{"extends": "./back.json"}`,
+		"back.json": `{"extends": "./loop.json", "compilerOptions": {"paths": {"@/*": ["back/*"]}}}`,
+	}
+	for i := range 10 {
+		files[fmt.Sprintf("chain%d.json", i)] = fmt.Sprintf(`{"extends": "./chain%d.json"}`, i+1)
+	}
+	files["chain10.json"] = `{"compilerOptions": {"paths": {"@/*": ["deep/*"]}}}`
+	wantConfigs(t, files, []configCase{
+		{".", `{"extends": ["./a.json", "./b.json"]}`, "{src @/*:src/lib/*}"},
+		{".", `{"extends": "./chain0.json"}`, "{ @/*:deep/*}"},
+		{".", `{"extends": "./loop.json"}`, "{ @/*:back/*}"},
+	})
+}
+
+// configCase is a tsconfig.json of a directory and the config it reads
+// as (see describe).
+type configCase struct{ dir, data, want string }
+
+// wantConfigs reads each case's tsconfig, its extends read from files,
+// and fails the test unless it reads as the case wants.
+func wantConfigs(t *testing.T, files map[string]string, cases []configCase) {
+	t.Helper()
+	for _, c := range cases {
+		got, ok := ReadConfig(c.dir, []byte(c.data), reader(files))
+		if s := describe(got); !ok || s != c.want {
+			t.Errorf("ReadConfig(%s, %s) = %s, %v; want %s", c.dir, c.data, s, ok, c.want)
+		}
+	}
+}
+
+// reader reads files from a map of their contents, as ReadConfig's read.
+func reader(files map[string]string) func(file string) ([]byte, error) {
+	return func(file string) ([]byte, error) {
+		if data, ok := files[file]; ok {
+			return []byte(data), nil
+		}
+		return nil, os.ErrNotExist
 	}
 }

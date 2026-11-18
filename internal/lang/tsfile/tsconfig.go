@@ -28,20 +28,18 @@ type Pattern struct {
 	Targets []string
 }
 
-// maxExtends bounds a chain of extends, which a loop would make endless.
-const maxExtends = 8
-
 // ReadConfig reads data, the tsconfig.json of dir, reporting false when
 // it is no JSON. Its comments and trailing commas aside, it is JSON. A
-// relative extends ("../../tsconfig.base.json") gives, read with read,
-// what the file does not say itself; a package's (@tsconfig/node20) is
-// not read. Paths resolve from the baseUrl, the file's own or inherited,
+// relative extends ("../../tsconfig.base.json"), or each of an array of
+// them in turn, gives, read with read, what the file does not say itself,
+// through a chain of any length that ends where it would read a file
+// again; a package's (@tsconfig/node20) is not read. Paths resolve from the baseUrl, the file's own or inherited,
 // else from the directory of the file declaring them.
 func ReadConfig(dir string, data []byte, read func(file string) ([]byte, error)) (Config, bool) {
-	return readConfig(dir, data, read, maxExtends)
+	return readConfig(dir, data, read, map[string]bool{})
 }
 
-func readConfig(dir string, data []byte, read func(file string) ([]byte, error), extends int) (Config, bool) {
+func readConfig(dir string, data []byte, read func(file string) ([]byte, error), seen map[string]bool) (Config, bool) {
 	var raw struct {
 		Extends         any `json:"extends"`
 		CompilerOptions struct {
@@ -58,13 +56,22 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 		return Config{}, false
 	}
 	var c Config
-	if parent, ok := raw.Extends.(string); ok && relative(parent) && extends > 0 {
+	for _, parent := range extendsOf(raw.Extends) {
+		if !relative(parent) {
+			continue
+		}
 		if !strings.HasSuffix(parent, ".json") {
 			parent += ".json"
 		}
 		file := path.Join(dir, parent)
+		if seen[file] {
+			continue
+		}
+		seen[file] = true
 		if data, err := read(file); err == nil {
-			c, _ = readConfig(path.Dir(file), data, read, extends-1)
+			if p, ok := readConfig(path.Dir(file), data, read, seen); ok {
+				c = p.over(c)
+			}
 		}
 	}
 	if b := raw.CompilerOptions.BaseURL; b != nil {
@@ -74,6 +81,34 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 		c.Paths, c.PathsDir = paths, dir
 	}
 	return c, true
+}
+
+// extendsOf returns the configs an extends names: one, or an array of them.
+func extendsOf(extends any) []string {
+	switch e := extends.(type) {
+	case string:
+		return []string{e}
+	case []any:
+		var out []string
+		for _, v := range e {
+			if s, ok := v.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// over returns c's settings over base's: each one c sets replaces base's.
+func (c Config) over(base Config) Config {
+	if c.BaseURL != "" {
+		base.BaseURL = c.BaseURL
+	}
+	if c.Paths != nil {
+		base.Paths, base.PathsDir = c.Paths, c.PathsDir
+	}
+	return base
 }
 
 // orderedPaths decodes a tsconfig's paths in the order it declares them:
