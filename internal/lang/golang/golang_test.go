@@ -738,16 +738,27 @@ func variadic(a int, rest ...string) {}
 	}
 }
 
+// A struct field's type is qualified by the import of its package: by its
+// alias, or the name Go's tools assume for it (go-redis/v9 is redis,
+// yaml.v3 is yaml, go-sqlite3 is sqlite3).
 func TestStructFieldTypesAreQualifiedByTheFileImports(t *testing.T) {
 	src := `package api
 
-import st "example.com/app/internal/store"
+import (
+	st "example.com/app/internal/store"
+	"github.com/redis/go-redis/v9"
+	"gopkg.in/yaml.v3"
+	"github.com/mattn/go-sqlite3"
+)
 
 type Server struct {
 	store *st.Store
 	cache Cache
 	names []string
 	st.Logger
+	rdb  *redis.Client
+	conf yaml.Node
+	conn sqlite3.SQLiteConn
 }
 `
 	_, decls := testutil.Parse(t, Parse, "api/server.go", src)
@@ -758,6 +769,9 @@ type Server struct {
 		"Server.store example.com/app/internal/store.Store",
 		"Server.cache Cache",
 		"Server.Logger example.com/app/internal/store.Logger",
+		"Server.rdb github.com/redis/go-redis/v9.Client",
+		"Server.conf gopkg.in/yaml.v3.Node",
+		"Server.conn github.com/mattn/go-sqlite3.SQLiteConn",
 	}
 	testutil.Lines(t, "field types", got, want)
 }
