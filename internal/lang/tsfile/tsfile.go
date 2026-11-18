@@ -29,19 +29,11 @@ func IsSource(file string) bool {
 	return slices.ContainsFunc(Extensions, func(ext string) bool { return strings.HasSuffix(file, ext) })
 }
 
-// ModuleIs reports whether a relative module path, as importer imports
-// it ("./store", "../auth/verify.js", ".."), names file: the file itself,
-// written with or without its extension or a JavaScript one, or its
-// directory's index file. A package's path names no file of ours.
-func ModuleIs(importer, module, file string) bool {
-	named, ok := ModulePath(importer, module)
-	stem := Stem(file)
-	return ok && (stem == named || stem == named+"/index")
-}
-
 // ModulePath returns the path, without extension, that a relative module
-// path names as importer imports it: a file of that stem, or the index
-// file of a directory of that path. A package's path names none.
+// path, as importer imports it ("./store", "../auth/verify.js", ".."),
+// names: a file of that stem, written with or without its extension or a
+// JavaScript one, or the index file of a directory of that path. A
+// package's path names none.
 func ModulePath(importer, module string) (string, bool) {
 	if module != "." && module != ".." && !strings.HasPrefix(module, "./") && !strings.HasPrefix(module, "../") {
 		return "", false
@@ -111,16 +103,35 @@ func PackageDir[T any](file string, packages map[string]T) string {
 	}
 }
 
-// ModuleFiles reports, for a file, whether it is the module a module path
-// names as importer imports it: the file a relative path names (see
-// ModuleIs), or one of the workspace package a package path names
-// (@acme/db, @acme/db/query; packages maps each named package's directory
-// to its name), outside the packages nested in it.
-func ModuleFiles(importer, module string, packages map[string]string) func(file string) bool {
-	if dir, ok := packageNamed(module, packages); ok {
-		return func(file string) bool { return PackageDir(file, packages) == dir }
+// Modules is what resolves the module paths TypeScript files import to
+// files of ours.
+type Modules struct {
+	// Packages maps the directory of each named workspace package to its
+	// name (@acme/db).
+	Packages map[string]string
+}
+
+// Path returns the path, without extension, that a module path names as
+// importer imports it: a file of that stem, or the index file of a
+// directory of that path. Only a relative path names one (see
+// ModulePath).
+func (m Modules) Path(importer, module string) (string, bool) {
+	return ModulePath(importer, module)
+}
+
+// Files reports, for a file, whether it is the module a module path names
+// as importer imports it: the file a path names (see Path) or its
+// directory's index file, or one of the workspace package a package path
+// names (@acme/db, @acme/db/query), outside the packages nested in it.
+func (m Modules) Files(importer, module string) func(file string) bool {
+	if dir, ok := packageNamed(module, m.Packages); ok {
+		return func(file string) bool { return PackageDir(file, m.Packages) == dir }
 	}
-	return func(file string) bool { return ModuleIs(importer, module, file) }
+	named, ok := m.Path(importer, module)
+	return func(file string) bool {
+		stem := Stem(file)
+		return ok && (stem == named || stem == named+"/index")
+	}
 }
 
 // packageNamed returns the directory of the workspace package a module

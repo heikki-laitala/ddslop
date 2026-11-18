@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/heikki-laitala/ddslop/internal/lang/tsfile"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -1559,8 +1560,8 @@ func TestBuildResolvesTypeScriptCallsThroughWorkspacePackages(t *testing.T) {
 		fn("packages/api/src/handler.ts", "rooted", unit.Call{Kind: unit.PathCall, Qualifier: "acme", Name: "query"}),
 		exported(fn("src/query.ts", "query")),
 	}
-	g := Build(Inputs{TSPackages: map[string]string{".": "acme", "packages/db": "@acme/db", "packages/other": "@acme/other",
-		"packages/db/examples/demo": "demo"}}, units)
+	g := Build(Inputs{TSModules: tsfile.Modules{Packages: map[string]string{".": "acme", "packages/db": "@acme/db", "packages/other": "@acme/other",
+		"packages/db/examples/demo": "demo"}}}, units)
 	for caller, want := range map[string]string{
 		"packages/api/src/handler.ts handle":  "[packages/db/src/query.ts query]",
 		"packages/api/src/handler.ts sub":     "[packages/db/src/query.ts query]",

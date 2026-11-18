@@ -63,7 +63,7 @@ type index struct {
 	deps         map[string]map[string]bool      // crate directory -> workspace crates it imports from
 	fields       map[string]map[string]FieldType // package or crate directory -> "Struct.field" -> its type
 	modules      map[string]string               // go.mod directory -> module path
-	tsPackages   map[string]string               // TypeScript package.json directory -> package name
+	tsModules    tsfile.Modules                  // what resolves TypeScript module paths
 	tsFields     map[string][]FieldType          // TypeScript "Type.field" -> the field's type in each type of that name, one per file
 	tsImpls      map[string][]unit.Impl          // TypeScript "declaring file#interface" -> the classes implementing it
 	tsInterfaces map[string][]string             // TypeScript interface name -> the files declaring one of that name
@@ -100,9 +100,8 @@ type Inputs struct {
 	Fields map[string]map[string]FieldType
 	// Modules maps the directory of each go.mod to its module path.
 	Modules map[string]string
-	// TSPackages maps the directory of each TypeScript package.json to
-	// the package's name (@acme/db).
-	TSPackages map[string]string
+	// TSModules resolves the module paths TypeScript files import.
+	TSModules tsfile.Modules
 	// TSInterfaces maps the name of each TypeScript interface declaring
 	// methods to the files declaring one of that name.
 	TSInterfaces map[string][]string
@@ -130,7 +129,7 @@ func Build(in Inputs, units []unit.Unit) *Graph {
 			langs[ext] = &index{free: map[string][]int{}, methods: map[string][]int{}, owned: map[string][]int{}, owners: map[string]bool{},
 				impls: map[string][]string{}, rustModules: map[string]map[string]bool{},
 				crates: map[string]string{}, imports: in.Imports, modImports: map[string]map[string]string{}, topImports: in.TopImports, selfAliases: map[string]map[string]bool{}, deps: map[string]map[string]bool{},
-				fields: in.Fields, modules: in.Modules, tsPackages: in.TSPackages, tsFields: map[string][]FieldType{}, tsImpls: map[string][]unit.Impl{}, tsInterfaces: in.TSInterfaces,
+				fields: in.Fields, modules: in.Modules, tsModules: in.TSModules, tsFields: map[string][]FieldType{}, tsImpls: map[string][]unit.Impl{}, tsInterfaces: in.TSInterfaces,
 				libraries: in.Libraries}
 		}
 		return langs[ext]
@@ -958,10 +957,10 @@ func throughAliases(imported map[string]string, path, name string) string {
 // import is its own function's, or a global's, unless the caller declares
 // it (a parameter), its own name aside (a recursive call); an imported one
 // (a path call qualified by its module) is the exported function of that
-// name in the module a relative path names (see tsfile.ModuleIs), or
+// name in the module a relative path names (see tsfile.ModulePath), or
 // anywhere in the workspace package a package path names (@acme/db,
 // @acme/db/query) outside the packages nested in it, never an outside
-// package's (see tsfile.ModuleFiles); a call on this is the caller's
+// package's (see tsfile.Modules.Files); a call on this is the caller's
 // class's method; one on a value whose type the code states (a typed
 // parameter, a field of this or of a typed variable) is the method of that
 // type's class (see resolveTSMethod, tsFieldType). Without a type, the
@@ -975,7 +974,7 @@ func (ix index) resolveTypeScript(units []unit.Unit, caller unit.Unit, owner str
 		}
 		return only(units, ix.free[c.Name], sameFile), false
 	case c.Kind == unit.PathCall:
-		inModule := tsfile.ModuleFiles(caller.File, c.Qualifier, ix.tsPackages)
+		inModule := ix.tsModules.Files(caller.File, c.Qualifier)
 		return only(units, ix.free[c.Name], func(u unit.Unit) bool { return u.Public && inModule(u.File) }), false
 	case c.Qualifier == "self" && owner != "":
 		return only(units, ix.owned[owner+"::"+c.Name], sameFile), false
@@ -1023,11 +1022,11 @@ func (ix index) resolveTSMethod(units []unit.Unit, home, typ, method string) (in
 
 // tsDeclares reports, for a file, whether it is where the TypeScript type
 // typ, as unit.Call.Type writes it read in home, is declared: in the
-// module it is imported from (see tsfile.ModuleFiles), or home itself for
+// module it is imported from (see tsfile.Modules.Files), or home itself for
 // a local type.
 func (ix index) tsDeclares(home, typ string) func(file string) bool {
 	if i := strings.LastIndex(typ, "."); i >= 0 {
-		return tsfile.ModuleFiles(home, typ[:i], ix.tsPackages)
+		return ix.tsModules.Files(home, typ[:i])
 	}
 	return func(file string) bool { return file == home }
 }

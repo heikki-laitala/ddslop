@@ -760,7 +760,7 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 			return pattern.ParameterGroups(u, funcTypes)
 		}),
 		Drifts: found,
-		Cycles: dependencyCycles(cycleGraph(g, root, files, units, opts.tests), files, packages(root, files), opts.tests),
+		Cycles: dependencyCycles(cycleGraph(g, root, files, units, opts.tests), files, packages(root, files), tsModules(root, files), opts.tests),
 	}, summary)
 	return r, conventions, recordHealth(db, root, r.Summary.Health)
 }
@@ -853,7 +853,7 @@ func appendDrifts(out []report.Drift, g *flow.Graph, found []codemap.Drift) []re
 // group with no such pair is one, closed by each step of a shortest loop.
 // A cycle any of whose sites a ddslop:ignore marks is deliberate, and
 // left out. Go packages and Rust crates cannot form one.
-func dependencyCycles(g *flow.Graph, files []index.File, crates *codemap.Packages, tests bool) []report.Cycle {
+func dependencyCycles(g *flow.Graph, files []index.File, crates *codemap.Packages, modules tsfile.Modules, tests bool) []report.Cycle {
 	generated := map[string]bool{}
 	for _, f := range files {
 		generated[f.Path] = f.Generated
@@ -871,7 +871,9 @@ func dependencyCycles(g *flow.Graph, files []index.File, crates *codemap.Package
 		})
 		out = appendCycles(out, g, name, codemap.Graph{Calls: g, Group: group, Deps: dependencies(files, crates, name, generated, libraries, tests)}.Cycles())
 	}
-	imports := func(group func(file string) string) []codemap.Dependency { return tsDependencies(files, tests, group) }
+	imports := func(group func(file string) string) []codemap.Dependency {
+		return tsDependencies(files, modules, tests, group)
+	}
 	loops := tsCycles(g, imports)
 	out = appendCycles(out, g, "typescript", loops)
 	return appendSharedDown(out, g, imports, loops)
@@ -1055,11 +1057,11 @@ func appendCycles(out []report.Cycle, g *flow.Graph, name string, cycles []codem
 }
 
 // tsDependencies lists the imports of a TypeScript file of another group
-// than the importer's, as group names a file ("" to leave it out): a
-// relative import (see tsfile.ModulePath), in files order and each file's
-// source order. Test files' imports count only with tests; a re-export
-// (export * from) or a dynamic import is none.
-func tsDependencies(files []index.File, tests bool, group func(file string) string) []codemap.Dependency {
+// than the importer's, as group names a file ("" to leave it out): one
+// whose path names a file of ours (see tsfile.Modules.Path), in files
+// order and each file's source order. Test files' imports count only with
+// tests; a re-export (export * from) or a dynamic import is none.
+func tsDependencies(files []index.File, modules tsfile.Modules, tests bool, group func(file string) string) []codemap.Dependency {
 	stems := map[string]string{}
 	for _, f := range files {
 		if tsfile.IsSource(f.Path) {
@@ -1073,7 +1075,7 @@ func tsDependencies(files []index.File, tests bool, group func(file string) stri
 			continue
 		}
 		for _, im := range f.Decls.Imports {
-			named, ok := tsfile.ModulePath(f.Path, im.Module)
+			named, ok := modules.Path(f.Path, im.Module)
 			if !ok || (im.Test && !tests) {
 				continue
 			}
@@ -1400,14 +1402,14 @@ func shapeImplemented(files []index.File) map[string]bool {
 
 // wholeImported reports the TypeScript files another file imports whole
 // (import * as schema, import("./routes")), by a relative path, a
-// workspace package's name (see tsfile.ModuleFiles) or a path alias (see
+// workspace package's name (see tsfile.Modules.Files) or a path alias (see
 // tsfile.AliasMayBe): they may use any of its exports without naming it.
 func wholeImported(root string, files []index.File) map[string]bool {
-	packages := tsPackageNames(root, files)
+	modules := tsModules(root, files)
 	out := map[string]bool{}
 	for _, importer := range files {
 		for _, module := range importer.Decls.WholeImports {
-			names := tsfile.ModuleFiles(importer.Path, module, packages)
+			names := modules.Files(importer.Path, module)
 			for _, f := range files {
 				if tsfile.IsSource(f.Path) && (names(f.Path) || tsfile.AliasMayBe(module, f.Path)) {
 					out[f.Path] = true
