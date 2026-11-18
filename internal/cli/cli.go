@@ -911,9 +911,9 @@ func appendSharedDown(out []report.Cycle, g *flow.Graph, imports func(group func
 				continue
 			}
 			switch {
-			case strings.HasPrefix(l.B, l.A+"/"):
+			case isBelow(l.B, l.A):
 				below[l.A] = append(below[l.A], l)
-			case strings.HasPrefix(l.A, l.B+"/"):
+			case isBelow(l.A, l.B):
 				l.A, l.B, l.AB, l.BA = l.B, l.A, l.BA, l.AB
 				below[l.A] = append(below[l.A], l)
 			}
@@ -943,6 +943,12 @@ func appendSharedDown(out []report.Cycle, g *flow.Graph, imports func(group func
 		}
 	}
 	return out
+}
+
+// isBelow reports whether directory dir is below directory upper: in it,
+// or in a directory below it. The root (".") is above every other.
+func isBelow(dir, upper string) bool {
+	return upper == "." && dir != "." || strings.HasPrefix(dir, upper+"/")
 }
 
 // siteTarget returns the file a site reaches: the called unit's, or the

@@ -350,3 +350,16 @@ func TestCheckReportsTwoFileLoopsOfTheSameDirectoriesOnce(t *testing.T) {
 		t.Fatalf("values = %s, want the pair", got)
 	}
 }
+
+// The root directory is above every other: its aggregator and a file the
+// directories below it import back are one candidate too.
+func TestCheckReportsTheRootDirectoryItsSubdirectoriesImportBack(t *testing.T) {
+	r := wantCycles(t, 1, "one candidate for the root", repo(t, map[string]string{
+		"library.ts":   "import { card } from \"./card/card\";\n\nexport function library() {\n  return [card()];\n}\n",
+		"helpers.ts":   "export function helper() {\n  return 2;\n}\n",
+		"card/card.ts": "import { helper } from \"../helpers\";\n\nexport function card() {\n  return helper();\n}\n",
+	}))
+	if got := strings.Join(r.Candidates[0].Values, ", "); got != ". -> card, card -> helpers.ts" {
+		t.Errorf("values = %s, want the root and card", got)
+	}
+}
