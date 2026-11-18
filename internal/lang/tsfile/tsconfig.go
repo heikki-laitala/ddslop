@@ -10,11 +10,22 @@ import (
 // Config is what a tsconfig.json says of the module paths its files
 // import: BaseURL, the directory a non-relative path may be under, "" for
 // none, and Paths, the targets each pattern ("@/*") maps to, "*" standing
-// for what the pattern's matched. Both are slashed paths from the analysed
-// root.
+// for what the pattern matched, in the order the file declares them. The
+// targets are as written, read from the effective BaseURL, else from
+// PathsDir, the directory of the file declaring them, as tsc reads them:
+// an inherited pattern follows the baseUrl of the file extending it. The
+// directories are slashed paths from the analysed root.
 type Config struct {
-	BaseURL string
-	Paths   map[string][]string
+	BaseURL  string
+	Paths    []Pattern
+	PathsDir string
+}
+
+// Pattern is one entry of a tsconfig's paths: the pattern and its
+// targets, as written.
+type Pattern struct {
+	Pattern string
+	Targets []string
 }
 
 // maxExtends bounds a chain of extends, which a loop would make endless.
@@ -34,11 +45,16 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 	var raw struct {
 		Extends         any `json:"extends"`
 		CompilerOptions struct {
-			BaseURL *string             `json:"baseUrl"`
-			Paths   map[string][]string `json:"paths"`
+			BaseURL *string         `json:"baseUrl"`
+			Paths   json.RawMessage `json:"paths"`
 		} `json:"compilerOptions"`
 	}
-	if json.Unmarshal(stripJSONC(data), &raw) != nil {
+	data = stripJSONC(bytes.TrimPrefix(data, []byte("\ufeff")))
+	if json.Unmarshal(data, &raw) != nil {
+		return Config{}, false
+	}
+	paths, ok := orderedPaths(raw.CompilerOptions.Paths)
+	if !ok {
 		return Config{}, false
 	}
 	var c Config
@@ -54,19 +70,34 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 	if b := raw.CompilerOptions.BaseURL; b != nil {
 		c.BaseURL = path.Join(dir, *b)
 	}
-	if raw.CompilerOptions.Paths != nil {
-		from := c.BaseURL
-		if from == "" {
-			from = dir
-		}
-		c.Paths = map[string][]string{}
-		for pattern, targets := range raw.CompilerOptions.Paths {
-			for _, t := range targets {
-				c.Paths[pattern] = append(c.Paths[pattern], path.Join(from, t))
-			}
-		}
+	if paths != nil {
+		c.Paths, c.PathsDir = paths, dir
 	}
 	return c, true
+}
+
+// orderedPaths decodes a tsconfig's paths in the order it declares them:
+// tsc takes the first of two patterns matching alike. ok is false when
+// they are no object of string arrays; none (nil) is no paths.
+func orderedPaths(raw json.RawMessage) ([]Pattern, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, true
+	}
+	d := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := d.Token(); err != nil || t != json.Delim('{') {
+		return nil, false
+	}
+	out := []Pattern{}
+	for d.More() {
+		key, err := d.Token()
+		pattern, isString := key.(string)
+		var targets []string
+		if err != nil || !isString || d.Decode(&targets) != nil {
+			return nil, false
+		}
+		out = append(out, Pattern{Pattern: pattern, Targets: targets})
+	}
+	return out, true
 }
 
 // targets returns the paths, without extension, a non-relative module
@@ -74,21 +105,26 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 // the path, else of the wildcard one of the longest prefix matching it,
 // else, with no pattern matching, the path under the baseUrl.
 func (c Config) targets(module string) []string {
-	matched, star, best := "", "", -1
-	for pattern := range c.Paths {
-		prefix, suffix, wild := strings.Cut(pattern, "*")
+	var matched []string
+	star, best := "", -1
+	for _, p := range c.Paths {
+		prefix, suffix, wild := strings.Cut(p.Pattern, "*")
 		switch {
-		case !wild && pattern == module:
-			matched, star, best = pattern, "", len(module)+1
+		case !wild && p.Pattern == module:
+			matched, star, best = p.Targets, "", len(module)+1
 		case wild && len(prefix) > best && len(module) >= len(prefix)+len(suffix) &&
 			strings.HasPrefix(module, prefix) && strings.HasSuffix(module, suffix):
-			matched, star, best = pattern, module[len(prefix):len(module)-len(suffix)], len(prefix)
+			matched, star, best = p.Targets, module[len(prefix):len(module)-len(suffix)], len(prefix)
 		}
+	}
+	from := c.BaseURL
+	if from == "" {
+		from = c.PathsDir
 	}
 	var out []string
 	if best >= 0 {
-		for _, t := range c.Paths[matched] {
-			out = append(out, trimExtension(strings.Replace(t, "*", star, 1)))
+		for _, t := range matched {
+			out = append(out, trimExtension(path.Join(from, strings.Replace(t, "*", star, 1))))
 		}
 	} else if c.BaseURL != "" {
 		out = append(out, trimExtension(path.Join(c.BaseURL, module)))

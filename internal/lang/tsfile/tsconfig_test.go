@@ -1,8 +1,9 @@
 package tsfile
 
 import (
-	"fmt"
 	"os"
+	"path"
+	"strings"
 	"testing"
 )
 
@@ -38,20 +39,38 @@ func TestReadConfigReadsPathsFromItsDirectoryOrBaseURL(t *testing.T) {
       "config": ["./config/index.ts"],
     },
   },
-}`, "{src map[@/*:[src/* src/generated/*] config:[src/config/index.ts]]}"},
-		{"apps/web", `{"extends": "./missing.json", "compilerOptions": {"paths": {"@/*": ["./src/*"]}}}`, "{ map[@/*:[apps/web/src/*]]}"},
-		{"apps/admin/nested", `{"extends": "../tsconfig.json"}`, "{src map[#shared/*:[src/shared/*]]}"},
-		{"lib", files["lib/tsconfig.json"], "{ map[~/*:[lib/src/*]]}"},
-		{".", `{"compilerOptions": {"baseUrl": "."}}`, "{. map[]}"},
+}`, "{src @/*:src/*,src/generated/* config:src/config/index.ts}"},
+		{"apps/web", `{"extends": "./missing.json", "compilerOptions": {"paths": {"@/*": ["./src/*"]}}}`, "{ @/*:apps/web/src/*}"},
+		{"apps/admin/nested", `{"extends": "../tsconfig.json"}`, "{src #shared/*:src/shared/*}"},
+		{"lib", files["lib/tsconfig.json"], "{ ~/*:lib/src/*}"},
+		{".", `{"compilerOptions": {"baseUrl": "."}}`, "{. }"},
 	} {
 		got, ok := ReadConfig(c.dir, []byte(c.data), read)
-		if s := fmt.Sprint(got); !ok || s != c.want {
+		if s := describe(got); !ok || s != c.want {
 			t.Errorf("ReadConfig(%s) = %s, %v; want %s", c.dir, s, ok, c.want)
 		}
 	}
 	if _, ok := ReadConfig(".", []byte("not json"), read); ok {
 		t.Error("ReadConfig read a tsconfig from text that is no JSON")
 	}
+}
+
+// describe writes a config as its baseUrl and each pattern with its
+// targets, read from where they resolve.
+func describe(c Config) string {
+	from := c.BaseURL
+	if from == "" {
+		from = c.PathsDir
+	}
+	var patterns []string
+	for _, p := range c.Paths {
+		var targets []string
+		for _, t := range p.Targets {
+			targets = append(targets, path.Join(from, t))
+		}
+		patterns = append(patterns, p.Pattern+":"+strings.Join(targets, ","))
+	}
+	return "{" + c.BaseURL + " " + strings.Join(patterns, " ") + "}"
 }
 
 // A module path through the nearest tsconfig.json's paths names the first
@@ -61,12 +80,12 @@ func TestReadConfigReadsPathsFromItsDirectoryOrBaseURL(t *testing.T) {
 func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 	m := Modules{
 		Configs: map[string]Config{
-			"apps/web": {Paths: map[string][]string{
-				"@/*":          {"apps/web/src/*", "apps/web/generated/*"},
-				"@/ui/*":       {"packages/ui/src/*"},
-				"@config":      {"apps/web/src/config.ts"},
-				"@/missing/*":  {"apps/web/nowhere/*"},
-				"virtual:pwa*": {"apps/web/src/pwa*"},
+			"apps/web": {Paths: []Pattern{
+				{"@/*", []string{"apps/web/src/*", "apps/web/generated/*"}},
+				{"@/ui/*", []string{"packages/ui/src/*"}},
+				{"@config", []string{"apps/web/src/config.ts"}},
+				{"@/missing/*", []string{"apps/web/nowhere/*"}},
+				{"virtual:pwa*", []string{"apps/web/src/pwa*"}},
 			}},
 			"apps/api": {BaseURL: "apps/api/src"},
 		},
@@ -113,7 +132,7 @@ func TestModulesPathFollowsTheNearestTsconfig(t *testing.T) {
 func TestModulesFilesPreferATsconfigPathToAPackage(t *testing.T) {
 	m := Modules{
 		Packages: map[string]string{"packages/ui": "@acme/ui"},
-		Configs:  map[string]Config{"apps/web": {Paths: map[string][]string{"@acme/ui": {"apps/web/src/ui-shim"}}}},
+		Configs:  map[string]Config{"apps/web": {Paths: []Pattern{{"@acme/ui", []string{"apps/web/src/ui-shim"}}}}},
 		Stems:    map[string]bool{"apps/web/src/ui-shim": true, "packages/ui/src/index": true},
 	}
 	names := m.Files("apps/web/src/app.ts", "@acme/ui")
@@ -122,5 +141,37 @@ func TestModulesFilesPreferATsconfigPathToAPackage(t *testing.T) {
 	}
 	if !m.Files("apps/api/src/app.ts", "@acme/ui")("packages/ui/src/index.ts") {
 		t.Error("Files(@acme/ui) outside the tsconfig is not the workspace package")
+	}
+}
+
+// A tsconfig is read as tsc reads it: inherited paths resolve from the
+// child's own baseUrl when it sets one, of two wildcard patterns with
+// prefixes of the same length the first declared wins, and a file may
+// start with a UTF-8 byte order mark.
+func TestReadConfigFollowsTsc(t *testing.T) {
+	files := map[string]string{"shared/tsconfig.json": `{"compilerOptions": {"paths": {"@/*": ["lib/*"]}}}`}
+	read := func(file string) ([]byte, error) {
+		if data, ok := files[file]; ok {
+			return []byte(data), nil
+		}
+		return nil, os.ErrNotExist
+	}
+	for _, c := range []struct {
+		name, data, module, want string
+	}{
+		{"inherited paths", `{"extends": "../../shared/tsconfig.json", "compilerOptions": {"baseUrl": "./src"}}`, "@/db", "apps/web/src/lib/db"},
+		{"declaration order", `{"compilerOptions": {"paths": {"@/*/db": ["first/*/db"], "@/*": ["second/*"]}}}`, "@/x/db", "apps/web/first/x/db"},
+		{"byte order mark", "\ufeff" + `{"compilerOptions": {"paths": {"@/*": ["src/*"]}}}`, "@/db", "apps/web/src/db"},
+	} {
+		for range 20 {
+			config, ok := ReadConfig("apps/web", []byte(c.data), read)
+			m := Modules{Configs: map[string]Config{"apps/web": config}, Stems: map[string]bool{
+				"apps/web/src/lib/db": true, "shared/lib/db": true, "apps/web/first/x/db": true, "apps/web/second/x/db": true, "apps/web/src/db": true,
+			}}
+			if got, found := m.Path("apps/web/src/app.ts", c.module); !ok || !found || got != c.want {
+				t.Errorf("%s: Path(%s) = %s, %v (read %v); want %s", c.name, c.module, got, found, ok, c.want)
+				break
+			}
+		}
 	}
 }

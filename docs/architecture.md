@@ -476,10 +476,13 @@ directory is what the name stands for, as a Go package's is. An import
 through a path alias (`@/lib/db`) resolves as tsc resolves it, before
 the workspace packages: by the `compilerOptions.paths` of the nearest
 `tsconfig.json` above the importing file, the exact pattern, else the
-wildcard one of the longest prefix, to the first of its targets that is
-a file of ours, or, with no pattern matching, under its `baseUrl`. The
-file is JSON with comments and trailing commas, and a relative `extends`
-gives what it does not say itself; a package's `extends`
+wildcard one of the longest prefix (the first declared of two alike), to
+the first of its targets that is a file of ours, or, with no pattern
+matching, under its `baseUrl`. Targets are read from the effective
+`baseUrl`, else from the directory of the file declaring the paths, so
+inherited paths follow a child's own `baseUrl`. The file is JSON with
+comments, trailing commas and perhaps a byte order mark, and a relative
+`extends` gives what it does not say itself; a package's `extends`
 (`@tsconfig/node20`), project references and `rootDirs` are not read. A
 relative import, a path alias and a package name resolve through one
 `tsfile.Modules`, for calls, whole imports and directory cycles alike.
