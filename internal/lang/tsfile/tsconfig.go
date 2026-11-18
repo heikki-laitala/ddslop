@@ -19,6 +19,7 @@ type Config struct {
 	BaseURL  string
 	Paths    []Pattern
 	PathsDir string
+	baseSet  bool // the file or one it extends sets baseUrl, null included
 }
 
 // Pattern is one entry of a tsconfig's paths: the pattern and its
@@ -79,13 +80,13 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 	}
 	switch b := raw.CompilerOptions.BaseURL; {
 	case string(b) == "null":
-		c.BaseURL = "" // cleared: inherited paths read from where they are declared
+		c.BaseURL, c.baseSet = "", true // cleared: inherited paths read from where they are declared
 	case len(b) > 0:
 		var base string
 		if json.Unmarshal(b, &base) != nil {
 			return Config{}, false
 		}
-		c.BaseURL = path.Join(dir, slashed(base))
+		c.BaseURL, c.baseSet = path.Join(dir, slashed(base)), true
 	}
 	if paths != nil {
 		c.Paths, c.PathsDir = paths, dir
@@ -118,8 +119,8 @@ func extendsOf(extends any) []string {
 
 // over returns c's settings over base's: each one c sets replaces base's.
 func (c Config) over(base Config) Config {
-	if c.BaseURL != "" {
-		base.BaseURL = c.BaseURL
+	if c.baseSet {
+		base.BaseURL, base.baseSet = c.BaseURL, true
 	}
 	if c.Paths != nil {
 		base.Paths, base.PathsDir = c.Paths, c.PathsDir

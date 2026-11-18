@@ -181,6 +181,7 @@ func TestReadConfigFollowsExtendsArraysAndChains(t *testing.T) {
 		"common.json": `{"compilerOptions": {"baseUrl": "./common"}}`,
 		"named.jsonc": `{"compilerOptions": {"baseUrl": "./named"}}`,
 		"parent.json": `{"compilerOptions": {"baseUrl": "./p", "paths": {"@/*": ["x/*"]}}}`,
+		"nobase.json": `{"compilerOptions": {"baseUrl": null}}`,
 		"left.json":   `{"extends": "./common.json", "compilerOptions": {"baseUrl": "./left"}}`,
 		"right.json":  `{"extends": "./common.json", "compilerOptions": {"paths": {"@/*": ["lib/*"]}}}`,
 		"back.json":   `{"extends": "./loop.json", "compilerOptions": {"paths": {"@/*": ["back/*"]}}}`,
@@ -197,6 +198,7 @@ func TestReadConfigFollowsExtendsArraysAndChains(t *testing.T) {
 		{".", `{"extends": "./named.jsonc"}`, "{named }"},
 		{".", `{"extends": "./parent.json", "compilerOptions": {"paths": null}}`, "{p }"},
 		{".", `{"extends": "./parent.json", "compilerOptions": {"baseUrl": null}}`, "{ @/*:x/*}"},
+		{".", `{"extends": ["./parent.json", "./nobase.json"]}`, "{ @/*:x/*}"},
 		{".", `{"extends": ".\\a.json", "compilerOptions": {"baseUrl": ".\\win", "paths": {"~/*": ["lib\\*"]}}}`, "{win ~/*:win/lib/*}"},
 	})
 }
