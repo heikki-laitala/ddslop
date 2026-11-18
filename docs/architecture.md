@@ -1843,8 +1843,9 @@ imported back its shared `rules.ts`, `unions.ts` and `helpers.ts`,
 16 candidates. Such a directory is now one candidate for the upper
 directory, action `move-shared-down`, keyed by it alone so it keeps its
 fingerprint as directories below come and go: its values pair each
-directory below with the file of the upper one it reaches back, each
-occurrence that way back's call or import. Sibling directories without
+directory below with every file of the upper one it reaches back, so
+moving them all clears it, each occurrence that way back's first call,
+else import, not marked `ddslop:ignore`. Sibling directories without
 a loop of files are no candidate. Measured: on that monorepo, 42
 candidates became 14 for upper directories and no cycle; on a
 1,700-file one, 69 became 22 cycles of real loops (entities importing
