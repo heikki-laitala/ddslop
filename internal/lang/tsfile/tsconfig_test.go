@@ -159,14 +159,18 @@ func TestReadConfigFollowsTsc(t *testing.T) {
 }
 
 // Extends may be an array, read in order, each later config's settings
-// over an earlier one's; a chain of any length is followed, and one
-// looping back ends where it would read a file again.
+// over an earlier one's, each read with all it extends (two extending a
+// common one each have its settings); a chain of any length is followed,
+// and one looping back ends where it would read a file again.
 func TestReadConfigFollowsExtendsArraysAndChains(t *testing.T) {
 	files := map[string]string{
-		"a.json":    `{"compilerOptions": {"paths": {"@/*": ["lib/*"]}}}`,
-		"b.json":    `{"compilerOptions": {"baseUrl": "./src"}}`,
-		"loop.json": `{"extends": "./back.json"}`,
-		"back.json": `{"extends": "./loop.json", "compilerOptions": {"paths": {"@/*": ["back/*"]}}}`,
+		"a.json":      `{"compilerOptions": {"paths": {"@/*": ["lib/*"]}}}`,
+		"b.json":      `{"compilerOptions": {"baseUrl": "./src"}}`,
+		"loop.json":   `{"extends": "./back.json"}`,
+		"common.json": `{"compilerOptions": {"baseUrl": "./common"}}`,
+		"left.json":   `{"extends": "./common.json", "compilerOptions": {"baseUrl": "./left"}}`,
+		"right.json":  `{"extends": "./common.json", "compilerOptions": {"paths": {"@/*": ["lib/*"]}}}`,
+		"back.json":   `{"extends": "./loop.json", "compilerOptions": {"paths": {"@/*": ["back/*"]}}}`,
 	}
 	for i := range 10 {
 		files[fmt.Sprintf("chain%d.json", i)] = fmt.Sprintf(`{"extends": "./chain%d.json"}`, i+1)
@@ -176,6 +180,7 @@ func TestReadConfigFollowsExtendsArraysAndChains(t *testing.T) {
 		{".", `{"extends": ["./a.json", "./b.json"]}`, "{src @/*:src/lib/*}"},
 		{".", `{"extends": "./chain0.json"}`, "{ @/*:deep/*}"},
 		{".", `{"extends": "./loop.json"}`, "{ @/*:back/*}"},
+		{".", `{"extends": ["./left.json", "./right.json"]}`, "{common @/*:common/lib/*}"},
 	})
 }
 

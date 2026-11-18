@@ -32,8 +32,8 @@ type Pattern struct {
 // it is no JSON. Its comments and trailing commas aside, it is JSON. A
 // relative extends ("../../tsconfig.base.json"), or each of an array of
 // them in turn, gives, read with read, what the file does not say itself,
-// through a chain of any length that ends where it would read a file
-// again; a package's (@tsconfig/node20) is not read. Paths resolve from the baseUrl, the file's own or inherited,
+// through a chain of any length that ends where a file would extend
+// itself; a package's (@tsconfig/node20) is not read. Paths resolve from the baseUrl, the file's own or inherited,
 // else from the directory of the file declaring them.
 func ReadConfig(dir string, data []byte, read func(file string) ([]byte, error)) (Config, bool) {
 	return readConfig(dir, data, read, map[string]bool{})
@@ -65,7 +65,7 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 		}
 		file := path.Join(dir, parent)
 		if seen[file] {
-			continue
+			continue // a file extending itself, through the chain read so far
 		}
 		seen[file] = true
 		if data, err := read(file); err == nil {
@@ -73,6 +73,7 @@ func readConfig(dir string, data []byte, read func(file string) ([]byte, error),
 				c = p.over(c)
 			}
 		}
+		delete(seen, file) // another branch may extend it as well
 	}
 	if b := raw.CompilerOptions.BaseURL; b != nil {
 		c.BaseURL = path.Join(dir, *b)
