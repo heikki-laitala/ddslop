@@ -767,8 +767,8 @@ func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, 
 			if u := ix.libraries.inModule(units, ix.free[c.Name], crate, module); u >= 0 {
 				return u
 			}
-			if path, ok := ix.moduleImport(caller.File, crate, module, c.Name); ok && ix.fromOtherCrate(crate, module, path) {
-				return ix.imported(units, path)
+			if u, ok := ix.reexported(units, caller.File, crate, module, c.Name); ok {
+				return u
 			}
 			return only(units, ix.free[c.Name], func(u unit.Unit) bool { return ix.libraries.CrateOf(u.File) == crate })
 		}
@@ -848,6 +848,34 @@ func (ix index) fromOtherCrate(crate, module, path string) bool {
 		return dir != crate
 	}
 	return !pathKeyword(root) && !ix.rustModules[crate][joinModule(module, root)]
+}
+
+// reexported resolves a call to name in a module of a crate that defines
+// no function of the name, through what the module's own scope imports
+// from another crate: the name itself (pub use lns_tls::provider), or a
+// module the path goes through (pub use lns_tls::inner, called as
+// tls::inner::provider) when no module of the crate has that name; see
+// imported for which function the path then reaches. ok is false when
+// the module imports neither from another crate: the name is the crate's
+// own, re-exported from elsewhere in it.
+func (ix index) reexported(units []unit.Unit, from, crate, module, name string) (int, bool) {
+	segments := []string{name}
+	if module != "" {
+		segments = append(strings.Split(module, "::"), name)
+	}
+	for i := len(segments) - 1; i >= 0; i-- {
+		scope, rest := strings.Join(segments[:i], "::"), strings.Join(segments[i+1:], "::")
+		if rest != "" && ix.rustModules[crate][joinModule(scope, segments[i])] {
+			break // a module of the crate, whose imports were read already
+		}
+		if path, ok := ix.moduleImport(from, crate, scope, segments[i]); ok {
+			if !ix.fromOtherCrate(crate, scope, path) {
+				break
+			}
+			return ix.imported(units, joinModule(path, rest)), true
+		}
+	}
+	return -1, false
 }
 
 // moduleImport returns the path a module of a crate imports a name by

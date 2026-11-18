@@ -987,6 +987,46 @@ func TestRustModulePathFollowsTheModulesImport(t *testing.T) {
 	}
 }
 
+// A module path call whose module re-exports a module of another crate
+// (pub use lns_tls::inner, called as crate::tls::inner::provider) is that
+// crate's function in the module the path names, else its only one of
+// the name, and none for an outside crate's module, never the caller's
+// crate's unrelated function of the name.
+func TestRustModulePathFollowsAReexportedModuleOfAnotherCrate(t *testing.T) {
+	calls := map[string]unit.Call{
+		"module":  path("crate::tls::inner", "provider"),
+		"deeper":  path("crate::tls::inner::deep", "provider"),
+		"only":    path("crate::tls::inner", "verify"),
+		"outside": path("crate::tls::crypto", "provider"),
+	}
+	units := []unit.Unit{
+		fn("tls/src/lib.rs", "provider"),
+		fn("tls/src/inner.rs", "provider"),
+		fn("tls/src/inner/deep.rs", "provider"),
+		fn("tls/src/api.rs", "verify"),
+		fn("ledger/src/management_api.rs", "provider"),
+		fn("ledger/src/management_api.rs", "verify"),
+	}
+	for name, c := range calls {
+		units = append(units, fn("ledger/src/history.rs", name, c))
+	}
+	in := Inputs{
+		TopImports: map[string]map[string]string{"ledger/src/tls.rs": {"inner": "lns_tls::inner", "crypto": "rustls::crypto"}},
+		Crates:     map[string]string{"tls": "lns_tls", "ledger": "lns_ledger"},
+		RustFiles: []string{"tls/src/lib.rs", "tls/src/inner.rs", "tls/src/inner/deep.rs", "tls/src/api.rs",
+			"ledger/src/lib.rs", "ledger/src/tls.rs", "ledger/src/history.rs", "ledger/src/management_api.rs"},
+	}
+	g := Build(in, units)
+	for name, want := range map[string]string{
+		"module":  "[tls/src/inner.rs provider]",
+		"deeper":  "[tls/src/inner/deep.rs provider]",
+		"only":    "[tls/src/api.rs verify]",
+		"outside": "[]",
+	} {
+		wantCallees(t, g, "ledger/src/history.rs "+name, want)
+	}
+}
+
 // Rust calls through fields follow the struct declarations of crate a,
 // each field's type read where its struct is declared.
 func TestRustCallsThroughFieldsResolve(t *testing.T) {

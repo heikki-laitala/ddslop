@@ -1159,14 +1159,17 @@ that crosses it.
   a root or item alias the module imports read through its imports)
   is that crate's, in the module the path names
   (`lns_tls::api::provider`) first, or none for an outside crate's,
+  and so is one in a module the path goes through that the module
+  imports from another crate rather than declares (`pub use
+  lns_tls::inner` in `tls.rs`, called as `crate::tls::inner::provider()`,
+  is `lns_tls::inner::provider`),
   and one re-exported from elsewhere in the crate (an inline module
   counts as the crate's) falls back to
   the crate's only one of that name. Without the import, a
   `crate::tls::provider()` call reached an unrelated `provider` of the
-  caller's crate and reported a false cycle. A module re-exported from
-  another crate (`pub use lns_tls::inner`), a glob of one, and an
-  inline module's re-export (`mod tls { pub use lns_tls::provider; }`)
-  still fall back. Before, a name several modules
+  caller's crate and reported a false cycle. A glob of another crate
+  and an inline module's re-export (`mod tls { pub use
+  lns_tls::provider; }`) still fall back. Before, a name several modules
   define (`plan`, `resolve`, `new`) stayed unresolved, or went to the
   caller's own file's: on the 739k-line workspace, naming the module
   resolved 362 more calls and found 4 more real cycles. On a
