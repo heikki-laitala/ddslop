@@ -890,8 +890,9 @@ func tsDirectory(path string) string {
 // directories below it depend on, and that depends on them, with no loop
 // of files joining them (see tsCycles): the directory holds both the code
 // wiring them together and files they import back, which belong below
-// them. Its steps are each directory below's two directions, the way
-// back naming the file it reaches; its sites the way back's. Sibling
+// them. Its steps are each directory below's two directions, a way back
+// for each file of the upper directory it reaches; its sites each way
+// back's first call, else import, not marked deliberate. Sibling
 // directories depending on each other without a loop of files are no
 // cycle. imports lists the TypeScript imports between groups (see
 // tsDependencies).
@@ -902,8 +903,10 @@ func appendSharedDown(out []report.Cycle, g *flow.Graph, imports func(group func
 			inLoop[[2]string{l.A, l.B}] = true
 		}
 	}
+	directory := func(u unit.Unit) string { return tsDirectory(u.File) }
+	deps := imports(tsDirectory)
 	below := map[string][]codemap.Link{} // upper directory -> its links with the directories below it
-	for _, c := range codemap.Cycles(g, func(u unit.Unit) string { return tsDirectory(u.File) }, imports(tsDirectory)) {
+	for _, c := range codemap.Cycles(g, directory, deps) {
 		for _, l := range c.Links {
 			if inLoop[[2]string{l.A, l.B}] {
 				continue
@@ -920,12 +923,21 @@ func appendSharedDown(out []report.Cycle, g *flow.Graph, imports func(group func
 	for _, upper := range slices.Sorted(maps.Keys(below)) {
 		c := report.Cycle{Key: "typescript\x00" + upper + "\x00" + report.MoveSharedDown, Action: report.MoveSharedDown}
 		for _, l := range below[upper] {
-			back := appendCycle(nil, g, "", nil, []codemap.Site{l.BA})
-			if len(back) == 0 {
-				continue // marked deliberate
+			back := map[string]report.CycleSite{} // file of the upper directory reached -> its first site not marked deliberate
+			for _, s := range codemap.Sites(g, directory, deps, l.B, l.A) {
+				if _, ok := back[siteTarget(g, s)]; !ok {
+					if site := appendCycle(nil, g, "", nil, []codemap.Site{s}); len(site) > 0 {
+						back[siteTarget(g, s)] = site[0].Sites[0]
+					}
+				}
 			}
-			c.Steps = append(c.Steps, l.A+" -> "+l.B, l.B+" -> "+siteTarget(g, l.BA))
-			c.Sites = append(c.Sites, back[0].Sites...)
+			if len(back) > 0 {
+				c.Steps = append(c.Steps, l.A+" -> "+l.B)
+			}
+			for _, file := range slices.Sorted(maps.Keys(back)) {
+				c.Steps = append(c.Steps, l.B+" -> "+file)
+				c.Sites = append(c.Sites, back[file])
+			}
 		}
 		if len(c.Sites) > 0 {
 			out = append(out, c)

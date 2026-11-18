@@ -109,6 +109,33 @@ func Cycles(g *flow.Graph, group Grouping, deps []Dependency) []Cycle {
 	return out
 }
 
+// Sites returns every way module from depends on module to in the
+// grouping: each call that reaches it by name or type (as a cycle's site
+// does), in unit and call order, then each of deps from it to it.
+func Sites(g *flow.Graph, group Grouping, deps []Dependency, from, to string) []Site {
+	var out []Site
+	for caller, callees := range g.Callees {
+		if group(g.Units[caller]) != from {
+			continue
+		}
+		for k, callee := range callees {
+			if group(g.Units[callee]) == to && dependsOn(g, caller, k) {
+				call := -1
+				if caller < len(g.Dispatched) {
+					call = directCall(g, caller, callee)
+				}
+				out = append(out, Site{Caller: caller, Callee: callee, Call: call})
+			}
+		}
+	}
+	for i, d := range deps {
+		if d.From == from && d.To == to {
+			out = append(out, Site{Caller: -1, Callee: -1, Call: -1, Dependency: &deps[i]})
+		}
+	}
+	return out
+}
+
 // Loops returns the groups of the grouping whose calls, and deps, form a
 // loop: each group's members, sorted, for each strongly connected set of
 // two or more, as Cycles counts them.

@@ -287,7 +287,8 @@ func TestCheckReportsNoTypeScriptCycleWithoutOne(t *testing.T) {
 // A directory and directories below it that depend on each other with
 // no file loop joining them are one candidate, for the upper directory:
 // its aggregator imports them, and they import back a file of it that
-// belongs below them (move-shared-down), each such file named. Sibling
+// belongs below them (move-shared-down), each such file named, every way
+// back an occurrence. Sibling
 // directories with no file loop are none.
 func TestCheckReportsADirectoryItsSubdirectoriesImportBackOnce(t *testing.T) {
 	r := wantCycles(t, 1, "one candidate for src/lib", repo(t, map[string]string{
@@ -295,7 +296,7 @@ func TestCheckReportsADirectoryItsSubdirectoriesImportBackOnce(t *testing.T) {
 		"src/lib/rules.ts":               "export function rules() {\n  return 1;\n}\n",
 		"src/lib/helpers.ts":             "export function helper() {\n  return 2;\n}\n",
 		"src/lib/accordion/accordion.ts": "import { rules } from \"../rules\";\n\nexport function accordion() {\n  return rules();\n}\n",
-		"src/lib/card/card.ts":           "import { helper } from \"../helpers\";\n\nexport function card() {\n  return helper();\n}\n",
+		"src/lib/card/card.ts":           "import { helper } from \"../helpers\";\nimport { rules } from \"../rules\";\n\nexport function card() {\n  return helper() + rules();\n}\n",
 		"src/x/one.ts":                   "import { two } from \"../y/two\";\n\nexport function one() {\n  return two();\n}\n\nexport function three() {\n  return 3;\n}\n",
 		"src/y/two.ts":                   "export function two() {\n  return 2;\n}\n",
 		"src/y/four.ts":                  "import { three } from \"../x/one\";\n\nexport function four() {\n  return three();\n}\n",
@@ -304,11 +305,11 @@ func TestCheckReportsADirectoryItsSubdirectoriesImportBackOnce(t *testing.T) {
 	if c.Suggestion.Action != "move-shared-down" {
 		t.Errorf("action = %s, want move-shared-down", c.Suggestion.Action)
 	}
-	want := "src/lib -> src/lib/accordion, src/lib/accordion -> src/lib/rules.ts, src/lib -> src/lib/card, src/lib/card -> src/lib/helpers.ts"
+	want := "src/lib -> src/lib/accordion, src/lib/accordion -> src/lib/rules.ts, src/lib -> src/lib/card, src/lib/card -> src/lib/helpers.ts, src/lib/card -> src/lib/rules.ts"
 	if got := strings.Join(c.Values, ", "); got != want {
 		t.Errorf("values = %s, want %s", got, want)
 	}
-	wantSites(t, r, "src/lib/accordion/accordion.ts:accordion:4 src/lib/card/card.ts:card:4")
+	wantSites(t, r, "src/lib/accordion/accordion.ts:accordion:4 src/lib/card/card.ts:card:5 src/lib/card/card.ts:card:5")
 }
 
 // A directory and one below it joined by a loop of files are a cycle to
