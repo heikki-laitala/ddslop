@@ -114,7 +114,7 @@ func addExported(root *sitter.Node, src []byte, reach *unit.Reach) {
 				if targets == nil {
 					targets = useTargets(item.Parent(), src)
 				}
-				for _, path := range importedPaths(glob, targets) {
+				for _, path := range ownPaths(glob, nil, func(name string) []string { return targets[name] }) {
 					reach.Globs = append(reach.Globs, fromFileModule(path, scope))
 				}
 			}
@@ -122,22 +122,6 @@ func addExported(root *sitter.Node, src []byte, reach *unit.Reach) {
 		return true
 	})
 	reach.Exported = words
-}
-
-// importedPaths returns the paths a use path names through the names a
-// module imports (see OwnPath): one for each path its first name
-// imports, as #[cfg]-gated uses may import it from different places.
-func importedPaths(path string, targets map[string][]string) []string {
-	imports := lastTargets(targets)
-	first, _, _ := strings.Cut(path, "::")
-	if len(targets[first]) < 2 {
-		return []string{OwnPath(path, nil, imports)}
-	}
-	var out []string
-	for _, target := range targets[first] {
-		out = append(out, OwnPath(target+path[len(first):], nil, imports))
-	}
-	return out
 }
 
 // inlineScope returns the inline modules an item is declared in,

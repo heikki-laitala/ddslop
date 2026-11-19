@@ -188,6 +188,8 @@ pub mod facade {
     #[cfg(windows)]
     use crate::windows_shapes as platform;
     pub use platform::*;
+    use platform as selected;
+    pub use selected::*;
 
     pub mod deep {
         pub use super::side::*;
@@ -199,7 +201,7 @@ fn f() {
     pub use hidden::*;
 }
 `
-	want := "[shapes crate::a::b crate::a::c super::up self::facade::inner self::shapes crate::chained crate::unix_shapes crate::windows_shapes self::facade::side crate::far]"
+	want := "[shapes crate::a::b crate::a::c super::up self::facade::inner self::shapes crate::chained crate::unix_shapes crate::windows_shapes crate::unix_shapes crate::windows_shapes self::facade::side crate::far]"
 	if got := fmt.Sprint(reach(t, "src/lib.rs", []byte(src)).Globs); got != want {
 		t.Errorf("Reach.Globs = %s, want %s", got, want)
 	}

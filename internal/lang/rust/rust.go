@@ -791,21 +791,43 @@ func Traits(src []byte) []string {
 // through further such names once each. Any other bare path is left as
 // it is: another crate's.
 func OwnPath(path string, declared map[string]bool, imports map[string]string) string {
+	return ownPaths(path, declared, func(name string) []string {
+		if target, ok := imports[name]; ok {
+			return []string{target}
+		}
+		return nil
+	})[0]
+}
+
+// ownPaths is OwnPath for names that may import several paths, such as
+// one #[cfg]-gated uses import from different places: one path for each
+// way through them.
+func ownPaths(path string, declared map[string]bool, imports func(name string) []string) []string {
+	var out []string
 	seen := map[string]bool{}
-	for {
+	var follow func(path string)
+	follow = func(path string) {
 		first, rest, more := strings.Cut(path, "::")
 		if declared[first] {
-			return "self::" + path
+			out = append(out, "self::"+path)
+			return
 		}
-		target, ok := imports[first]
-		if !ok || seen[first] || first == "crate" || first == "self" || first == "super" {
-			return path
+		targets := imports(first)
+		if len(targets) == 0 || seen[first] || first == "crate" || first == "self" || first == "super" {
+			out = append(out, path)
+			return
 		}
 		seen[first] = true
-		if path = target; more {
-			path += "::" + rest
+		for _, target := range targets {
+			if more {
+				target += "::" + rest
+			}
+			follow(target)
 		}
+		seen[first] = false
 	}
+	follow(path)
+	return out
 }
 
 // Imports maps each name a file brings into scope with use to the path it
