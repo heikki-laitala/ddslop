@@ -1071,6 +1071,28 @@ flattened, the other half of cleaning up generated code:
   (`ServeHTTP`, `Error`); the unit model calls both "via interface". `main`
   and `init` are called by the runtime. On a 100-file Go service, the one
   exported function nobody mentioned was in a generated file, so none.
+- **Too public** (`too-public`, `narrow-visibility`): a public Rust
+  function of an unpublished crate (as dead code's) whose name only its
+  own library crate mentions: every word naming it, beyond its
+  declaration, is in a file of that crate's library. It can be
+  `pub(crate)`, which also lets the compiler report it once nothing in
+  the crate uses it. Words decide it as they decide dead code, so a
+  mention anywhere else keeps it public, an unresolved call included: a
+  file of another crate, of the package's other targets (a binary, an
+  integration test under `tests/`, a bench or an example, crates of their
+  own that see only the public API), or of another language. So does a
+  file exposing the name to other crates anyway: one exporting a macro
+  (`#[macro_export]`, expanded in the crates that call it), one
+  re-exporting it (`pub use inner::helper`), or the module a `pub use
+  inner::*` re-exports. Trait methods, `#[no_mangle]` and similar
+  functions, test code and dead code are left out. On a workspace of
+  about 30 crates (where `dead-code` found 6 functions), 486 candidates;
+  making all of them `pub(crate)` built cleanly (`cargo check --workspace
+  --all-targets`, with and without `--all-features`), and the compiler
+  then reported dozens of them, and types only they used, as never used:
+  dead code the names alone could not show. Types, constants, traits and
+  modules are not reported yet: a type in the signature of a public
+  function must stay as public as it.
 - **Pass-through wrappers** (`pass-through`, `inline-wrapper`): a function
   whose body is one call, possibly awaited, passing its parameters on in
   order, as is or borrowed. Constructors (`Self(x)`), delegation to a field
@@ -2307,7 +2329,8 @@ Every JSON candidate is self-contained:
   larger functions; occurrence lines are the run's lines, and the
   suggestion is always `extract-common`), `parallel-flow`,
   `duplicate-type`, `duplicate-constant`, `inlined-constant` (the
-  constant, then each inline use), `dead-code`, `pass-through` or
+  constant, then each inline use), `dead-code`, `too-public`,
+  `pass-through` or
   `single-impl-trait` (the trait, then its impl block). See the
   additional and simplification detectors above.
 - `target`, when present, is existing code to use instead: the constant

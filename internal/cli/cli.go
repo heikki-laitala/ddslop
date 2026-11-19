@@ -752,10 +752,11 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 		Dead: simplify.Dead(units, words, func(file string) bool {
 			return internal(file) && !importedWhole[file]
 		}),
-		Wrappers: simplify.PassThrough(g),
-		Traits:   singleImpls(traitDecls, files, internal),
-		Scopes:   byLanguage(units, func(_ string, u []unit.Unit) []pattern.ScopeGroup { return pattern.Scopes(u) }),
-		Kinds:    byLanguage(units, func(_ string, u []unit.Unit) []pattern.StringKind { return pattern.StringKinds(u) }),
+		TooPublic: tooPublic(units, files, packages(root, files), internal),
+		Wrappers:  simplify.PassThrough(g),
+		Traits:    singleImpls(traitDecls, files, internal),
+		Scopes:    byLanguage(units, func(_ string, u []unit.Unit) []pattern.ScopeGroup { return pattern.Scopes(u) }),
+		Kinds:     byLanguage(units, func(_ string, u []unit.Unit) []pattern.StringKind { return pattern.StringKinds(u) }),
 		Params: byLanguage(units, func(_ string, u []unit.Unit) []pattern.ParamGroup {
 			return pattern.ParameterGroups(u, funcTypes)
 		}),

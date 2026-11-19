@@ -170,6 +170,8 @@ const (
 	inlinedConst     = "inlined-constant"
 	deadCode         = "dead-code"
 	deleteDead       = "delete-dead"
+	tooPublic        = "too-public"
+	narrowVisibility = "narrow-visibility"
 	passThrough      = "pass-through"
 	inlineWrapper    = "inline-wrapper"
 	singleImpl       = "single-impl-trait"
@@ -221,6 +223,7 @@ type Findings struct {
 	Consts     []clone.ConstGroup
 	Inlined    []clone.InlinedConst
 	Dead       []unit.Unit
+	TooPublic  []unit.Unit
 	Wrappers   []simplify.Wrapper
 	Traits     []simplify.SingleImplTrait
 	Scopes     []pattern.ScopeGroup
@@ -319,6 +322,9 @@ func Build(languageOf func(file string) string, f Findings, summary Summary) Rep
 	}
 	for _, u := range f.Dead {
 		candidates = append(candidates, single(languageOf(u.File), deadCode, deleteDead, u))
+	}
+	for _, u := range f.TooPublic {
+		candidates = append(candidates, single(languageOf(u.File), tooPublic, narrowVisibility, u))
 	}
 	for _, w := range f.Wrappers {
 		c := single(languageOf(w.Unit.File), passThrough, inlineWrapper, w.Unit)

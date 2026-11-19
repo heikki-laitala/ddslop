@@ -1,0 +1,55 @@
+package cli
+
+import (
+	"fmt"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// A public function of an unpublished crate that only its own library
+// names can be pub(crate). Another crate's mention keeps it pub, as do
+// the crate's own integration tests and binaries (crates of their own),
+// a pub use re-exporting it and a #[macro_export] macro naming it; a trait
+// method and a function nothing names (dead-code) are not reported.
+func TestCheckReportsPublicFunctionsOnlyTheirCrateUses(t *testing.T) {
+	root := repo(t, map[string]string{
+		"Cargo.toml":             "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\npublish = false\n",
+		"crates/util/Cargo.toml": "[package]\nname = \"util\"\npublish.workspace = true\n",
+		"crates/util/src/lib.rs": "mod inner;\nmod macros;\npub use inner::reexported_helper;\n\n" +
+			"pub fn only_inside(text: &str) -> String {\n    text.trim().to_owned()\n}\n\n" +
+			"fn caller(text: &str) -> String {\n    only_inside(text) + &crate_only(text) + &tested(text) + &binary_use(text)\n}\n\n" +
+			"pub(crate) fn crate_only(text: &str) -> String {\n    text.to_owned()\n}\n\n" +
+			"pub fn used_by_app(text: &str) -> bool {\n    text == \"true\"\n}\n\n" +
+			"pub fn tested(text: &str) -> String {\n    text.to_lowercase()\n}\n\n" +
+			"pub fn binary_use(text: &str) -> String {\n    text.to_uppercase()\n}\n\n" +
+			"pub fn never_named(text: &str) -> usize {\n    text.len()\n}\n\n" +
+			"pub trait Shout {\n    fn shout_loud(&self) -> String;\n}\n\n" +
+			"impl Shout for String {\n    fn shout_loud(&self) -> String {\n        self.to_uppercase()\n    }\n}\n",
+		"crates/util/src/inner.rs":  "pub fn reexported_helper() -> u32 {\n    1\n}\n\nfn calls_it() -> u32 {\n    reexported_helper()\n}\n",
+		"crates/util/src/macros.rs": "pub fn macro_target(x: u32) -> u32 {\n    x + 1\n}\n\n#[macro_export]\nmacro_rules! bump {\n    ($x:expr) => {\n        $crate::macros::macro_target($x)\n    };\n}\n",
+		"crates/util/src/main.rs":   "fn main() {\n    println!(\"{}\", util::binary_use(\"x\"));\n}\n",
+		"crates/util/tests/it.rs":   "#[test]\nfn lowercases() {\n    assert_eq!(util::tested(\"A\"), \"a\");\n}\n",
+		"crates/app/Cargo.toml":     "[package]\nname = \"app\"\npublish.workspace = true\n",
+		"crates/app/src/main.rs":    "fn main() {\n    println!(\"{}\", util::used_by_app(\"true\"));\n}\n",
+	})
+
+	stdout, _ := runCode(t, 1, "check", "--format", "json", root)
+	r := decodeJSON[targetReport](t, stdout)
+	var got []string
+	for _, c := range r.Candidates {
+		if c.Kind == "too-public" || c.Kind == "dead-code" {
+			o := c.Occurrences[0]
+			got = append(got, fmt.Sprintf("%s %s %s:%d %s", c.Kind, c.Suggestion.Action, filepath.ToSlash(o.File), o.StartLine, o.Name))
+		}
+	}
+	want := []string{
+		"dead-code delete-dead crates/util/src/lib.rs:29 never_named",
+		"too-public narrow-visibility crates/util/src/lib.rs:5 only_inside",
+	}
+	slices.Sort(got)
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("candidates:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

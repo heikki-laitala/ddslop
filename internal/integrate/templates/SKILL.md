@@ -250,6 +250,12 @@ What to do per `kind`:
   (Go), whose name appears nowhere else in the repository. Delete it, and
   anything only it used. Keep it if it is meant for code outside the
   repository.
+- `too-public` (`narrow-visibility`): a `pub` function of an unpublished
+  Rust crate that nothing outside the crate's library names: no other
+  crate, binary, integration test, example, exported macro or re-export.
+  Make it `pub(crate)`, then build: the compiler reports it if nothing in
+  the crate uses it either, and anything only it used. Keep it `pub` if it
+  is meant for code outside the repository.
 - `pass-through` (`inline-wrapper`): the function only passes its
   parameters to the `target`. Call the target directly and delete the
   wrapper, or rename the target if the wrapper's name is better. Keep
