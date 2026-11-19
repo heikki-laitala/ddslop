@@ -1247,7 +1247,11 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 		for queue := []module{{path: f.Path}}; len(queue) > 0; queue = queue[1:] {
 			m := queue[0]
 			file, ok := byPath[m.path]
-			if !ok || owner[m.path] != nil {
+			if !ok || owner[m.path] != nil && owner[m.path] != lib {
+				continue
+			}
+			tree[strings.Join(m.segments, "::")] = file // under each name two #[path]s give it
+			if owner[m.path] == lib {
 				continue
 			}
 			owner[m.path] = lib
@@ -1259,27 +1263,33 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 			}
 			for _, name := range file.Modules {
 				for _, path := range moduleFiles(file.Path, dir, name) {
-					segments := append(slices.Clone(m.segments), declaredName(file, name))
-					queue = append(queue, module{path, segments, optional || slices.Contains(file.Decls.Reach.CfgModules, name)})
+					for _, declared := range declaredNames(file, name) {
+						segments := append(slices.Clone(m.segments), declared)
+						queue = append(queue, module{path, segments, optional || slices.Contains(file.Decls.Reach.CfgModules, name)})
+					}
 				}
 			}
-			tree[strings.Join(m.segments, "::")] = file
 		}
 		addGlobbed(lib.Exposed, tree)
 	}
 	return func(file string) *simplify.Library { return owner[file] }
 }
 
-// declaredName returns the name a file declares a module by, given its
-// entry in the file's Modules: the file a #[path] attribute names, or the
-// name itself.
-func declaredName(file index.File, entry string) string {
+// declaredNames returns the names a file declares a module by, in
+// order, given its entry in the file's Modules: those whose #[path]
+// attribute names the entry, or the name itself.
+func declaredNames(file index.File, entry string) []string {
+	var names []string
 	for name, path := range file.Decls.Reach.PathModules {
 		if path == entry {
-			return name
+			names = append(names, name)
 		}
 	}
-	return entry
+	if names == nil {
+		return []string{entry}
+	}
+	slices.Sort(names)
+	return names
 }
 
 // addGlobbed adds to exposed the modules a crate's plain pub globs

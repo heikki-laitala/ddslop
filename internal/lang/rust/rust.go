@@ -788,8 +788,8 @@ func Traits(src []byte) []string {
 // first segment naming a module the file declares (pub mod inner; pub use
 // inner::X) is self::, and one naming a name the file's top-level uses
 // bring in (use crate::foo; pub use foo::X) is that use's path, followed
-// through further such names once each. Any other bare path is left as
-// it is: another crate's.
+// through further such names once each, after self:: too. Any other
+// bare path is left as it is: another crate's.
 func OwnPath(path string, declared map[string]bool, imports map[string]string) string {
 	return ownPaths(path, declared, func(name string) []string {
 		if target, ok := imports[name]; ok {
@@ -810,6 +810,10 @@ func ownPaths(path string, declared map[string]bool, imports func(name string) [
 		first, rest, more := strings.Cut(path, "::")
 		if declared[first] {
 			out = append(out, "self::"+path)
+			return
+		}
+		if next, _, _ := strings.Cut(rest, "::"); first == "self" && more && len(imports(next)) > 0 {
+			follow(rest) // self::alias is the module's own imported alias
 			return
 		}
 		targets := imports(first)
