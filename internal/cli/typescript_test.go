@@ -335,15 +335,18 @@ func TestCheckFollowsTypeScriptPathAliases(t *testing.T) {
 }
 
 // A private package's exports serve only the analysed code: one nothing
-// names is unused. A default export, a framework's function and the
+// names is unused, an exported constant too, but one a framework reads
+// (metadata, prerender) or one declared with another (PAIR_UNUSED). A default export, a framework's function and the
 // exports of a module imported whole are called without their names; a
 // whole import through an alias is of the one file it resolves to
 // (store.ts, not store/index.ts beside it).
 func TestCheckReportsUnusedExportsOfPrivateTypeScriptPackages(t *testing.T) {
 	root := repo(t, map[string]string{
 		"apps/web/package.json":        `{"name": "web", "private": true}`,
-		"apps/web/src/util.ts":         "export function usedHelper(s: string) {\n  return s.trim();\n}\n\nexport function forgottenHelper(s: string) {\n  return s.toUpperCase();\n}\n",
-		"apps/web/src/pages/index.tsx": "import { usedHelper } from \"../util\";\n\nexport default function Home() {\n  return usedHelper(\" x \");\n}\n\nexport async function getStaticProps() {\n  return { props: {} };\n}\n",
+		"apps/web/src/util.ts":         "export function usedHelper(s: string) {\n  return s.trim();\n}\n\nexport function forgottenHelper(s: string) {\n  return s.toUpperCase();\n}\n\nexport const USED_LIMIT = 3;\nexport const FORGOTTEN_LIMIT = 4;\nconst LOCAL_LIMIT = 6;\nexport const PAIR_USED = 7, PAIR_UNUSED = 8;\n",
+		"apps/web/src/pages/index.tsx": "import { usedHelper, USED_LIMIT, PAIR_USED } from \"../util\";\n\nexport default function Home() {\n  return usedHelper(\" x \") + USED_LIMIT + PAIR_USED;\n}\n\nexport async function getStaticProps() {\n  return { props: {} };\n}\n",
+		"apps/web/src/app/layout.tsx":  "export const metadata = { title: \"Home\" };\n",
+		"apps/web/src/routes/+page.ts": "export const prerender = true;\n",
 		"apps/web/src/db/schema.ts":    "export function postRelations() {\n  return [];\n}\n",
 		"apps/web/src/db/client.ts":    "import * as schema from \"./schema\";\n\nexport const db = { schema };\n",
 		"apps/web/src/auth/schema.ts":  "export function sessionRelations() {\n  return [];\n}\n",
@@ -362,6 +365,7 @@ func TestCheckReportsUnusedExportsOfPrivateTypeScriptPackages(t *testing.T) {
 	testutil.Lines(t, "unused", candidateLines(decode(t, stdout), "dead-code"), []string{
 		"typescript dead-code [apps/web/src/util.ts forgottenHelper]",
 		"typescript dead-code [apps/web/src/store/index.ts staleIndex]",
+		"typescript dead-code [apps/web/src/util.ts FORGOTTEN_LIMIT]",
 	})
 }
 

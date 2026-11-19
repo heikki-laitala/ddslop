@@ -245,11 +245,13 @@ What to do per `kind`:
   in the same crate. Replace the literals with the constant, widening its
   visibility (`pub(crate)`) if needed. Skip a literal that only happens to
   be spelled the same with another meaning.
-- `dead-code` (`delete-dead`): a public function of an unpublished crate
-  (Rust), or an exported function under `internal/` or in `package main`
-  (Go), whose name appears nowhere else in the repository. Delete it, and
-  anything only it used. Keep it if it is meant for code outside the
-  repository.
+- `dead-code` (`delete-dead`): a public function, constant or static of
+  an unpublished crate (Rust), an exported function or constant under
+  `internal/` or in `package main` (Go), or an export of a private
+  package (TypeScript), whose name appears nowhere else in the
+  repository. Delete it, with the doc comments and attributes above its
+  line range, and anything only it used. Keep it if it is meant for code
+  outside the repository.
 - `too-public` (`restrict-visibility`): a `pub` function, constant or
   static of an unpublished crate's library (Rust) that only that library
   uses: no other crate, test, binary, doc test, exported macro or

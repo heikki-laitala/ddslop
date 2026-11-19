@@ -3,6 +3,8 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
 func TestCheckLeavesOutCodeMarkedDdslopIgnore(t *testing.T) {
@@ -123,4 +125,21 @@ fn in_namespace(principal: &str, token_id: u64) -> bool {
 	})
 
 	runCode(t, 0, "check", "--format", "json", root)
+}
+
+// A marker after a constant's name marks it, when the name sits below its
+// declaration's first line (export const\n  LIMIT = 64).
+func TestCheckHonoursAMarkerOnALoneConstantsNameLine(t *testing.T) {
+	root := repo(t, map[string]string{
+		"web/package.json": `{"name": "web", "private": true}`,
+		"web/src/a.ts":     "export const\n  LIMIT = 64; // ddslop:ignore kept apart\n",
+		"web/src/b.ts":     "export const LIMIT = 64;\n",
+		"go.mod":           "module example.com/app\n",
+		"x/x.go":           "package x\n\nconst\n\tLimit = 64 // ddslop:ignore kept apart\n",
+		"y/y.go":           "package y\n\nconst Limit = 64\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "copied constants", candidateLines(decode(t, stdout), "duplicate-constant"), nil)
 }

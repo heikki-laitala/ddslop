@@ -752,7 +752,7 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 		Inlined: byLanguage(consts, func(lang string, c []unit.Const) []clone.InlinedConst {
 			return clone.InlinedConstants(c, inLanguage(lang, units), flow.CrateOf)
 		}),
-		Dead:      simplify.Dead(units, words, namedOnly),
+		Dead:      dead(units, consts, words, namedOnly),
 		TooPublic: tooPublic(units, consts, words, libraryWords(root, files, crates, namedOnly)),
 		Wrappers:  simplify.PassThrough(g),
 		Traits:    singleImpls(traitDecls, files, internal),
@@ -1215,12 +1215,26 @@ func libraryCrates(files []index.File, crates *codemap.Packages) map[string]bool
 // tooPublic finds the too public functions and constants (see
 // simplify.TooPublic), judging constants as units.
 func tooPublic(units []unit.Unit, consts []unit.Const, words map[string]int, library func(file string) *simplify.Library) []unit.Unit {
-	asUnits := make([]unit.Unit, 0, len(consts))
+	return append(simplify.TooPublic(constUnits(consts), words, library), simplify.TooPublic(units, words, library)...)
+}
+
+// dead finds the unused public functions and constants (see
+// simplify.Dead), judging constants as units. An inseparable constant
+// is left out: its lines cannot be deleted alone.
+func dead(units []unit.Unit, consts []unit.Const, words map[string]int, internal func(file string) bool) []unit.Unit {
+	deletable := slices.DeleteFunc(slices.Clone(consts), func(c unit.Const) bool { return c.Inseparable })
+	return append(simplify.Dead(units, words, internal), simplify.Dead(constUnits(deletable), words, internal)...)
+}
+
+// constUnits returns constants as units a simplify check judges, each
+// spanning its declaration.
+func constUnits(consts []unit.Const) []unit.Unit {
+	out := make([]unit.Unit, 0, len(consts))
 	for _, c := range consts {
-		asUnits = append(asUnits, unit.Unit{File: c.File, Name: c.Name, Module: c.Module, StartLine: c.Line, EndLine: c.Line, Nodes: c.Nodes,
+		out = append(out, unit.Unit{File: c.File, Name: c.Name, Module: c.Module, StartLine: c.Line, EndLine: c.EndLine, Nodes: c.Nodes,
 			Public: c.Public, External: c.External, Test: c.Test})
 	}
-	return append(simplify.TooPublic(asUnits, words, library), simplify.TooPublic(units, words, library)...)
+	return out
 }
 
 // libraryWords returns, for a Rust file in the library of an unpublished

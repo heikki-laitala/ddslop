@@ -413,8 +413,9 @@ type Const struct {
 	// other value without whitespace; none for one with nothing to compare
 	// (Go's iota and implicit values).
 	Value string
-	Line  int
-	Nodes int
+	// Line and EndLine are the first and last lines of the declaration.
+	Line, EndLine int
+	Nodes         int
 	// Literal is true when the value is one string literal; Value then
 	// holds it with its quotes, as code writes it inline.
 	Literal bool
@@ -426,6 +427,11 @@ type Const struct {
 	// read it (#[no_mangle]). Rust only.
 	Public, External bool
 	Test             bool
+	// Inseparable is true when the constant's lines cannot be deleted
+	// alone: its declaration gives values by position (Go's iota and
+	// implicit values), so deleting it would change the others', or it
+	// declares others too (const a, b = 1, 2).
+	Inseparable bool
 	// Ignored is true when a ddslop:ignore comment marks the constant.
 	Ignored bool
 }

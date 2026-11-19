@@ -1054,8 +1054,8 @@ Rust codebase before it was built.
 `internal/simplify` reports code that is not a copy but can be removed or
 flattened, the other half of cleaning up generated code:
 
-- **Dead code** (`dead-code`, `delete-dead`): a public function whose name
-  appears nowhere but in its own declaration. Every identifier-like word of
+- **Dead code** (`dead-code`, `delete-dead`): a public function or
+  constant whose name appears nowhere but in its own declaration. Every identifier-like word of
   every source file is counted, comments, strings, macros, generated and
   test files included, so a name mentioned anywhere (a call, a `use`, a
   `#[serde(default = "f")]`, a doc link) counts as used; this is
@@ -1067,7 +1067,16 @@ flattened, the other half of cleaning up generated code:
   are its API. Trait methods and functions with attributes that may call
   them from outside (`#[no_mangle]`, `#[tokio::main]`, route macros; lint,
   inline, doc, cfg and tracing attributes do not count) are left out. 6
-  candidates, each verified with grep. In Go, public means exported, and
+  candidates, each verified with grep. A constant is judged as a function
+  is: a Rust `pub const` or `pub static` outside an `impl`, an exported Go
+  constant, or an exported TypeScript constant (those of literal values,
+  the only ones recorded) but one a framework reads by name (`metadata`,
+  `prerender`). A constant whose lines cannot be deleted alone is left
+  out (`unit.Const.Inseparable`): one of a Go group giving values by
+  position (`iota`, or an implicit value anywhere in the group), whose
+  deletion would change the others' values, or one declared with others
+  (`const a, b = 1, 2`, `export const a = 1, b = 2`).
+  In Go, public means exported, and
   a package serves only the analysed code when it sits under an
   `internal` directory (which the go tool forbids importing from outside)
   or is a `package main` declaring `func main` (one without it builds a

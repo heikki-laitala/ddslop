@@ -45,7 +45,14 @@ func MarkIgnored(root *sitter.Node, src []byte, units []unit.Unit, decls *unit.D
 func markDecls(decls *unit.Decls, lines map[int]bool) {
 	mark(decls.Structs, lines, func(s *unit.Struct) (int, *bool) { return s.StartLine, &s.Ignored })
 	mark(decls.Enums, lines, func(e *unit.Enum) (int, *bool) { return e.StartLine, &e.Ignored })
-	mark(decls.Consts, lines, func(c *unit.Const) (int, *bool) { return c.Line, &c.Ignored })
+	for i := range decls.Consts {
+		// A marker on any of a constant's lines marks it: its name may sit
+		// below the declaration's first line (export const\n  X = 1).
+		c := &decls.Consts[i]
+		for l := c.Line; l <= max(c.Line, c.EndLine) && !c.Ignored; l++ {
+			c.Ignored = lines[l]
+		}
+	}
 	mark(decls.Imports, lines, func(im *unit.Import) (int, *bool) { return im.Line, &im.Ignored })
 }
 

@@ -110,6 +110,24 @@ func IsTruthy(s string) bool { return s == "true" }
 
 func Éxport() int { return 1 }
 
+const UnusedMax = 5
+
+const (
+	KindA = iota
+	KindUnused
+	KindC
+)
+
+const (
+	FirstA       = iota
+	MiddleUnused = 100
+	LastC        = iota
+)
+
+const PairUsed, PairUnused = 1, 2
+
+const IotaWord = "iota"
+
 type Store struct{}
 
 func (s *Store) ServeHTTP(w Writer, r *Request) {}
@@ -118,7 +136,7 @@ func (s *Store) ServeHTTP(w Writer, r *Request) {}
 
 import "example.com/app/internal/text"
 
-func main() { println(text.IsTruthy("true"), text.Éxport()) }
+func main() { println(text.IsTruthy("true"), text.Éxport(), text.KindA, text.KindC, text.FirstA, text.LastC, text.PairUsed) }
 
 func Helper() int { return 1 }
 `,
@@ -126,9 +144,12 @@ func Helper() int { return 1 }
 	})
 
 	// Under internal/ and in package main, an exported name nobody mentions
-	// is unused. A method may satisfy an interface (ServeHTTP), main is
-	// called by the runtime, and pkg/ is importable from outside.
-	wantCandidatesOf(t, root, "dead-code", "cmd/app/main.go Helper", "internal/text/text.go CompactBlocks")
+	// is unused, a constant's too. A method may satisfy an interface
+	// (ServeHTTP), main is called by the runtime, pkg/ is importable from
+	// outside, and deleting a constant of a group using iota (KindUnused,
+	// MiddleUnused) would shift the values after it, and one declared with
+	// another (PairUnused) shares its line; "iota" in a string is none.
+	wantCandidatesOf(t, root, "dead-code", "cmd/app/main.go Helper", "internal/text/text.go CompactBlocks", "internal/text/text.go IotaWord", "internal/text/text.go UnusedMax")
 }
 
 func TestCheckReportsGoWrappers(t *testing.T) {

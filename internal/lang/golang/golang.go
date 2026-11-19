@@ -845,31 +845,58 @@ func fieldNodes(n *sitter.Node, field string) []*sitter.Node {
 
 // constants returns a const declaration's constants, each name paired
 // with its value by position. An iota or implicit value has nothing to
-// compare: its constant has no Value.
+// compare: its constant has no Value. A constant is Inseparable when its
+// lines cannot go alone: its group gives values by position (an iota, or
+// an implicit value, anywhere in it), or its spec names others too
+// (const a, b = 1, 2).
 func constants(n *sitter.Node, path string, src []byte, test bool) []unit.Const {
 	var out []unit.Const
+	positional := false
 	for i := uint(0); i < n.NamedChildCount(); i++ {
 		spec := n.NamedChild(i)
 		if spec.Kind() != "const_spec" {
 			continue
 		}
 		values := spec.ChildByFieldName("value")
-		for j, name := range fieldNodes(spec, "name") {
-			c := unit.Const{File: path, Name: name.Utf8Text(src), Line: syntax.Line(spec.StartPosition()), Nodes: syntax.CountNodes(name),
-				Public: source.Capitalized(name.Utf8Text(src)), Test: test}
-			if values != nil && j < int(values.NamedChildCount()) { //nolint:gosec // a child count fits in int
-				if v := values.NamedChild(uint(j)); v.Kind() != "iota" {
-					c.Literal = v.Kind() == "interpreted_string_literal" || v.Kind() == "raw_string_literal"
-					c.Value, c.Nodes = v.Utf8Text(src), syntax.CountNodes(v)
-					if !c.Literal {
-						c.Value = syntax.Compact(c.Value)
-					}
+		names := fieldNodes(spec, "name")
+		lines := spec // a lone spec's are its declaration's (const\n\tX = 1, const (\n\tX = 1\n))
+		if syntax.CountKind(n, "const_spec") == 1 {
+			lines = n
+		}
+		for j, name := range names {
+			c := unit.Const{File: path, Name: name.Utf8Text(src), Line: syntax.Line(lines.StartPosition()), EndLine: syntax.Line(lines.EndPosition()),
+				Nodes: syntax.CountNodes(name), Public: source.Capitalized(name.Utf8Text(src)), Test: test, Inseparable: len(names) > 1}
+			if values == nil || j >= int(values.NamedChildCount()) { //nolint:gosec // a child count fits in int
+				positional = true // an implicit value repeats the one before
+			} else if v := values.NamedChild(uint(j)); containsKind(v, "iota") {
+				positional = true
+			} else {
+				c.Literal = v.Kind() == "interpreted_string_literal" || v.Kind() == "raw_string_literal"
+				c.Value, c.Nodes = v.Utf8Text(src), syntax.CountNodes(v)
+				if !c.Literal {
+					c.Value = syntax.Compact(c.Value)
 				}
 			}
 			out = append(out, c)
 		}
 	}
+	for i := range out {
+		out[i].Inseparable = out[i].Inseparable || positional
+	}
 	return out
+}
+
+// containsKind reports whether n or a node inside it is of a kind.
+func containsKind(n *sitter.Node, kind string) bool {
+	if n.Kind() == kind {
+		return true
+	}
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		if containsKind(n.NamedChild(i), kind) {
+			return true
+		}
+	}
+	return false
 }
 
 // structs returns a type declaration's struct types. An embedded field is

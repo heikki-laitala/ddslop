@@ -87,17 +87,23 @@ fn f() {
 mod inner {
     const NESTED: u32 = 3;
 }
+
+pub const SPREAD: [u32; 2] = [
+    1,
+    2,
+];
 `
 	decls := mustDecls(t, src)
 	got := testutil.Format(decls.Consts, func(c unit.Const) string {
-		return fmt.Sprintf("%s=%s %s:%d literal=%v macro=%v", c.Name, c.Value, c.File, c.Line, c.Literal, c.Macro)
+		return fmt.Sprintf("%s=%s %s:%d-%d literal=%v macro=%v", c.Name, c.Value, c.File, c.Line, c.EndLine, c.Literal, c.Macro)
 	})
 	want := []string{
-		"MAX_MODELS=64 lib.rs:1 literal=false macro=false",
-		"TIMEOUT=Duration::from_secs(5) lib.rs:2 literal=false macro=false",
-		`CODE="ledger unavailable" lib.rs:3 literal=true macro=false`,
-		`CONTRACT=include_str!("openapi.json") lib.rs:4 literal=false macro=true`,
-		"NESTED=3 lib.rs:15 literal=false macro=false",
+		"MAX_MODELS=64 lib.rs:1-1 literal=false macro=false",
+		"TIMEOUT=Duration::from_secs(5) lib.rs:2-2 literal=false macro=false",
+		`CODE="ledger unavailable" lib.rs:3-3 literal=true macro=false`,
+		`CONTRACT=include_str!("openapi.json") lib.rs:4-4 literal=false macro=true`,
+		"NESTED=3 lib.rs:15-15 literal=false macro=false",
+		"SPREAD=[1,2,] lib.rs:18-21 literal=false macro=false",
 	}
 	testutil.Lines(t, "constants", got, want)
 }
@@ -112,6 +118,12 @@ pub static SHARED: u32 = 4;
 
 #[no_mangle]
 pub static EXPORTED: u32 = 5;
+
+#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
+pub static SOMETIMES: u32 = 6;
+
+#[cfg_attr(test, allow(dead_code), inline)]
+pub static LINTED: u32 = 7;
 `
 	got := testutil.Format(mustDecls(t, src).Consts, func(c unit.Const) string {
 		return fmt.Sprintf("%s public=%v external=%v", c.Name, c.Public, c.External)
@@ -122,6 +134,8 @@ pub static EXPORTED: u32 = 5;
 		"PRIVATE public=false external=false",
 		"SHARED public=true external=false",
 		"EXPORTED public=true external=true",
+		"SOMETIMES public=true external=true", // exported in some builds
+		"LINTED public=true external=false",
 	})
 }
 

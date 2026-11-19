@@ -136,6 +136,18 @@ func (s *Shaper) visit(n *sitter.Node, declares bool) {
 // Span identifies a syntax node by its byte range.
 func Span(n *sitter.Node) [2]uint { return [2]uint{n.StartByte(), n.EndByte()} }
 
+// CountKind returns how many of n's named children are of a kind: a
+// comment is a named child too, so NamedChildCount may count more.
+func CountKind(n *sitter.Node, kind string) int {
+	count := 0
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		if n.NamedChild(i).Kind() == kind {
+			count++
+		}
+	}
+	return count
+}
+
 // Line converts a tree-sitter position to a 1-based line number.
 func Line(p sitter.Point) int {
 	return int(p.Row) + 1 //nolint:gosec // a row count always fits in int

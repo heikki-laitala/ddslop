@@ -168,6 +168,19 @@ type Budget struct {
 
 type Alias = Budget
 
+const Spread = 1 +
+	2
+
+const
+	Broken = 1
+
+const (
+	Grouped = 2
+)
+
+const // explanation
+	Commented = 3
+
 func f() {
 	const local = 1
 	type inner struct{ a int }
@@ -176,16 +189,20 @@ func f() {
 	_, decls := testutil.Parse(t, Parse, "store/store.go", src)
 	var consts []string
 	for _, c := range decls.Consts {
-		consts = append(consts, fmt.Sprintf("%s=%s:%d literal=%v", c.Name, c.Value, c.Line, c.Literal))
+		consts = append(consts, fmt.Sprintf("%s=%s:%d-%d literal=%v", c.Name, c.Value, c.Line, c.EndLine, c.Literal))
 	}
 	wantConsts := []string{
-		"MaxGrantedModels=64:3 literal=false",
-		`CodeUnavailable="ledger_unavailable":6 literal=true`,
-		"Timeout=5*time.Second:7 literal=false",
-		`first="a":8 literal=true`,
-		`second="b":8 literal=true`,
-		"Low=:12 literal=false", // iota and implicit values: nothing to compare
-		"High=:13 literal=false",
+		"MaxGrantedModels=64:3-3 literal=false",
+		`CodeUnavailable="ledger_unavailable":6-6 literal=true`,
+		"Timeout=5*time.Second:7-7 literal=false",
+		`first="a":8-8 literal=true`,
+		`second="b":8-8 literal=true`,
+		"Low=:12-12 literal=false", // iota and implicit values: nothing to compare
+		"High=:13-13 literal=false",
+		"Spread=1+2:26-27 literal=false",
+		"Broken=1:29-30 literal=false",
+		"Grouped=2:32-34 literal=false",
+		"Commented=3:36-37 literal=false",
 	}
 	testutil.Lines(t, "constants", consts, wantConsts)
 	var structs []string

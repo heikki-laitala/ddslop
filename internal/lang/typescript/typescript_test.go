@@ -193,6 +193,15 @@ type Mixed = "a" | number;
 function f() {
   const local = "inside a function";
 }
+export const SPREAD = [
+  1,
+  2,
+];
+export const
+  BROKEN = 1;
+export const
+  // a note
+  NOTED = 2;
 `
 	_, decls, err := Parse("src/budget.ts", []byte(src))
 	if err != nil {
@@ -200,7 +209,7 @@ function f() {
 	}
 	var got []string
 	for _, c := range decls.Consts {
-		got = append(got, fmt.Sprintf("const %s = %s line=%d literal=%v", c.Name, c.Value, c.Line, c.Literal))
+		got = append(got, fmt.Sprintf("const %s = %s line=%d-%d literal=%v", c.Name, c.Value, c.Line, c.EndLine, c.Literal))
 	}
 	for _, s := range decls.Structs {
 		var fields []string
@@ -224,10 +233,13 @@ function f() {
 	// time, an empty object or array is state to fill, and a function is
 	// code.
 	want := strings.Join([]string{
-		"const MAX_MODELS = 64 line=1 literal=false",
-		`const CODE_UNAVAILABLE = "ledger_unavailable" line=2 literal=true`,
-		"const RETRY = {attempts:3,backoff:100}as const line=3 literal=false",
-		"const TIMEOUT_MS = 5*60*1000 line=6 literal=false",
+		"const MAX_MODELS = 64 line=1-1 literal=false",
+		`const CODE_UNAVAILABLE = "ledger_unavailable" line=2-2 literal=true`,
+		"const RETRY = {attempts:3,backoff:100}as const line=3-3 literal=false",
+		"const TIMEOUT_MS = 5*60*1000 line=6-6 literal=false",
+		"const SPREAD = [1,2,] line=26-29 literal=false",
+		"const BROKEN = 1 line=30-31 literal=false",
+		"const NOTED = 2 line=32-34 literal=false",
 		"struct Budget 10-16 [id:string@11 limit:number|undefined@12 spent:number@13 updatedAt:Date@14]",
 		"struct Point 17-17 [x:number@17 y:number|undefined@17]",
 		`enum Level 19-19 [Low High=10 Name="name"]`,
@@ -253,10 +265,12 @@ func TestDeclarationsOfTestFilesAreMarked(t *testing.T) {
 func TestNextRouteSegmentOptionsAreNoConstants(t *testing.T) {
 	src := "export const dynamic = \"force-dynamic\";\nexport const revalidate = 60;\nexport const PAGE_SIZE = 20;\n"
 	for file, want := range map[string]string{
-		"src/app/posts/page.tsx":     "PAGE_SIZE",
-		"src/app/layout.tsx":         "PAGE_SIZE",
-		"src/app/api/users/route.ts": "PAGE_SIZE",
-		"src/lib/config.ts":          "dynamic revalidate PAGE_SIZE",
+		"src/app/posts/page.tsx":      "PAGE_SIZE",
+		"src/app/layout.tsx":          "PAGE_SIZE",
+		"src/app/api/users/route.ts":  "PAGE_SIZE",
+		"src/app/opengraph-image.tsx": "PAGE_SIZE",
+		"src/app/sitemap.ts":          "PAGE_SIZE",
+		"src/lib/config.ts":           "dynamic revalidate PAGE_SIZE",
 	} {
 		_, decls, err := Parse(file, []byte(src))
 		if err != nil {

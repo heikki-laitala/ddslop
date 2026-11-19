@@ -1468,8 +1468,18 @@ var internalAttrs = map[string]bool{
 
 // isExternalAttr reports whether an attribute may make an item reachable
 // from outside the source (#[no_mangle], #[tokio::main], route macros):
-// anything but test attributes and internalAttrs.
+// anything but test attributes and internalAttrs. A #[cfg_attr] is
+// external when an attribute it applies in some builds is
+// (#[cfg_attr(feature = "ffi", unsafe(no_mangle))]).
 func isExternalAttr(attr string) bool {
+	if attrName(attr) == "cfg_attr" {
+		open, end := strings.Index(attr, "("), strings.LastIndex(attr, ")")
+		if open < 0 || end < open {
+			return false
+		}
+		applied := splitTopLevel(attr[open+1:end], ',')[1:] // after the condition
+		return slices.ContainsFunc(applied, func(a string) bool { return isExternalAttr("#[" + strings.TrimSpace(a) + "]") })
+	}
 	return !isTestAttr(attr) && !internalAttrs[attrName(attr)]
 }
 
@@ -1675,6 +1685,7 @@ func (e *extractor) addConst(n *sitter.Node, module string, test bool, attrs []s
 		Module:   module,
 		Value:    text,
 		Line:     syntax.Line(n.StartPosition()),
+		EndLine:  syntax.Line(n.EndPosition()),
 		Nodes:    syntax.CountNodes(value),
 		Literal:  literal,
 		Macro:    value.Kind() == "macro_invocation",
