@@ -737,17 +737,19 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 	}, true
 }
 
-// PackageName returns the name a Go file's package clause gives, or "":
-// its identifier alone, without a comment after it.
+// PackageName returns the name a Go file's package clause gives, or "",
+// read as Go reads it, whatever spaces, semicolon or comment surround it.
 func PackageName(src []byte) string {
-	for _, line := range strings.Split(string(src), "\n") {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "package "); ok {
-			if fields := strings.Fields(rest); len(fields) > 0 {
-				return fields[0]
+	var name string
+	_ = syntax.Parse(language, src, func(root *sitter.Node) {
+		for i := uint(0); i < root.NamedChildCount(); i++ {
+			if n := root.NamedChild(i); n.Kind() == "package_clause" && n.NamedChildCount() > 0 {
+				name = n.NamedChild(0).Utf8Text(src)
+				return
 			}
 		}
-	}
-	return ""
+	})
+	return name
 }
 
 // linkedNames returns the names a file's cgo export comments (//export
