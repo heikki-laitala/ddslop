@@ -184,6 +184,8 @@ func f() {
 		"Timeout=5*time.Second:7 literal=false",
 		`first="a":8 literal=true`,
 		`second="b":8 literal=true`,
+		"Low=:12 literal=false", // iota and implicit values: nothing to compare
+		"High=:13 literal=false",
 	}
 	testutil.Lines(t, "constants", consts, wantConsts)
 	var structs []string

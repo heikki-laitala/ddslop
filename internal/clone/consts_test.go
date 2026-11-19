@@ -24,6 +24,8 @@ func TestConstantsGroupsSameNameAndValue(t *testing.T) {
 		{File: "b/lib.rs", Name: "CONTRACT", Value: `include_str!("x.json")`, Macro: true},
 		cst("a.rs", "_", "assert!(true)", 1),
 		cst("b.rs", "_", "assert!(true)", 1),
+		cst("a/kind.go", "KindA", "", 3), // iota: no value to compare
+		cst("b/kind.go", "KindA", "", 3),
 	}
 	got := groupLines(Constants(consts), func(g ConstGroup) []unit.Const { return g.Consts }, func(c unit.Const) string {
 		return fmt.Sprintf("%s:%d", c.File, c.Line)

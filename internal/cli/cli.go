@@ -1280,7 +1280,7 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 	}
 	packageLibs := map[string]*simplify.Library{} // Go package directory -> its library
 	for _, f := range files {
-		if languageOf(f.Path) != "go" || !internal(f.Path) || strings.HasSuffix(f.Decls.Package, "_test") {
+		if languageOf(f.Path) != "go" || !internal(f.Path) || golang.ExternalTest(f.Path, f.Decls.Package) {
 			continue
 		}
 		dir := filepath.Dir(f.Path)
@@ -1663,7 +1663,7 @@ func internalCrates(root string, files []index.File, crates *codemap.Packages) f
 	internal := map[string]bool{}
 	for _, f := range files {
 		dir := libraries.CrateOf(f.Path)
-		if _, done := internal[dir]; done || strings.HasSuffix(f.Decls.Package, "_test") {
+		if _, done := internal[dir]; done || golang.ExternalTest(f.Path, f.Decls.Package) {
 			continue // an external test (package main_test) is no package main
 		}
 		switch languageOf(f.Path) {

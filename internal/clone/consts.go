@@ -19,9 +19,12 @@ type ConstGroup struct {
 // shared value alone is no evidence (64 and 1000 are common); a shared name
 // too means one constant was copied. Macro values are left out, since
 // include_str!("x") means a different file in each crate, and so are
-// unnamed constants (const _), which hold compile-time assertions.
+// unnamed constants (const _), which hold compile-time assertions, and
+// those without a value to compare (Go's iota and implicit values).
 func Constants(consts []unit.Const) []ConstGroup {
-	groups := group.Collect(consts, func(c unit.Const) ([2]string, bool) { return [2]string{c.Name, c.Value}, !c.Macro && c.Name != "_" },
+	groups := group.Collect(consts, func(c unit.Const) ([2]string, bool) {
+		return [2]string{c.Name, c.Value}, !c.Macro && c.Name != "_" && c.Value != ""
+	},
 		func(_ [2]string, members []unit.Const) (ConstGroup, bool) {
 			return ConstGroup{Consts: members}, len(members) >= 2
 		})

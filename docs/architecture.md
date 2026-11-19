@@ -303,10 +303,11 @@ generated-file header rule (`// Code generated ... DO NOT EDIT.`) is
 shared. Go's package-level structs and constants feed the same detectors
 as Rust's: a multi-name field (`ID, Name string`) or constant
 (`a, b = "x", "y"`) gives one entry per name, an embedded field is named
-after its type as Go names it, and `iota` or implicit constant values have
-nothing to compare; the package directory plays the crate's part for
-inlined constants. Go calls are recorded too: `f(x)` is a free call, a
-selector on the method's receiver (`s.load(x)`) a call on self, one on an
+after its type as Go names it, and a constant with an `iota` or implicit
+value has none to compare, so it is in no copied group; the package
+directory plays the crate's part for inlined constants. Go calls are
+recorded too: `f(x)` is a free call, a selector on the method's
+receiver (`s.load(x)`) a call on self, one on an
 imported package name (`json.Marshal`, aliases and `/vN` suffixes
 understood) a path call, and any other selector a method call. The call
 graph splits Go names at the dot (`Store.Load`), resolves a package call
@@ -1110,9 +1111,10 @@ flattened, the other half of cleaning up generated code:
   signature names it.
   In Go, the library is a package that serves only the analysed code, as
   for dead code (under `internal/`, or `package main`): its directory's
-  files, but not those of its external tests (`package text_test`), a
-  package of their own whose use keeps a name exported. An exported
-  function or constant only its own package names can be unexported. The
+  files, but not those of its external tests (`package text_test` in a
+  `_test.go` file), a package of their own whose use keeps a name exported. An exported
+  function or constant (an `iota` one too) only its own package names
+  can be unexported. The
   words of its comments, of its own tests (`_test.go`) and of files with
   build constraints (`//go:build`, a `_linux` or `_amd64` file name) are
   optional (`golang.Reach`), so a name only they use besides is not

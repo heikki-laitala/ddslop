@@ -407,7 +407,8 @@ type Const struct {
 	// Unit.Module (Rust only).
 	Module string
 	// Value is the initialiser as written: a string literal exactly, any
-	// other value without whitespace.
+	// other value without whitespace; none for one with nothing to compare
+	// (Go's iota and implicit values).
 	Value string
 	Line  int
 	Nodes int

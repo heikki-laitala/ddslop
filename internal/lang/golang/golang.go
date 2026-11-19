@@ -837,34 +837,30 @@ func fieldNodes(n *sitter.Node, field string) []*sitter.Node {
 	return out
 }
 
-// constants returns a const declaration's constants with written values,
-// each name paired with its value by position; iota and implicit values
-// have nothing to compare.
+// constants returns a const declaration's constants, each name paired
+// with its value by position. An iota or implicit value has nothing to
+// compare: its constant has no Value.
 func constants(n *sitter.Node, path string, src []byte, test bool) []unit.Const {
 	var out []unit.Const
 	for i := uint(0); i < n.NamedChildCount(); i++ {
 		spec := n.NamedChild(i)
-		values := spec.ChildByFieldName("value")
-		if spec.Kind() != "const_spec" || values == nil {
+		if spec.Kind() != "const_spec" {
 			continue
 		}
+		values := spec.ChildByFieldName("value")
 		for j, name := range fieldNodes(spec, "name") {
-			if j >= int(values.NamedChildCount()) { //nolint:gosec // a child count fits in int
-				break
+			c := unit.Const{File: path, Name: name.Utf8Text(src), Line: syntax.Line(spec.StartPosition()), Nodes: syntax.CountNodes(name),
+				Public: source.Capitalized(name.Utf8Text(src)), Test: test}
+			if values != nil && j < int(values.NamedChildCount()) { //nolint:gosec // a child count fits in int
+				if v := values.NamedChild(uint(j)); v.Kind() != "iota" {
+					c.Literal = v.Kind() == "interpreted_string_literal" || v.Kind() == "raw_string_literal"
+					c.Value, c.Nodes = v.Utf8Text(src), syntax.CountNodes(v)
+					if !c.Literal {
+						c.Value = syntax.Compact(c.Value)
+					}
+				}
 			}
-			v := values.NamedChild(uint(j))
-			if v.Kind() == "iota" {
-				continue
-			}
-			literal := v.Kind() == "interpreted_string_literal" || v.Kind() == "raw_string_literal"
-			text := v.Utf8Text(src)
-			if !literal {
-				text = syntax.Compact(text)
-			}
-			out = append(out, unit.Const{
-				File: path, Name: name.Utf8Text(src), Value: text, Line: syntax.Line(spec.StartPosition()),
-				Nodes: syntax.CountNodes(v), Literal: literal, Public: source.Capitalized(name.Utf8Text(src)), Test: test,
-			})
+			out = append(out, c)
 		}
 	}
 	return out
@@ -1188,6 +1184,13 @@ func Internal(path, pkg string) bool {
 	}
 	parts := strings.Split(filepath.ToSlash(filepath.Dir(path)), "/")
 	return slices.Contains(parts, "internal")
+}
+
+// ExternalTest reports whether a Go file is an external test, a
+// _test.go file of package name_test, which is no part of its directory's
+// package. A plain file's package name may end in _test too.
+func ExternalTest(path, pkg string) bool {
+	return strings.HasSuffix(path, "_test.go") && strings.HasSuffix(pkg, "_test")
 }
 
 // InterfaceMethods returns the names of the methods the file's interfaces
