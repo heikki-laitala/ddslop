@@ -45,6 +45,12 @@ func reachOf(root *sitter.Node, file syntax.Source) unit.Reach {
 		if reach.AllOptional {
 			return false
 		}
+		if name := item.ChildByFieldName("name"); name != nil && item.Kind() == "mod_item" && item.ChildByFieldName("body") == nil &&
+			!cfg && !slices.ContainsFunc(attrs, func(a string) bool { return isCfgPath(a) || attrName(a) == "path" }) {
+			if scope, ok := inlineScope(item, file.Src); ok && len(scope) > 0 {
+				reach.NestedModules = append(reach.NestedModules, strings.Join(append(scope, name.Utf8Text(file.Src)), "::"))
+			}
+		}
 		if cfg || item.Kind() == "function_item" && slices.ContainsFunc(attrs, isTestAttr) {
 			source.AddWords(reach.Optional, item.Utf8Text(file.Src))
 			return false

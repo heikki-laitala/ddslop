@@ -138,9 +138,33 @@ pub fn named() -> &'static str { "string_word" }
 	}
 }
 
-func TestReachListsOutOfLineModulesUnderAnyCfg(t *testing.T) {
+// The out-of-line modules a file declares under any #[cfg], and those it
+// declares inside inline modules, by their path from the file's module,
+// but one under a #[cfg] (its own or an enclosing module's) or a #[path],
+// and one in a block.
+func TestReachListsOutOfLineModulesUnderAnyCfgOrInsideInlineModules(t *testing.T) {
 	src := `#[cfg(test)]
 mod fixture;
+
+mod a {
+    mod b;
+    #[cfg(test)]
+    mod c;
+    #[path = "x.rs"]
+    mod d;
+    mod e {
+        mod f;
+    }
+}
+
+#[cfg(test)]
+mod t {
+    mod u;
+}
+
+fn g() {
+    mod h;
+}
 
 #[cfg(target_os = "macos")]
 mod real;
@@ -160,8 +184,12 @@ mod always;
 
 mod production;
 `
-	if got := fmt.Sprint(reach(t, "src/lib.rs", []byte(src)).CfgModules); got != "[fixture real other.rs imp]" {
+	r := reach(t, "src/lib.rs", []byte(src))
+	if got := fmt.Sprint(r.CfgModules); got != "[fixture real other.rs imp]" {
 		t.Errorf("Reach.CfgModules = %s, want [fixture real other.rs imp]", got)
+	}
+	if got := fmt.Sprint(r.NestedModules); got != "[a::b a::e::f]" {
+		t.Errorf("Reach.NestedModules = %s, want [a::b a::e::f]", got)
 	}
 }
 

@@ -345,6 +345,11 @@ type Reach struct {
 	// declares from the file's module (self::facade::shapes). Other
 	// crates reach their items through the file's module.
 	Globs []string
+	// NestedModules are the modules the file declares out of line inside
+	// its inline modules, by their path from the file's module
+	// (mod holder { mod held; } gives holder::held), but those under a
+	// #[cfg] or a #[path], whose files other rules place.
+	NestedModules []string
 	// PathModules are the modules the file declares out of line in a
 	// file a #[path] attribute names, each name with those files (one per
 	// #[cfg]-gated declaration), as index.File.Modules names them (wire.rs

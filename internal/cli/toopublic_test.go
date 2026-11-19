@@ -172,7 +172,8 @@ func TestCheckReportsRustItemsOnlyTheirLibraryModulesUse(t *testing.T) {
 // a file two #[path]s declare under either name, with the modules inside
 // it, each file #[cfg]-gated #[path]s give one name, and a path through
 // the crate's own alias (extern crate self as mycrate), and from a module a
-// #[path] file declares, whose files sit beside it as a mod.rs's do;
+// #[path] file declares, whose files sit beside it as a mod.rs's do, or one
+// declared out of line inside an inline module (mod holder { mod held; });
 // a pub(crate) glob exposes nothing,
 // and nor does another crate's module of a local module's name.
 func TestCheckLeavesRustItemsAGlobReexportsPublic(t *testing.T) {
@@ -241,6 +242,7 @@ pub mod scoped_facade {
         imp_other_fn();
         self_crate_fn();
         placed_fn();
+        held_fn();
     }
 }
 mod up_inline;
@@ -267,6 +269,12 @@ pub use imp::*;
 mod placed;
 mod placed_shapes;
 pub use placed::child::*;
+
+mod holder {
+    pub(crate) mod held;
+}
+mod held_target;
+pub use holder::held::*;
 
 extern crate self as mycrate;
 mod self_crate_shapes;
@@ -308,6 +316,8 @@ pub fn api() {
 		"app/src/placed/lib_placed.rs":    "pub(crate) mod child;\n",
 		"app/src/placed/child.rs":         "pub use crate::placed_shapes::*;\n",
 		"app/src/placed_shapes.rs":        "pub fn placed_fn() {}\n",
+		"app/src/holder/held.rs":          "pub use crate::held_target::*;\n",
+		"app/src/held_target.rs":          "pub fn held_fn() {}\n",
 		"app/src/self_crate_shapes.rs":    "pub fn self_crate_fn() {}\n",
 		"app/src/alias_inline.rs":         "pub fn alias_inline_fn() {}\n",
 		"app/src/up_inline.rs":            "pub fn up_inline_fn() {}\n",

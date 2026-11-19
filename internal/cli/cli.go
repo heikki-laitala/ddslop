@@ -1293,6 +1293,15 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 					}
 				}
 			}
+			// One declared inside inline modules sits under their names (mod
+			// holder { mod held; } is holder/held.rs).
+			for _, nested := range file.Decls.Reach.NestedModules {
+				parts := strings.Split(nested, "::")
+				inner := filepath.Join(append([]string{dir}, parts[:len(parts)-1]...)...)
+				for _, path := range moduleFiles(file.Path, inner, parts[len(parts)-1]) {
+					queue = append(queue, module{path, append(slices.Clone(m.segments), parts...), optional, ancestors, false})
+				}
+			}
 		}
 		addGlobbed(lib.Exposed, tree)
 	}
@@ -1390,12 +1399,18 @@ func exposeModule(exposed map[string]bool, tree map[string][]index.File, module 
 			at = child
 			continue
 		}
+		inline := false
 		for _, file := range tree[at] {
 			if slices.Contains(file.InlineModules, segment) {
 				exposed[file.Path+"#"+segment] = true
+				inline = true
 			}
 		}
-		return
+		if !inline {
+			return
+		}
+		at = child // and the modules declared out of line inside it
+		break
 	}
 	for path, files := range tree {
 		if path == at || at == "" || strings.HasPrefix(path, at+"::") {
