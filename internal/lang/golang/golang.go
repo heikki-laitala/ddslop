@@ -4,6 +4,7 @@ package golang
 import (
 	"bytes"
 	"errors"
+	"go/build/constraint"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -804,7 +805,7 @@ func constrained(path string, src []byte) bool {
 		if strings.HasPrefix(line, "package ") {
 			break
 		}
-		if strings.HasPrefix(line, "//go:build") || strings.HasPrefix(line, "// +build") {
+		if constraint.IsGoBuild(line) || constraint.IsPlusBuild(line) {
 			return true
 		}
 	}
