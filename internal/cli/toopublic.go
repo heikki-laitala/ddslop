@@ -19,7 +19,8 @@ import (
 // package's other targets (a binary, an integration test, an example),
 // or of another language is outside the library. A file exporting a macro
 // (#[macro_export], expanded in other crates) exposes every name it
-// mentions. A crate exports what its plain pub uses re-export (see
+// mentions, and its documentation examples (see rust.DoctestWords), crates
+// of their own, the names they mention. A crate exports what its plain pub uses re-export (see
 // reexported), which a pub(crate) use cannot.
 func tooPublic(root string, units []unit.Unit, files []index.File, crates *codemap.Packages, internal func(file string) bool) []unit.Unit {
 	libraries := libraryCrates(files, crates)
@@ -38,9 +39,13 @@ func tooPublic(root string, units []unit.Unit, files []index.File, crates *codem
 	mentions := map[string][]simplify.Mention{}
 	for _, f := range files {
 		crate, macros := crateOf(f.Path), f.Words["macro_export"] > 0
+		var doctests map[string]bool
+		if crate != "" {
+			doctests = rust.DoctestWords(readFile(root, f.Path))
+		}
 		for name := range names {
 			if n := f.Words[name]; n > 0 {
-				mentions[name] = append(mentions[name], simplify.Mention{Crate: crate, Count: n, Exposes: macros})
+				mentions[name] = append(mentions[name], simplify.Mention{Crate: crate, Count: n, Exposes: macros || doctests[name]})
 			}
 		}
 	}
@@ -64,11 +69,7 @@ func reexported(root string, files []index.File, crateOf func(file string) strin
 		if crate == "" || len(f.TopReexports) == 0 {
 			continue
 		}
-		src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(f.Path))) //nolint:gosec // a file under the analysed root
-		if err != nil {
-			continue
-		}
-		for name, target := range rust.PublicReexports(src) {
+		for name, target := range rust.PublicReexports(readFile(root, f.Path)) {
 			if strings.HasPrefix(name, "*") {
 				out[crate+"\x00*"+simplify.ShortName(target)] = true
 			} else {
@@ -77,6 +78,13 @@ func reexported(root string, files []index.File, crateOf func(file string) strin
 		}
 	}
 	return out
+}
+
+// readFile returns a file under the analysed root, or nothing when it
+// cannot be read (a dangling symlink), which then adds nothing.
+func readFile(root, file string) []byte {
+	src, _ := os.ReadFile(filepath.Join(root, filepath.FromSlash(file))) //nolint:gosec // a file under the analysed root
+	return src
 }
 
 // fileModule returns the name of the module a Rust file is: inner for

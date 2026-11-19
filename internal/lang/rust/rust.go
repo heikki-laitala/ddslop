@@ -14,6 +14,7 @@ import (
 
 	"github.com/heikki-laitala/ddslop/internal/lang/syntax"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
+	"github.com/heikki-laitala/ddslop/internal/source"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -1964,6 +1965,32 @@ func TopExports(src []byte) []string {
 // a::*) is kept under "*" and its source. Test code's uses are left out.
 func TopReexports(src []byte) map[string]string {
 	return reexports(src, visible)
+}
+
+// DoctestWords returns the words of a file's documentation examples:
+// the code blocks of its doc comments (/// and //!), which rustdoc
+// compiles as crates of their own, so a name they mention is used from
+// outside the file's crate.
+func DoctestWords(src []byte) map[string]bool {
+	out := map[string]bool{}
+	inBlock := false
+	for _, line := range strings.Split(string(src), "\n") {
+		text, doc := strings.CutPrefix(strings.TrimSpace(line), "///")
+		if !doc {
+			text, doc = strings.CutPrefix(strings.TrimSpace(line), "//!")
+		}
+		switch text = strings.TrimSpace(text); {
+		case !doc:
+			inBlock = false
+		case strings.HasPrefix(text, "```"):
+			inBlock = !inBlock
+		case inBlock:
+			for w := range source.Words([]byte(text)) {
+				out[w] = true
+			}
+		}
+	}
+	return out
 }
 
 // PublicReexports is TopReexports of the plain pub uses alone: what the

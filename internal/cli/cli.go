@@ -1237,11 +1237,13 @@ func libraryCrates(files []index.File, crates *codemap.Packages) map[string]bool
 
 // inLibrary reports whether a Rust file belongs to its package's library
 // target, whose crate:: paths name the modules Module names: a file under
-// src/, but no binary's (src/bin, or src/main.rs beside a library). A
-// build script, an example or a binary is a crate of its own.
+// src/, but no binary's (src/bin, src/main.rs beside a library, or one
+// the manifest places, [[bin]] path = "src/tool.rs"). A build script, an
+// example or a binary is a crate of its own.
 func inLibrary(file string, crates *codemap.Packages, libraries map[string]bool) bool {
 	crate, rel := codemap.CratePath(file, crates)
-	return rel != "" && !strings.HasPrefix(rel, "bin/") && (rel != "main.rs" || !libraries[crate])
+	return rel != "" && !strings.HasPrefix(rel, "bin/") && (rel != "main.rs" || !libraries[crate]) &&
+		(crates == nil || !crates.Libraries.InTarget(file))
 }
 
 // cycleGraph is the call graph cycles are found in: the non-test code's,

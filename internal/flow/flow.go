@@ -1232,6 +1232,13 @@ func (l Libraries) CrateOf(file string) string {
 	return CrateOf(file)
 }
 
+// InTarget reports whether a file belongs to a target a manifest places
+// ([[bin]] path = "src/tool.rs"): a crate of its own, apart from the
+// package's library.
+func (l Libraries) InTarget(file string) bool {
+	return l.targetOf(filepath.ToSlash(file)) != ""
+}
+
 // targetOf returns the root file of the target a manifest places that a
 // file belongs to (see Targets), or "": the file itself, else the deepest
 // directory holding it.

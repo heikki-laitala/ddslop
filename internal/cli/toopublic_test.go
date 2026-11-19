@@ -13,12 +13,14 @@ import (
 // the crate's own integration tests and binaries (crates of their own),
 // a pub use re-exporting it, under its name or another, or its module
 // (file or inline) whole, and a #[macro_export] macro naming it; a
-// pub(crate) use exposes nothing; a trait
+// pub(crate) use exposes nothing; a doctest and a binary the manifest
+// places under src/ are crates of their own too; a trait
 // method and a function nothing names (dead-code) are not reported.
 func TestCheckReportsPublicFunctionsOnlyTheirCrateUses(t *testing.T) {
 	root := repo(t, map[string]string{
-		"Cargo.toml":             "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\npublish = false\n",
-		"crates/util/Cargo.toml": "[package]\nname = \"util\"\npublish.workspace = true\n",
+		"Cargo.toml":              "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\npublish = false\n",
+		"crates/util/Cargo.toml":  "[package]\nname = \"util\"\npublish.workspace = true\n\n[[bin]]\nname = \"tool\"\npath = \"src/tool.rs\"\n",
+		"crates/util/src/tool.rs": "fn main() {\n    println!(\"{}\", util::tool_helper());\n}\n",
 		"crates/util/src/lib.rs": "mod inner;\nmod macros;\npub use inner::reexported_helper;\npub use inner::aliased as public_alias;\npub(crate) use inner::crate_reexport;\npub use shapes::*;\n\n" +
 			"mod shapes {\n    pub fn inline_globbed() -> u32 {\n        2\n    }\n}\n\n" +
 			"pub fn only_inside(text: &str) -> String {\n    text.trim().to_owned()\n}\n\n" +
@@ -28,6 +30,8 @@ func TestCheckReportsPublicFunctionsOnlyTheirCrateUses(t *testing.T) {
 			"pub fn tested(text: &str) -> String {\n    text.to_lowercase()\n}\n\n" +
 			"pub fn binary_use(text: &str) -> String {\n    text.to_uppercase()\n}\n\n" +
 			"pub fn never_named(text: &str) -> usize {\n    text.len()\n}\n\n" +
+			"/// Five.\n///\n/// ```\n/// assert_eq!(util::documented(), 5);\n/// ```\npub fn documented() -> u32 {\n    5\n}\n\n" +
+			"pub fn tool_helper() -> u32 {\n    6\n}\n\n" +
 			"pub trait Shout {\n    fn shout_loud(&self) -> String;\n}\n\n" +
 			"impl Shout for String {\n    fn shout_loud(&self) -> String {\n        self.to_uppercase()\n    }\n}\n",
 		"crates/util/src/inner.rs":  "pub fn reexported_helper() -> u32 {\n    1\n}\n\npub fn aliased() -> u32 {\n    3\n}\n\npub fn crate_reexport() -> u32 {\n    4\n}\n\nfn calls_it() -> u32 {\n    reexported_helper() + aliased() + crate_reexport() + super::shapes::inline_globbed()\n}\n",

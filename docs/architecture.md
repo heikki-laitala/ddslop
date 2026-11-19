@@ -1078,19 +1078,22 @@ flattened, the other half of cleaning up generated code:
   `pub(crate)`, which also lets the compiler report it once nothing in
   the crate uses it. Words decide it as they decide dead code, so a
   mention anywhere else keeps it public, an unresolved call included: a
-  file of another crate, of the package's other targets (a binary, an
-  integration test under `tests/`, a bench or an example, crates of their
-  own that see only the public API), or of another language. So does a
-  file exporting a macro (`#[macro_export]`, expanded in the crates that
-  call it). Nor is a function its crate re-exports with a plain `pub use`
+  file of another crate, of the package's other targets (a binary, the
+  manifest's `[[bin]]` under `src/` included, an integration test under
+  `tests/`, a bench or an example, crates of their own that see only the
+  public API), or of another language. So does a documentation example
+  (a code block in a `///` or `//!` comment, which rustdoc compiles as a
+  crate of its own), and a file exporting a macro (`#[macro_export]`,
+  expanded in the crates that call it). Nor is a function its crate re-exports with a plain `pub use`
   reported: by name, under any alias (`pub use inner::helper as h`), or
   with the module, file or inline, a glob re-exports (`pub use
   inner::*`); a `pub(crate) use` exposes nothing, so it does not count.
   Trait methods, `#[no_mangle]` and similar
   functions, test code and dead code are left out. On a workspace of
-  about 30 crates (where `dead-code` found 6 functions), 493 candidates;
+  about 30 crates (where `dead-code` found 6 functions), 491 candidates;
   making all of them `pub(crate)` built cleanly (`cargo check --workspace
-  --all-targets`, with and without `--all-features`), and the compiler
+  --all-targets`, with and without `--all-features`, and every doctest
+  passed), and the compiler
   then reported dozens of them, and types only they used, as never used:
   dead code the names alone could not show. Types, constants, traits and
   modules are not reported yet: a type in the signature of a public
