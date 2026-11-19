@@ -1,6 +1,7 @@
 package rust
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 
@@ -13,7 +14,8 @@ import (
 
 // reachOf finds how far a file's words reach (see unit.Reach).
 func reachOf(root *sitter.Node, file syntax.Source) unit.Reach {
-	reach := unit.Reach{Exported: exportedWords(root, file.Src), AllOptional: file.Test || underCfg(root, file.Src)}
+	reach := unit.Reach{AllOptional: file.Test || underCfg(root, file.Src)}
+	addExported(root, file.Src, &reach)
 	if !reach.AllOptional {
 		reach.Optional = map[string]int{}
 		addComments(reach.Optional, root, file.Src)
@@ -36,21 +38,55 @@ func reachOf(root *sitter.Node, file syntax.Source) unit.Reach {
 	return reach
 }
 
-// exportedWords counts the words of the code that code outside the crate
-// compiles or reaches through a file: the code blocks of its doc comments
-// (doc tests) and its #[macro_export] macros, which other crates compile,
-// and its pub uses, which re-export what they name.
-func exportedWords(root *sitter.Node, src []byte) map[string]int {
+// addExported sets reach.Exported, the words of the code that code
+// outside the crate compiles or reaches through a file: its doc tests and
+// #[macro_export] macros, which other crates compile, and its pub uses,
+// which re-export what they name. It also lists the files the file's doc
+// attributes include (reach.DocFiles, reach.PackageDocFiles).
+func addExported(root *sitter.Node, src []byte, reach *unit.Reach) {
 	words := map[string]int{}
 	addDocTests(words, root, src)
 	eachItem(root, src, func(item *sitter.Node, attrs []string) bool {
+		if item.Kind() == "inner_attribute_item" {
+			attrs = []string{item.Utf8Text(src)}
+		}
+		for _, attr := range attrs {
+			if file, ok := docIncludeOf(attr, docInclude); ok {
+				reach.DocFiles = append(reach.DocFiles, file)
+			} else if file, ok := docIncludeOf(attr, packageDocInclude); ok {
+				reach.PackageDocFiles = append(reach.PackageDocFiles, file)
+			} else if isDocValue(attr) {
+				addWords(words, attr) // its text may hold a doc test
+			}
+		}
 		exported := item.Kind() == "macro_definition" && slices.ContainsFunc(attrs, func(a string) bool { return attrName(a) == "macro_export" })
 		if exported || item.Kind() == "use_declaration" && isPublic(item, src) {
 			addWords(words, item.Utf8Text(src))
 		}
 		return true
 	})
-	return words
+	reach.Exported = words
+}
+
+var (
+	docValue   = regexp.MustCompile(`^#!?\[\s*doc\s*=`)
+	docInclude = regexp.MustCompile(`^#!?\[\s*doc\s*=\s*include_str!\s*\(\s*"([^"]*)"\s*\)\s*\]$`)
+	// packageDocInclude includes a file of the package's directory.
+	packageDocInclude = regexp.MustCompile(`^#!?\[\s*doc\s*=\s*include_str!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*"/?([^"]*)"\s*\)\s*\)\s*\]$`)
+)
+
+// isDocValue reports whether an attribute sets documentation text
+// (#[doc = "..."]).
+func isDocValue(attr string) bool { return docValue.MatchString(attr) }
+
+// docIncludeOf returns the file a doc attribute includes, if it is one
+// include matches (#![doc = include_str!("../README.md")]).
+func docIncludeOf(attr string, include *regexp.Regexp) (string, bool) {
+	m := include.FindStringSubmatch(attr)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
 }
 
 func isCfg(attr string) bool { return attrName(attr) == "cfg" }
@@ -101,34 +137,73 @@ func eachItem(n *sitter.Node, src []byte, visit func(item *sitter.Node, attrs []
 }
 
 // addDocTests adds the words of the code blocks in the doc comments under
-// root. A block ends with its doc comment, closed or not.
+// root: in each run of /// or //! lines, and in each /** */ or /*! */
+// block.
 func addDocTests(words map[string]int, root *sitter.Node, src []byte) {
-	fenced, lastRow := false, uint(0)
+	var lines []string
+	marker, lastRow := "", uint(0)
+	flush := func() {
+		addCodeBlocks(words, lines)
+		lines = nil
+	}
 	var visit func(n *sitter.Node)
 	visit = func(n *sitter.Node) {
 		for i := uint(0); i < n.ChildCount(); i++ {
 			child := n.Child(i)
-			if child.Kind() != "line_comment" {
+			switch child.Kind() {
+			case "line_comment":
+				row := child.StartPosition().Row
+				m, line := docLine(strings.TrimRight(child.Utf8Text(src), "\r\n"))
+				if m == "" || m != marker || row != lastRow+1 {
+					flush()
+				}
+				if m != "" {
+					lines = append(lines, line)
+					marker, lastRow = m, row
+				}
+			case "block_comment":
+				flush()
+				addCodeBlocks(words, blockDocLines(child.Utf8Text(src)))
+			default:
 				visit(child)
-				continue
 			}
-			text, doc := docText(child.Utf8Text(src))
-			row := child.StartPosition().Row
-			if !doc || row != lastRow+1 {
-				fenced = false
-			}
-			if !doc {
-				continue
-			}
-			if strings.HasPrefix(strings.TrimSpace(text), "```") {
-				fenced = !fenced
-			} else if fenced {
-				addWords(words, text)
-			}
-			lastRow = row
 		}
 	}
 	visit(root)
+	flush()
+}
+
+// DocTestWords counts the words of the code blocks of a Markdown file,
+// such as a README a crate includes as its documentation: rustdoc runs
+// them as doc tests.
+func DocTestWords(markdown []byte) map[string]int {
+	words := map[string]int{}
+	addCodeBlocks(words, strings.Split(string(markdown), "\n"))
+	return words
+}
+
+// addCodeBlocks adds the words of the code blocks in documentation text,
+// as rustdoc reads it: fenced (``` or ~~~) or indented by four spaces
+// more than the text's common indentation.
+func addCodeBlocks(words map[string]int, lines []string) {
+	indent := -1
+	for _, line := range lines {
+		if trimmed := strings.TrimLeft(line, " \t"); trimmed != "" && (indent < 0 || len(line)-len(trimmed) < indent) {
+			indent = len(line) - len(trimmed)
+		}
+	}
+	fenced := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~"):
+			fenced = !fenced
+		case fenced:
+			addWords(words, line)
+		case trimmed != "" && (strings.HasPrefix(line[indent:], "    ") || strings.HasPrefix(line[indent:], "\t")):
+			addWords(words, line)
+		}
+	}
 }
 
 func addWords(words map[string]int, text string) {
@@ -137,16 +212,39 @@ func addWords(words map[string]int, text string) {
 	}
 }
 
-// docText returns the text of a doc comment line (/// or //!) after its
-// marker, and whether the line is one.
-func docText(comment string) (string, bool) {
+// docLine returns the marker of a doc comment line (/// or //!) and its
+// text after the marker; no marker for any other comment.
+func docLine(comment string) (marker, text string) {
 	if strings.HasPrefix(comment, "////") {
-		return "", false
+		return "", ""
 	}
-	for _, marker := range []string{"///", "//!"} {
-		if text, ok := strings.CutPrefix(comment, marker); ok {
-			return text, true
+	for _, m := range []string{"///", "//!"} {
+		if text, ok := strings.CutPrefix(comment, m); ok {
+			return m, text
 		}
 	}
-	return "", false
+	return "", ""
+}
+
+// blockDocLines returns the lines of a block doc comment (/** */ or
+// /*! */) without its delimiters, and without the asterisk starting each
+// line when every line has one; nil for any other block comment.
+func blockDocLines(comment string) []string {
+	if len(comment) < 5 || !strings.HasPrefix(comment, "/**") && !strings.HasPrefix(comment, "/*!") ||
+		strings.HasPrefix(comment, "/***") || !strings.HasSuffix(comment, "*/") {
+		return nil
+	}
+	lines := strings.Split(comment[3:len(comment)-2], "\n")
+	starred := true
+	for _, line := range lines[1:] {
+		if t := strings.TrimSpace(line); t != "" && !strings.HasPrefix(t, "*") {
+			starred = false
+		}
+	}
+	if starred {
+		for i, line := range lines[1:] {
+			lines[i+1] = strings.TrimPrefix(strings.TrimLeft(line, " \t"), "*")
+		}
+	}
+	return lines
 }

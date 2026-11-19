@@ -324,6 +324,13 @@ type Reach struct {
 	// says all of the file is (a test file, or one under a #![cfg]).
 	Optional    map[string]int
 	AllOptional bool
+	// DocFiles are the files the file's #[doc = include_str!(...)]
+	// attributes include, as written, relative to the file's directory:
+	// their code blocks are doc tests too.
+	DocFiles []string
+	// PackageDocFiles are those included relative to the package's
+	// directory (concat!(env!("CARGO_MANIFEST_DIR"), "/GUIDE.md")).
+	PackageDocFiles []string
 	// CfgModules are the modules the file declares out of line under a
 	// #[cfg], as index.File.Modules names them: their files are compiled
 	// in some builds only.

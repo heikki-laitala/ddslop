@@ -1083,11 +1083,14 @@ flattened, the other half of cleaning up generated code:
   `src/main.rs`, or a `[[bin]]` path under `src/`) are outside it, and
   each library counts on its own, even when two have the same name. Code
   outside the library also reaches it from the library's own files:
-  through the code blocks of its doc comments (doc tests) and its
-  `#[macro_export]` macros, which other crates compile, and through a
-  `pub use`, which re-exports it; their words count as outside. Of the
-  library's words, at least one besides the declaration must be in code
-  every build compiles: not in a comment, a test, an item under a
+  through its doc tests and its `#[macro_export]` macros, which other
+  crates compile, and through a `pub use`, which re-exports it; their
+  words count as outside. Doc tests are the code blocks, fenced or
+  indented, of `///` and `//!` lines, of `/** */` and `/*! */` comments,
+  of `#[doc = "..."]` attributes and of the files a
+  `#[doc = include_str!(...)]` attribute includes, such as a README. Of
+  the library's words, at least one besides the declaration must be in
+  code every build compiles: not in a comment, a test, an item under a
   `#[cfg]`, a file under a `#![cfg]` or the file of a module declared
   under one (`unit.Reach`); otherwise `pub(crate)` would make the compiler
   report the item unused in some builds, as `pub` does not. Trait methods

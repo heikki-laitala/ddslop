@@ -54,12 +54,54 @@ mod inner {
         pub fn m() {}
     }
 }
+
+/**
+ * Prose in a block.
+ *
+ * ` + "```" + `
+ * block_example();
+ * ` + "```" + `
+ */
+pub fn in_block() {}
+
+/// An indented example:
+///
+///     indented_example();
+pub fn indented() {}
+
+#[doc = "attribute_doc()"]
+pub fn attributed() {}
 `)
 
 	got := slices.Sorted(maps.Keys(reach(t, "src/lib.rs", src).Exported))
 
-	if want := "[by_macro crate crate_example doc_test_call exported inner macro_rules method_example pub reexported use]"; fmt.Sprint(got) != want {
+	if want := "[attribute_doc block_example by_macro crate crate_example doc doc_test_call exported indented_example inner macro_rules method_example pub reexported use]"; fmt.Sprint(got) != want {
 		t.Errorf("Reach.Exported = %v, want %s", got, want)
+	}
+}
+
+func TestReachListsTheFilesDocAttributesInclude(t *testing.T) {
+	src := []byte(`#![doc = include_str!("../README.md")]
+
+#[doc = include_str!("docs/api.md")]
+pub fn api() {}
+
+#[doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/GUIDE.md"))]
+pub fn guide() {}
+`)
+	r := reach(t, "src/lib.rs", src)
+	if got := fmt.Sprint(r.DocFiles); got != "[../README.md docs/api.md]" {
+		t.Errorf("Reach.DocFiles = %s, want [../README.md docs/api.md]", got)
+	}
+	if got := fmt.Sprint(r.PackageDocFiles); got != "[GUIDE.md]" {
+		t.Errorf("Reach.PackageDocFiles = %s, want [GUIDE.md]", got)
+	}
+}
+
+func TestDocTestWordsAreThoseOfAMarkdownFilesCodeBlocks(t *testing.T) {
+	md := "# Title\n\nprose_word\n\n```rust\nfenced_call();\n```\n\n    indented_call();\n"
+	if got := fmt.Sprint(slices.Sorted(maps.Keys(DocTestWords([]byte(md))))); got != "[fenced_call indented_call]" {
+		t.Errorf("DocTestWords = %s, want [fenced_call indented_call]", got)
 	}
 }
 

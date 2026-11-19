@@ -753,7 +753,7 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 		Dead: simplify.Dead(units, words, func(file string) bool {
 			return internal(file) && !importedWhole[file]
 		}),
-		TooPublic: tooPublic(units, consts, words, libraryWords(files, crates, internal)),
+		TooPublic: tooPublic(units, consts, words, libraryWords(root, files, crates, internal)),
 		Wrappers:  simplify.PassThrough(g),
 		Traits:    singleImpls(traitDecls, files, internal),
 		Scopes:    byLanguage(units, func(_ string, u []unit.Unit) []pattern.ScopeGroup { return pattern.Scopes(u) }),
@@ -1251,7 +1251,7 @@ func tooPublic(units []unit.Unit, consts []unit.Const, words map[string]int, lib
 // crate, the words of that library's files (see simplify.Library); for
 // any other file, nil. A library's files are its root file's module tree:
 // a binary's modules beside them are not.
-func libraryWords(files []index.File, crates *codemap.Packages, internal func(file string) bool) func(file string) *simplify.Library {
+func libraryWords(root string, files []index.File, crates *codemap.Packages, internal func(file string) bool) func(file string) *simplify.Library {
 	byPath := map[string]index.File{}
 	for _, f := range files {
 		byPath[f.Path] = f
@@ -1274,7 +1274,7 @@ func libraryWords(files []index.File, crates *codemap.Packages, internal func(fi
 			}
 			owner[m.path] = lib
 			optional := m.optional || file.Decls.Reach.AllOptional
-			addLibraryWords(lib, file, optional)
+			addLibraryWords(root, lib, file, crates.Libraries.PackageOf(file.Path), optional)
 			dir := moduleDir(file.Path)
 			if m.path == f.Path {
 				dir = filepath.Dir(f.Path) // a crate root's modules sit beside it, whatever its name
@@ -1290,13 +1290,23 @@ func libraryWords(files []index.File, crates *codemap.Packages, internal func(fi
 }
 
 // addLibraryWords adds a file's words to its library's: all of them
-// optional when the file is compiled in some builds only.
-func addLibraryWords(lib *simplify.Library, f index.File, optional bool) {
+// optional when the file is compiled in some builds only. The doc tests
+// of the files its doc attributes include count as outside the library;
+// packageDir is the directory of the file's package ("" for none).
+func addLibraryWords(root string, lib *simplify.Library, f index.File, packageDir string, optional bool) {
 	for w, n := range f.Words {
 		lib.Words[w] += n
 	}
 	for w, n := range f.Decls.Reach.Exported {
 		lib.Words[w] -= n
+	}
+	for _, doc := range f.Decls.Reach.DocFiles {
+		subtractDocTests(root, lib, filepath.Join(filepath.Dir(f.Path), doc))
+	}
+	if packageDir != "" {
+		for _, doc := range f.Decls.Reach.PackageDocFiles {
+			subtractDocTests(root, lib, filepath.Join(packageDir, doc))
+		}
 	}
 	optionalWords := f.Decls.Reach.Optional
 	if optional {
@@ -1304,6 +1314,22 @@ func addLibraryWords(lib *simplify.Library, f index.File, optional bool) {
 	}
 	for w, n := range optionalWords {
 		lib.Optional[w] += n
+	}
+}
+
+// subtractDocTests counts the words of the code blocks of a Markdown file
+// the library includes as documentation, at path under root, as outside
+// the library: rustdoc compiles them as doc tests.
+func subtractDocTests(root string, lib *simplify.Library, path string) {
+	if !filepath.IsLocal(path) {
+		return // outside the analysed code
+	}
+	src, err := os.ReadFile(filepath.Join(root, path)) //nolint:gosec // a file under the analysed root
+	if err != nil {
+		return // a missing file fails the build, not this check
+	}
+	for w, n := range rust.DocTestWords(src) {
+		lib.Words[w] -= n
 	}
 }
 
