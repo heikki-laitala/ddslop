@@ -959,6 +959,9 @@ type scope struct {
 	owner, trait string
 	// module is the inline module path within the file (outer::inner).
 	module string
+	// external is set inside an impl block whose attributes may make its
+	// methods called from outside the source (#[wasm_bindgen]).
+	external bool
 }
 
 func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
@@ -991,6 +994,7 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 			sc.trait = unit.SimpleName(t.Utf8Text(e.src))
 			e.addImpl(n, sc, test)
 		}
+		sc.external = slices.ContainsFunc(own, isExternalAttr)
 	case "trait_item":
 		if t := n.ChildByFieldName("name"); t != nil {
 			sc.owner = t.Utf8Text(e.src)
@@ -1125,7 +1129,7 @@ func (e *extractor) addFunction(n *sitter.Node, sc scope, test bool, attrs []str
 		Calls:     s.Calls,
 		Results:   results,
 		Public:    isPublic(n, e.src),
-		External:  (owner == "" && name == "main") || slices.ContainsFunc(attrs, isExternalAttr),
+		External:  (owner == "" && name == "main") || sc.external || slices.ContainsFunc(attrs, isExternalAttr),
 		Forwards:  forwards(n, e.src),
 		Scope:     scopeOf(n, e.src),
 

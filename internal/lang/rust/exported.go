@@ -12,17 +12,25 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
+// Reach is unit.Reach of a file the parser does not analyse, such as a
+// generated one.
+func Reach(file syntax.Source) unit.Reach {
+	var reach unit.Reach
+	_ = syntax.Parse(language, file.Src, func(root *sitter.Node) { reach = reachOf(root, file) })
+	return reach
+}
+
 // reachOf finds how far a file's words reach (see unit.Reach).
 func reachOf(root *sitter.Node, file syntax.Source) unit.Reach {
 	reach := unit.Reach{AllOptional: file.Test || underCfg(root, file.Src)}
 	addExported(root, file.Src, &reach)
 	if !reach.AllOptional {
 		reach.Optional = map[string]int{}
-		addComments(reach.Optional, root, file.Src)
+		addCommentsAndStrings(reach.Optional, root, file.Src)
 	}
 	eachItem(root, file.Src, func(item *sitter.Node, attrs []string) bool {
 		cfg := slices.ContainsFunc(attrs, isCfg)
-		if name := item.ChildByFieldName("name"); cfg && name != nil && item.Kind() == "mod_item" &&
+		if name := item.ChildByFieldName("name"); (cfg || slices.ContainsFunc(attrs, isCfgPath)) && name != nil && item.Kind() == "mod_item" &&
 			item.ChildByFieldName("body") == nil && item.Parent().Kind() == "source_file" {
 			reach.CfgModules = append(reach.CfgModules, moduleEntry(name.Utf8Text(file.Src), attrs))
 		}
@@ -91,6 +99,12 @@ func docIncludeOf(attr string, include *regexp.Regexp) (string, bool) {
 
 func isCfg(attr string) bool { return attrName(attr) == "cfg" }
 
+// isCfgPath reports whether an attribute places a module in another file
+// in some builds only: #[cfg_attr(unix, path = "unix.rs")].
+func isCfgPath(attr string) bool {
+	return attrName(attr) == "cfg_attr" && strings.Contains(attr, "path")
+}
+
 // underCfg reports whether a file's inner attributes (#![cfg(...)])
 // compile it in some builds only.
 func underCfg(root *sitter.Node, src []byte) bool {
@@ -103,15 +117,17 @@ func underCfg(root *sitter.Node, src []byte) bool {
 	return false
 }
 
-// addComments adds the words of the comments under n.
-func addComments(words map[string]int, n *sitter.Node, src []byte) {
+// addCommentsAndStrings adds the words of the comments and string
+// literals under n: no code there uses a name.
+func addCommentsAndStrings(words map[string]int, n *sitter.Node, src []byte) {
 	for i := uint(0); i < n.ChildCount(); i++ {
 		child := n.Child(i)
-		if kind := child.Kind(); kind == "line_comment" || kind == "block_comment" {
+		switch child.Kind() {
+		case "line_comment", "block_comment", "string_literal", "raw_string_literal":
 			addWords(words, child.Utf8Text(src))
 			continue
 		}
-		addComments(words, child, src)
+		addCommentsAndStrings(words, child, src)
 	}
 }
 

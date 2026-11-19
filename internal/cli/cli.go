@@ -1831,6 +1831,8 @@ func parseSource(file syntax.Source) (index.Parsed, error) {
 		}
 		parsed := index.Parsed{Generated: true, Traits: entries, Words: source.Words(src)}
 		if language == "rust" {
+			// Its pub uses still re-export what they name.
+			parsed.Decls.Reach = rust.Reach(file)
 			// A generated module's names still resolve paths through it.
 			parsed.TopNames, parsed.TopExports, parsed.TopReexports = rust.TopNames(src), rust.TopExports(src), rust.TopReexports(src)
 			parsed.Modules, parsed.InlineModules = rust.DeclaredModules(src), rust.InlineModules(src)

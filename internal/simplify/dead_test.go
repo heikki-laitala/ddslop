@@ -21,8 +21,9 @@ func TestDeadFindsPublicFunctionsOfInternalCratesNamedNowhereElse(t *testing.T) 
 		func() unit.Unit { u := fn("exported", true); u.External = true; return u }(),
 		func() unit.Unit { u := fn("Store::fmt", true); u.Trait = "Display"; return u }(),
 		func() unit.Unit { u := fn("published_unused", true); u.File = "crates/lib/src/lib.rs"; return u }(),
+		fn("r#match", true), // used: the words have it without r#
 	}
-	words := map[string]int{"unused": 1, "into_string": 1, "used": 3, "private_unused": 1, "exported": 1, "fmt": 1, "published_unused": 1}
+	words := map[string]int{"unused": 1, "into_string": 1, "used": 3, "private_unused": 1, "exported": 1, "fmt": 1, "published_unused": 1, "match": 2}
 	internal := func(file string) bool { return strings.HasPrefix(file, "crates/x/") }
 
 	var got []string

@@ -105,7 +105,7 @@ func TestDocTestWordsAreThoseOfAMarkdownFilesCodeBlocks(t *testing.T) {
 	}
 }
 
-func TestReachOptionalWordsAreThoseOfCodeSomeBuildsLeaveOutAndOfComments(t *testing.T) {
+func TestReachOptionalWordsAreThoseOfCodeSomeBuildsLeaveOutCommentsAndStrings(t *testing.T) {
 	src := []byte(`/// Calls [helper].
 pub fn production() { helper(); } // trailing_note
 
@@ -123,9 +123,11 @@ fn mac() { on_mac(); }
 
 #[cfg(unix)]
 mod sys;
+
+pub fn named() -> &'static str { "string_word" }
 `)
 
-	if got, want := fmt.Sprint(reach(t, "src/lib.rs", src).Optional), "map[Calls:1 also_tested:1 block_note:1 case:1 fn:3 helper:1 in_module:1 mac:1 mod:2 on_mac:1 only_tested:1 sys:1 tests:1 trailing_note:1]"; got != want {
+	if got, want := fmt.Sprint(reach(t, "src/lib.rs", src).Optional), "map[Calls:1 also_tested:1 block_note:1 case:1 fn:3 helper:1 in_module:1 mac:1 macos:1 mod:2 on_mac:1 only_tested:1 string_word:1 sys:1 tests:1 trailing_note:1]"; got != want {
 		t.Errorf("Reach.Optional = %s, want %s", got, want)
 	}
 	if !reach(t, "src/tests.rs", []byte("fn f() {}")).AllOptional {
@@ -150,9 +152,15 @@ mod inline {}
 #[path = "other.rs"]
 mod placed;
 
+#[cfg_attr(unix, path = "unix.rs")]
+mod imp;
+
+#[cfg_attr(docsrs, doc(cfg(feature = "x")))]
+mod always;
+
 mod production;
 `
-	if got := fmt.Sprint(reach(t, "src/lib.rs", []byte(src)).CfgModules); got != "[fixture real other.rs]" {
-		t.Errorf("Reach.CfgModules = %s, want [fixture real other.rs]", got)
+	if got := fmt.Sprint(reach(t, "src/lib.rs", []byte(src)).CfgModules); got != "[fixture real other.rs imp]" {
+		t.Errorf("Reach.CfgModules = %s, want [fixture real other.rs imp]", got)
 	}
 }

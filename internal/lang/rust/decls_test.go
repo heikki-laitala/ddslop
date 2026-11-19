@@ -151,6 +151,11 @@ pub struct S;
 impl S {
     pub fn method(&self) {}
 }
+
+#[wasm_bindgen]
+impl Counter {
+    pub fn tick(&mut self) {}
+}
 `
 	units := mustUnits(t, src)
 	got := testutil.Format(units, func(u unit.Unit) string {
@@ -165,6 +170,7 @@ impl S {
 		"main public=false external=true",
 		"health public=true external=true",
 		"S::method public=true external=false",
+		"Counter::tick public=true external=true",
 	}
 	testutil.Lines(t, "units", got, want)
 }

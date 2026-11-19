@@ -332,8 +332,8 @@ type Reach struct {
 	// directory (concat!(env!("CARGO_MANIFEST_DIR"), "/GUIDE.md")).
 	PackageDocFiles []string
 	// CfgModules are the modules the file declares out of line under a
-	// #[cfg], as index.File.Modules names them: their files are compiled
-	// in some builds only.
+	// #[cfg] or a #[cfg_attr(..., path = ...)], as index.File.Modules
+	// names them: their files are compiled in some builds only.
 	CfgModules []string
 }
 
