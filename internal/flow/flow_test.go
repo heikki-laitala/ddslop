@@ -966,7 +966,7 @@ func TestRustModulePathFallbackSkipsTheCallersOwnFunction(t *testing.T) {
 }
 
 // A path rooted at the crate's own name, as its binary and tests write
-// it (lns_ledger::mock::install_panic_hook), names the crate's module as
+// it (acme_ledger::mock::install_panic_hook), names the crate's module as
 // crate:: does: of two functions with the name, that module's. A child
 // module of the caller's with the crate's name (mod shop in shop) is the
 // one Rust reads the path through instead.
@@ -976,13 +976,13 @@ func TestRustOwnCrateNamePathPicksTheNamedModule(t *testing.T) {
 		fn("ledger/src/http.rs", "install_panic_hook"),
 		fn("ledger/src/lib.rs", "start"),
 		fn("ledger/src/startup.rs", "start"),
-		fn("ledger/src/main.rs", "main", path("lns_ledger::mock", "install_panic_hook"), path("lns_ledger", "start")),
+		fn("ledger/src/main.rs", "main", path("acme_ledger::mock", "install_panic_hook"), path("acme_ledger", "start")),
 		fn("shop/src/x.rs", "f"),
 		fn("shop/src/shop/x.rs", "f"),
 		fn("shop/src/main.rs", "shadowed", path("shop::x", "f")),
 	}
 	in := Inputs{
-		Crates: map[string]string{"ledger": "lns_ledger", "shop": "shop"},
+		Crates: map[string]string{"ledger": "acme_ledger", "shop": "shop"},
 		RustFiles: []string{"ledger/src/lib.rs", "ledger/src/main.rs", "ledger/src/mock.rs", "ledger/src/http.rs", "ledger/src/startup.rs",
 			"shop/src/main.rs", "shop/src/x.rs", "shop/src/shop/x.rs"},
 	}
@@ -992,18 +992,18 @@ func TestRustOwnCrateNamePathPicksTheNamedModule(t *testing.T) {
 }
 
 // A path naming a module that re-exports the name from another crate
-// (pub use lns_tls::provider) reaches that crate's function, or none for
+// (pub use acme_tls::provider) reaches that crate's function, or none for
 // an outside crate's (rand::random), never the caller crate's single
 // function of that name. The crate root's import is lib.rs's, not a
 // binary's of the same crate importing the name from elsewhere, every
 // time, except for a call written in the binary's main.rs, whose crate
 // it roots; a path from the global root
-// (::lns_tls::provider) or through an alias leaves the crate as well.
+// (::acme_tls::provider) or through an alias leaves the crate as well.
 // Only the module's own scope's imports count, not a function's, and a
-// path's root the module imports (use lns_tls as t; use t as u; pub use
+// path's root the module imports (use acme_tls as t; use t as u; pub use
 // u::verify) is read through those imports, and a module the path names
-// (lns_tls::api::sign) picks that module's function. An item alias
-// re-exported by a bare path (pub use lns_tls::seal as s; pub use s as
+// (acme_tls::api::sign) picks that module's function. An item alias
+// re-exported by a bare path (pub use acme_tls::seal as s; pub use s as
 // check) is read through its import too. A root naming an inline module
 // (mod facade { ... } pub use facade::report) stays in the crate, and a
 // target root a manifest places outside src reads its own imports. A
@@ -1035,24 +1035,24 @@ func TestRustModulePathFollowsTheModulesImport(t *testing.T) {
 		fn("ledger/src/management_api.rs", "audit"),
 	}
 	top := map[string]map[string]string{
-		"ledger/src/lib.rs":    {"provider": "::lns_tls::provider"},
-		"ledger/src/main.rs":   {"provider": "lns_other::provider"},
-		"ledger/src/tls.rs":    {"provider": "lns_tls::provider", "keep": "lns_tls::store"},
+		"ledger/src/lib.rs":    {"provider": "::acme_tls::provider"},
+		"ledger/src/main.rs":   {"provider": "acme_other::provider"},
+		"ledger/src/tls.rs":    {"provider": "acme_tls::provider", "keep": "acme_tls::store"},
 		"ledger/src/rand.rs":   {"random": "rand::random"},
 		"ledger/src/inner.rs":  {"keep": "crate::management_api::keep"},
 		"ledger/src/outer.rs":  {"report": "facade::report", "ping": "project_api::management_api::ping"},
-		"ledger/tools/tool.rs": {"provider": "lns_tls::provider", "summary": "facade::summary"},
-		"ledger/src/alias.rs": {"t": "lns_tls", "u": "t", "verify": "u::verify", "management_api": "crate::management_api",
-			"audit": "management_api::audit", "sign": "lns_tls::api::sign", "s": "lns_tls::seal", "check": "s"},
+		"ledger/tools/tool.rs": {"provider": "acme_tls::provider", "summary": "facade::summary"},
+		"ledger/src/alias.rs": {"t": "acme_tls", "u": "t", "verify": "u::verify", "management_api": "crate::management_api",
+			"audit": "management_api::audit", "sign": "acme_tls::api::sign", "s": "acme_tls::seal", "check": "s"},
 	}
 	in := Inputs{
 		// A function's own use in inner.rs is no import of the module.
-		Imports:       map[string]map[string]string{"ledger/src/inner.rs": {"keep": "lns_tls::store"}},
+		Imports:       map[string]map[string]string{"ledger/src/inner.rs": {"keep": "acme_tls::store"}},
 		TopImports:    top,
 		SelfAliases:   map[string]string{"project_api": "ledger/src/lib.rs"},
 		InlineModules: map[string][]string{"ledger/src/outer.rs": {"facade"}, "ledger/tools/tool.rs": {"facade"}},
 		Libraries:     Libraries{Targets: map[string]string{"ledger/tools/tool.rs": "ledger/tools/tool.rs"}},
-		Crates:        map[string]string{"tls": "lns_tls", "ledger": "lns_ledger", "other": "lns_other"},
+		Crates:        map[string]string{"tls": "acme_tls", "ledger": "acme_ledger", "other": "acme_other"},
 		RustFiles: []string{"other/src/lib.rs", "tls/src/lib.rs", "tls/src/api.rs", "tls/src/other.rs", "ledger/src/lib.rs", "ledger/src/main.rs", "ledger/src/tls.rs",
 			"ledger/src/rand.rs", "ledger/src/inner.rs", "ledger/src/alias.rs", "ledger/src/outer.rs", "ledger/tools/tool.rs", "ledger/src/history.rs", "ledger/src/management_api.rs"},
 	}
@@ -1074,14 +1074,14 @@ type ledgerCall struct {
 }
 
 // wantLedgerCalls adds a function of ledger/src/history.rs making each
-// call, named after it, to units, builds the graph of crates lns_tls and
-// lns_ledger and checks what each call resolves to.
+// call, named after it, to units, builds the graph of crates acme_tls and
+// acme_ledger and checks what each call resolves to.
 func wantLedgerCalls(t *testing.T, in Inputs, units []unit.Unit, calls map[string]ledgerCall) {
 	t.Helper()
 	for name, c := range calls {
 		units = append(units, fn("ledger/src/history.rs", name, c.call))
 	}
-	in.Crates = map[string]string{"tls": "lns_tls", "ledger": "lns_ledger"}
+	in.Crates = map[string]string{"tls": "acme_tls", "ledger": "acme_ledger"}
 	g := Build(in, units)
 	for name, c := range calls {
 		wantCallees(t, g, "ledger/src/history.rs "+name, c.want)
@@ -1089,7 +1089,7 @@ func wantLedgerCalls(t *testing.T, in Inputs, units []unit.Unit, calls map[strin
 }
 
 // A module path call whose module re-exports a module of another crate
-// (pub use lns_tls::inner, called as crate::tls::inner::provider) is that
+// (pub use acme_tls::inner, called as crate::tls::inner::provider) is that
 // crate's function in the module the path names, else its only one of
 // the name, and none for an outside crate's module, never the caller's
 // crate's unrelated function of the name.
@@ -1103,7 +1103,7 @@ func TestRustModulePathFollowsAReexportedModuleOfAnotherCrate(t *testing.T) {
 		fn("ledger/src/management_api.rs", "verify"),
 	}
 	in := Inputs{
-		TopImports: map[string]map[string]string{"ledger/src/tls.rs": {"inner": "lns_tls::inner", "crypto": "rustls::crypto", "whole": "lns_tls"}},
+		TopImports: map[string]map[string]string{"ledger/src/tls.rs": {"inner": "acme_tls::inner", "crypto": "rustls::crypto", "whole": "acme_tls"}},
 		RustFiles: []string{"tls/src/lib.rs", "tls/src/inner.rs", "tls/src/inner/deep.rs", "tls/src/api.rs",
 			"ledger/src/lib.rs", "ledger/src/tls.rs", "ledger/src/history.rs", "ledger/src/management_api.rs"},
 	}
@@ -1117,9 +1117,9 @@ func TestRustModulePathFollowsAReexportedModuleOfAnotherCrate(t *testing.T) {
 }
 
 // A module path call whose module re-exports another crate by a glob
-// (pub use lns_tls::*, called as crate::tls::provider) is that crate's
+// (pub use acme_tls::*, called as crate::tls::provider) is that crate's
 // function in the module the glob and the path name, else its only one
-// of the name, read through the module's aliases (use lns_tls as t; pub
+// of the name, read through the module's aliases (use acme_tls as t; pub
 // use t::inner::*); none when all its globs are of outside crates
 // (rustls), and a glob within the crate, or a module of the crate the
 // path goes through, still falls back to the crate's only one.
@@ -1131,10 +1131,10 @@ func TestRustModulePathFollowsAGlobOfAnotherCrate(t *testing.T) {
 	}
 	in := Inputs{
 		TopImports: map[string]map[string]string{
-			"ledger/src/tls.rs":     {"*lns_tls": "lns_tls"},
-			"ledger/src/aliased.rs": {"t": "lns_tls", "*t::inner": "t::inner"},
+			"ledger/src/tls.rs":     {"*acme_tls": "acme_tls"},
+			"ledger/src/aliased.rs": {"t": "acme_tls", "*t::inner": "t::inner"},
 			"ledger/src/outside.rs": {"*rustls::crypto": "rustls::crypto", "*rustls": "rustls"},
-			"ledger/src/local.rs":   {"*lns_tls": "lns_tls", "*crate::management_api": "crate::management_api"},
+			"ledger/src/local.rs":   {"*acme_tls": "acme_tls", "*crate::management_api": "crate::management_api"},
 		},
 		RustFiles: []string{"tls/src/lib.rs", "tls/src/inner.rs", "ledger/src/lib.rs", "ledger/src/tls.rs", "ledger/src/tls/real.rs",
 			"ledger/src/aliased.rs", "ledger/src/outside.rs", "ledger/src/local.rs", "ledger/src/history.rs", "ledger/src/management_api.rs"},

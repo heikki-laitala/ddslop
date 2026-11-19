@@ -767,7 +767,7 @@ func ParseAs(file syntax.Source) ([]unit.Unit, unit.Decls, error) {
 // isBinaryPath reports whether a file belongs to a binary by Cargo's
 // layout: src/main.rs, or under src/bin/. A binary's errors are printed
 // rather than matched by callers, so how it makes them is no error-values
-// form: measured, the CLIs of lns-inference-router return usage messages
+// form: measured, the CLIs of a 30-crate workspace return usage messages
 // as strings in a workspace that otherwise makes errors from variants.
 func isBinaryPath(path string) bool {
 	path = filepath.ToSlash(path)

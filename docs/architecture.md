@@ -1135,7 +1135,7 @@ flattened, the other half of cleaning up generated code:
   out, as they may satisfy an interface, and so are functions code
   outside the Go source calls by name (a cgo `//export`, a
   `//go:linkname`). Unexporting is a rename: the lower case name may
-  already be taken (`PriceUSDC` beside a `priceUSDC` map), and another is
+  already be taken (`MaxRetries` beside a `maxRetries` variable), and another is
   then needed. On a 100-file Go service, 12 candidates; unexporting all
   of them (one under another name) built, vetted and compiled the tests
   cleanly. On ddslop itself, 7, which it unexports.
@@ -1303,18 +1303,18 @@ that crosses it.
   `config.rs`'s, and so is `acme::store::endpoint` from the crate's own
   binary or tests, its own name rooting the path as `crate::` does); a
   function the module's own scope imports by name
-  from another crate (`pub use lns_tls::provider`, a crate root's from
+  from another crate (`pub use acme_tls::provider`, a crate root's from
   `lib.rs` before `main.rs` but a root file's own for a call written
   there, `main.rs` or a target's a manifest places,
   a root or item alias the module imports read through its imports)
   is that crate's, in the module the path names
-  (`lns_tls::api::provider`) first, or none for an outside crate's,
+  (`acme_tls::api::provider`) first, or none for an outside crate's,
   and so is one in a module the path goes through that the module
   imports from another crate rather than declares (`pub use
-  lns_tls::inner` in `tls.rs`, called as `crate::tls::inner::provider()`,
-  is `lns_tls::inner::provider`, and `pub use lns_tls as inner` the
+  acme_tls::inner` in `tls.rs`, called as `crate::tls::inner::provider()`,
+  is `acme_tls::inner::provider`, and `pub use acme_tls as inner` the
   crate's root `provider`). A name the module's own scope
-  imports by neither comes from its globs (`pub use lns_tls::*`, read
+  imports by neither comes from its globs (`pub use acme_tls::*`, read
   through its aliases) when all of them leave the crate: the first to
   reach a workspace crate's function, as a named import does, else none
   (`pub use rustls::*`). One re-exported from elsewhere in the crate,
@@ -1323,7 +1323,7 @@ that crosses it.
   the crate's only one of that name. Without the import, a
   `crate::tls::provider()` call reached an unrelated `provider` of the
   caller's crate and reported a false cycle. An inline module's
-  re-export (`mod tls { pub use lns_tls::provider; }`) still falls
+  re-export (`mod tls { pub use acme_tls::provider; }`) still falls
   back: the adapter keeps only each file's own scope's imports. Before, a name several modules
   define (`plan`, `resolve`, `new`) stayed unresolved, or went to the
   caller's own file's: on the 739k-line workspace, naming the module

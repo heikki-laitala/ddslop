@@ -820,10 +820,10 @@ func (ix index) resolveNamed(units []unit.Unit, caller unit.Unit, owner string, 
 		case ok, pathKeyword(root), ix.isChildModule(caller, root):
 			// The path names a module of the caller's crate: its function,
 			// else what the module imports by that name from another crate
-			// (pub use lns_tls::provider), else (a re-export within the
+			// (pub use acme_tls::provider), else (a re-export within the
 			// crate) the crate's only one of that name, never the caller's
 			// own file's by preference. The crate's own name roots the path
-			// at the crate, as crate:: does (lns_ledger::mock from its
+			// at the crate, as crate:: does (acme_ledger::mock from its
 			// binary is its mock module), unless a child module of the
 			// caller's has that name: Rust reads the path through it.
 			crate, module := ix.libraries.CrateOf(caller.File), ix.libraries.modulePath(c.Qualifier, caller)
@@ -933,8 +933,8 @@ func (ix index) fromOtherCrate(crate, module, path string) bool {
 
 // reexported resolves a call to name in a module of a crate that defines
 // no function of the name, through what the module's own scope imports
-// from another crate: the name itself (pub use lns_tls::provider), or a
-// module the path goes through (pub use lns_tls::inner, called as
+// from another crate: the name itself (pub use acme_tls::provider), or a
+// module the path goes through (pub use acme_tls::inner, called as
 // tls::inner::provider) when no module of the crate has that name, by
 // name or else by a glob (see globbed); see imported for which function
 // the path then reaches. ok is false when the module imports neither from
@@ -951,7 +951,7 @@ func (ix index) reexported(units []unit.Unit, from, crate, module, name string) 
 			break // a module of the crate, whose imports were read already
 		}
 		// a name imported from another crate, or a crate's root the path
-		// goes on through (pub use lns_tls as inner; tls::inner::provider)
+		// goes on through (pub use acme_tls as inner; tls::inner::provider)
 		if path, ok := ix.moduleImport(from, crate, scope, segments[i]); ok && (rest != "" || strings.Contains(path, "::")) {
 			if !ix.fromOtherCrate(crate, scope, path) {
 				break
@@ -966,7 +966,7 @@ func (ix index) reexported(units []unit.Unit, from, crate, module, name string) 
 }
 
 // globbed resolves a path (a name and what follows it) through the globs
-// of a module's own scope (pub use lns_tls::*), each read through the
+// of a module's own scope (pub use acme_tls::*), each read through the
 // module's aliases: when every glob leaves the crate, the first to reach a
 // workspace crate's function (see imported), else none. ok is false when
 // the module has no glob, or one within the crate, which may supply the
@@ -994,9 +994,9 @@ func (ix index) globbed(units []unit.Unit, from, crate, module, path string) (in
 
 // moduleImport returns the path a module of a crate imports a name by
 // (use, or pub use re-exporting it), and whether its file imports it: a
-// path, or a crate's root alone (pub use lns_tls as inner).
-// A root the module imports itself (use lns_tls as tls; pub use
-// tls::provider, or an item alias: pub use lns_tls::seal as s; pub use s
+// path, or a crate's root alone (pub use acme_tls as inner).
+// A root the module imports itself (use acme_tls as tls; pub use
+// tls::provider, or an item alias: pub use acme_tls::seal as s; pub use s
 // as check) is read through that import, and through the import of its
 // root in turn, so the path's root is a crate's name, crate, self, super
 // or a child module's name. The crate root a call in a root file names

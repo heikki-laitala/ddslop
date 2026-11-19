@@ -259,7 +259,7 @@ What to do per `kind`:
   `cargo clippy` and `cargo test --doc`; revert it if any of them fails.
   In Go, an exported function or constant of a package under `internal/`
   that only its own package uses: unexport it, under a name the package
-  does not already declare (`PriceUSDC` beside a `priceUSDC` variable
+  does not already declare (`MaxRetries` beside a `maxRetries` variable
   needs another), then run `go build`, `go vet` and `go test`.
   In TypeScript: an exported function or constant of a private package
   that only its own file uses. Remove `export` (from its overload
