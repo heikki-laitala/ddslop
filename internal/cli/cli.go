@@ -1293,11 +1293,12 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 // addGlobbed adds to exposed the modules a file's plain pub globs
 // re-export whole (see unit.Reach.Globs), of those it declares: an inline
 // one, as "file#module", or one out of line, by its files (see
-// moduleFiles), a #[path] module's included. A glob names one of them as
-// shapes, self::shapes, or crate::shapes in the crate root (root); one of
-// a longer path is another module's. An exposed file exposes the modules
-// it declares in turn, which the glob re-exports with it. dir is the
-// file's module directory.
+// moduleFiles), a #[path] module's included. A glob's path starts at one
+// of them (shapes, self::shapes, crate::shapes in the crate root, root;
+// or a module inside one, shapes::inner), which is exposed whole, the
+// modules inside it too; a path starting elsewhere is another crate's.
+// An exposed file exposes the modules it declares in turn, which the
+// glob re-exports with it. dir is the file's module directory.
 func addGlobbed(exposed map[string]bool, file index.File, dir string, root bool) {
 	if exposed[file.Path] {
 		for _, name := range file.Modules {
@@ -1311,9 +1312,7 @@ func addGlobbed(exposed map[string]bool, file index.File, dir string, root bool)
 		if !ok && root {
 			glob, _ = strings.CutPrefix(path, "crate::")
 		}
-		if strings.Contains(glob, "::") {
-			continue // another module's, deeper or in another crate
-		}
+		glob, _, _ = strings.Cut(glob, "::") // shapes::inner is inside shapes
 		if slices.Contains(file.InlineModules, glob) {
 			exposed[file.Path+"#"+glob] = true
 		}

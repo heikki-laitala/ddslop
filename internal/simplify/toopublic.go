@@ -1,6 +1,10 @@
 package simplify
 
-import "github.com/heikki-laitala/ddslop/internal/unit"
+import (
+	"strings"
+
+	"github.com/heikki-laitala/ddslop/internal/unit"
+)
 
 // Library counts the words of one library's files.
 type Library struct {
@@ -20,6 +24,26 @@ type Library struct {
 	Exposed map[string]bool
 }
 
+// exposed reports whether a glob re-exports the module a unit is in (see
+// Library.Exposed): its file's, or an inline module it is in, or one
+// around that (shapes for shapes::nested).
+func exposed(lib *Library, u unit.Unit) bool {
+	if lib.Exposed[u.File] {
+		return true
+	}
+	for module := u.Module; module != ""; {
+		if lib.Exposed[u.File+"#"+module] {
+			return true
+		}
+		i := strings.LastIndex(module, "::")
+		if i < 0 {
+			break
+		}
+		module = module[:i]
+	}
+	return false
+}
+
 // TooPublic returns the public functions and constants that only their
 // own library names, which can be visible to the library alone
 // (pub(crate) in Rust). library returns the library a file belongs to,
@@ -36,7 +60,7 @@ func TooPublic(units []unit.Unit, words map[string]int, library func(file string
 			continue
 		}
 		lib := library(u.File)
-		if lib == nil || lib.Exposed[u.File] || u.Module != "" && lib.Exposed[u.File+"#"+u.Module] {
+		if lib == nil || exposed(lib, u) {
 			continue
 		}
 		if lib.Words[name] == words[name] && lib.Words[name]-lib.Optional[name]-lib.Declared[name] > 0 {

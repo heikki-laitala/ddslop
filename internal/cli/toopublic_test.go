@@ -166,7 +166,8 @@ func TestCheckReportsRustItemsOnlyTheirLibraryModulesUse(t *testing.T) {
 // A glob re-export (pub use module::*) exposes the module's items to
 // other crates, whether the module is a file, an inline module (its
 // constants too) or a file a #[path] attribute names under another name,
-// and with it the modules it declares; a pub(crate) glob exposes nothing,
+// and with it the modules it declares and those inside them, by a longer
+// path too (pub use shapes::inner::*); a pub(crate) glob exposes nothing,
 // and nor does another crate's module of a local module's name.
 func TestCheckLeavesRustItemsAGlobReexportsPublic(t *testing.T) {
 	root := repo(t, map[string]string{
@@ -191,6 +192,20 @@ pub(crate) use private_glob::*;
 mod same_name;
 pub use other_crate::same_name::*;
 
+mod deep_shapes {
+    pub mod deep_nested {
+        pub fn deep_inline() {}
+    }
+}
+pub use deep_shapes::*;
+
+mod path_shapes {
+    pub mod inner {
+        pub fn path_globbed() {}
+    }
+}
+pub use path_shapes::inner::*;
+
 pub fn api() {
     file_globbed();
     inline_globbed();
@@ -198,6 +213,8 @@ pub fn api() {
     crate_globbed();
     nested_fn();
     local_same_name();
+    deep_nested::deep_inline();
+    path_globbed();
     let _ = INLINE_LIMIT;
 }
 `,
