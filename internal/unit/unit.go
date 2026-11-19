@@ -309,6 +309,14 @@ type Decls struct {
 	// TypeScript class's, interface's or object type's fields, written as
 	// Call.Type; fields of other types (slices, maps) are left out.
 	FieldTypes []FieldType
+	// ExportedWords are the words of the code a file shows to code
+	// outside its crate (see rust.ExportedWords), OptionalWords those
+	// outside the code every build compiles (see rust.OptionalWords), and
+	// CfgModules the modules it declares out of line for some builds
+	// only (see rust.CfgModules). Rust only.
+	ExportedWords map[string]int
+	OptionalWords map[string]int
+	CfgModules    []string
 }
 
 // FieldType is the type of one struct field: Server.store is a

@@ -14,20 +14,25 @@ import (
 // whose name appears nowhere but in their own declaration: words counts
 // every identifier-like word of every source file, comments, strings and
 // macros included, so a name mentioned anywhere counts as used.
-//
-// Private functions are left to the compiler, which already reports them
-// unused; trait methods are called through the trait, and External
-// functions from outside the source.
 func Dead(units []unit.Unit, words map[string]int, internal func(file string) bool) []unit.Unit {
 	var dead []unit.Unit
 	for _, u := range units {
-		if !u.Public || u.External || u.ViaInterface() || u.Test || !internal(u.File) {
-			continue
-		}
-		name := u.Name[strings.LastIndex(u.Name, ":")+1:]
-		if words[name] <= 1 {
+		if name, ok := publicName(u); ok && internal(u.File) && words[name] <= 1 {
 			dead = append(dead, u)
 		}
 	}
 	return dead
+}
+
+// publicName returns the name a function is called by, the last part of
+// its own (Store::reset is called reset), and whether it is public API
+// the words can judge. Private functions are left to the compiler, which
+// already reports them unused; trait methods are called through the
+// trait, External functions from outside the source, and test code is no
+// API.
+func publicName(u unit.Unit) (string, bool) {
+	if !u.Public || u.External || u.ViaInterface() || u.Test {
+		return "", false
+	}
+	return u.Name[strings.LastIndex(u.Name, ":")+1:], true
 }

@@ -1873,8 +1873,14 @@ func pathAttribute(attr string) (string, bool) {
 //
 // Only declarations at the top level of the file are considered.
 func TestModules(src []byte) []string {
+	return modulesUnder(src, isCfgTest)
+}
+
+// modulesUnder returns the names of the modules a file declares out of
+// line, at its top level, under an attribute attr accepts.
+func modulesUnder(src []byte, attr func(string) bool) []string {
 	return topModules(src, false, func(name string, attrs []string) string {
-		if slices.ContainsFunc(attrs, isCfgTest) {
+		if slices.ContainsFunc(attrs, attr) {
 			return name
 		}
 		return ""
@@ -1917,19 +1923,10 @@ func topItems(src []byte, keep func(item *sitter.Node, attrs []string) bool, ent
 // file and the attributes written above it.
 func topLevel(src []byte, visit func(item *sitter.Node, attrs []string)) {
 	_ = syntax.Parse(language, src, func(root *sitter.Node) {
-		var attrs []string
-		for i := uint(0); i < root.ChildCount(); i++ {
-			child := root.Child(i)
-			switch {
-			case child.Kind() == "attribute_item":
-				attrs = append(attrs, child.Utf8Text(src))
-				continue
-			case child.IsExtra():
-				continue
-			}
-			visit(child, attrs)
-			attrs = nil
-		}
+		eachItem(root, src, func(item *sitter.Node, attrs []string) bool {
+			visit(item, attrs)
+			return false
+		})
 	})
 }
 

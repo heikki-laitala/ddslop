@@ -752,10 +752,11 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 		Dead: simplify.Dead(units, words, func(file string) bool {
 			return internal(file) && !importedWhole[file]
 		}),
-		Wrappers: simplify.PassThrough(g),
-		Traits:   singleImpls(traitDecls, files, internal),
-		Scopes:   byLanguage(units, func(_ string, u []unit.Unit) []pattern.ScopeGroup { return pattern.Scopes(u) }),
-		Kinds:    byLanguage(units, func(_ string, u []unit.Unit) []pattern.StringKind { return pattern.StringKinds(u) }),
+		TooPublic: simplify.TooPublic(units, words, libraryWords(root, files, internal)),
+		Wrappers:  simplify.PassThrough(g),
+		Traits:    singleImpls(traitDecls, files, internal),
+		Scopes:    byLanguage(units, func(_ string, u []unit.Unit) []pattern.ScopeGroup { return pattern.Scopes(u) }),
+		Kinds:     byLanguage(units, func(_ string, u []unit.Unit) []pattern.StringKind { return pattern.StringKinds(u) }),
 		Params: byLanguage(units, func(_ string, u []unit.Unit) []pattern.ParamGroup {
 			return pattern.ParameterGroups(u, funcTypes)
 		}),
@@ -1234,6 +1235,48 @@ func libraryCrates(files []index.File, crates *codemap.Packages) map[string]bool
 	return libraries
 }
 
+// libraryWords returns, for a Rust file in the library of an unpublished
+// crate, the words of that library's files (see simplify.Library); for
+// any other file, nil.
+func libraryWords(root string, files []index.File, internal func(file string) bool) func(file string) *simplify.Library {
+	crates := packages(root, files)
+	withLibrary := libraryCrates(files, crates)
+	library := func(file string) string {
+		crate, _ := codemap.CratePath(file, crates)
+		if languageOf(file) != "rust" || !internal(file) || !withLibrary[crate] || !inLibrary(file, crates, withLibrary) {
+			return ""
+		}
+		return crate
+	}
+	optional := inModules(files, func(f index.File) []string { return f.Decls.CfgModules })
+	out := map[string]*simplify.Library{}
+	for _, f := range files {
+		crate := library(f.Path)
+		if crate == "" {
+			continue
+		}
+		lib := out[crate]
+		if lib == nil {
+			lib = &simplify.Library{Words: map[string]int{}, Optional: map[string]int{}}
+			out[crate] = lib
+		}
+		for w, n := range f.Words {
+			lib.Words[w] += n
+		}
+		for w, n := range f.Decls.ExportedWords {
+			lib.Words[w] -= n
+		}
+		optionalWords := f.Decls.OptionalWords
+		if optional(f.Path) {
+			optionalWords = f.Words
+		}
+		for w, n := range optionalWords {
+			lib.Optional[w] += n
+		}
+	}
+	return func(file string) *simplify.Library { return out[library(file)] }
+}
+
 // inLibrary reports whether a Rust file belongs to its package's library
 // target, whose crate:: paths name the modules Module names: a file under
 // src/, but no binary's (src/bin, or src/main.rs beside a library). A
@@ -1601,24 +1644,32 @@ func loadFiles(root string, db *index.DB) ([]index.File, error) {
 	if err := parseLibrariesUnderTestPaths(root, files); err != nil {
 		return nil, err
 	}
-	testFiles := map[string]bool{}
-	var testDirs []string
-	for _, f := range files {
-		for _, m := range f.TestModules {
-			dir := filepath.Join(moduleDir(f.Path), m)
-			testFiles[dir+".rs"] = true
-			testDirs = append(testDirs, dir+string(filepath.Separator))
-		}
-	}
+	test := inModules(files, func(f index.File) []string { return f.TestModules })
 	for i, f := range files {
-		test := testFiles[f.Path] || slices.ContainsFunc(testDirs, func(d string) bool { return strings.HasPrefix(f.Path, d) })
-		if !test {
+		if !test(f.Path) {
 			continue
 		}
 		files[i].Imports, files[i].TopImports, files[i].TopReexports, files[i].TopExports = nil, nil, nil, nil
 		markTest(&files[i])
 	}
 	return files, nil
+}
+
+// inModules reports, for a file, whether it holds one of the modules
+// files declare out of line, as modules lists them, or a submodule of one.
+func inModules(files []index.File, modules func(f index.File) []string) func(path string) bool {
+	paths := map[string]bool{}
+	var dirs []string
+	for _, f := range files {
+		for _, m := range modules(f) {
+			dir := filepath.Join(moduleDir(f.Path), m)
+			paths[dir+".rs"] = true
+			dirs = append(dirs, dir+string(filepath.Separator))
+		}
+	}
+	return func(path string) bool {
+		return paths[path] || slices.ContainsFunc(dirs, func(d string) bool { return strings.HasPrefix(path, d) })
+	}
 }
 
 // parseLibrariesUnderTestPaths parses again, as the library code they
@@ -1753,6 +1804,8 @@ func languageOf(path string) string {
 // traits a file declares, its imports and the paths naming other modules.
 func parseRust(file syntax.Source) (index.Parsed, error) {
 	units, decls, err := rust.ParseAs(file)
+	decls.ExportedWords, decls.OptionalWords = rust.ExportedWords(file.Src), rust.OptionalWords(file)
+	decls.CfgModules = rust.CfgModules(file.Src)
 	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(file.Src),
 		Modules: rust.DeclaredModules(file.Src), InlineModules: rust.InlineModules(file.Src), References: rust.ReferencesAs(file),
 		TopNames: rust.TopNames(file.Src), TopReexports: rust.TopReexports(file.Src), TopExports: rust.TopExports(file.Src)}

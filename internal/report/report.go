@@ -170,6 +170,8 @@ const (
 	inlinedConst     = "inlined-constant"
 	deadCode         = "dead-code"
 	deleteDead       = "delete-dead"
+	tooPublic        = "too-public"
+	restrictVisible  = "restrict-visibility"
 	passThrough      = "pass-through"
 	inlineWrapper    = "inline-wrapper"
 	singleImpl       = "single-impl-trait"
@@ -221,6 +223,7 @@ type Findings struct {
 	Consts     []clone.ConstGroup
 	Inlined    []clone.InlinedConst
 	Dead       []unit.Unit
+	TooPublic  []unit.Unit
 	Wrappers   []simplify.Wrapper
 	Traits     []simplify.SingleImplTrait
 	Scopes     []pattern.ScopeGroup
@@ -319,6 +322,9 @@ func Build(languageOf func(file string) string, f Findings, summary Summary) Rep
 	}
 	for _, u := range f.Dead {
 		candidates = append(candidates, single(languageOf(u.File), deadCode, deleteDead, u))
+	}
+	for _, u := range f.TooPublic {
+		candidates = append(candidates, single(languageOf(u.File), tooPublic, restrictVisible, u))
 	}
 	for _, w := range f.Wrappers {
 		c := single(languageOf(w.Unit.File), passThrough, inlineWrapper, w.Unit)
@@ -793,7 +799,7 @@ const ParallelFlow = parallelFlow
 // entry points, a single function or trait), or a near-miss family's
 // anchor, which is chosen in the members' file order.
 func MovesFingerprint(kind string) bool {
-	return kind == parallelFlow || kind == deadCode || kind == passThrough || kind == singleImpl || kind == nearMiss
+	return kind == parallelFlow || kind == deadCode || kind == tooPublic || kind == passThrough || kind == singleImpl || kind == nearMiss
 }
 
 // newCandidate builds a candidate without differences. Its fingerprint is
