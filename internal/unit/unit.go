@@ -384,7 +384,11 @@ type Const struct {
 	// Macro is true when the value is a macro call, such as include_str!,
 	// whose meaning can depend on where it is written.
 	Macro bool
-	Test  bool
+	// Public and External are as for Unit: whether the constant is
+	// public, and whether an attribute may make code outside the source
+	// read it (#[no_mangle]). Rust only.
+	Public, External bool
+	Test             bool
 	// Ignored is true when a ddslop:ignore comment marks the constant.
 	Ignored bool
 }

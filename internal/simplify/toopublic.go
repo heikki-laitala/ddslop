@@ -12,13 +12,13 @@ type Library struct {
 	Optional map[string]int
 }
 
-// TooPublic returns the public functions that only their own library
-// names, which can be visible to the library alone (pub(crate) in Rust).
-// library returns the library a file belongs to, or nil when it is in no
-// library of an internal crate; words counts every word of every source
-// file, as for Dead. A name the library writes once only is dead code,
-// and the compiler would report one unused in some builds if only
-// optional code wrote it besides its declaration.
+// TooPublic returns the public functions and constants that only their
+// own library names, which can be visible to the library alone
+// (pub(crate) in Rust). library returns the library a file belongs to,
+// or nil when it is in no library of an internal crate; words counts
+// every word of every source file, as for Dead. A name the library
+// writes once only is dead code, and the compiler would report one unused
+// in some builds if only optional code wrote it besides its declaration.
 func TooPublic(units []unit.Unit, words map[string]int, library func(file string) *Library) []unit.Unit {
 	var out []unit.Unit
 	for _, u := range units {

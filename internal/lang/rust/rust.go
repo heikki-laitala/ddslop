@@ -978,7 +978,7 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 		return
 	case "const_item", "static_item":
 		if sc.owner == "" {
-			e.addConst(n, test)
+			e.addConst(n, test, own)
 		}
 		return
 	case "impl_item":
@@ -1374,7 +1374,7 @@ func isPublic(n *sitter.Node, src []byte) bool {
 	return false
 }
 
-// internalAttrs are attributes that never make a function callable from
+// internalAttrs are attributes that never make an item reachable from
 // outside the source: lints, inlining, documentation, conditional
 // compilation and tracing.
 var internalAttrs = map[string]bool{
@@ -1384,7 +1384,7 @@ var internalAttrs = map[string]bool{
 	"instrument": true, "skip": true, // tracing::instrument, rustfmt::skip
 }
 
-// isExternalAttr reports whether an attribute may make a function called
+// isExternalAttr reports whether an attribute may make an item reachable
 // from outside the source (#[no_mangle], #[tokio::main], route macros):
 // anything but test attributes and internalAttrs.
 func isExternalAttr(attr string) bool {
@@ -1577,7 +1577,7 @@ func enclosingImpl(fn *sitter.Node) *sitter.Node {
 }
 
 // addConst records a constant or static item.
-func (e *extractor) addConst(n *sitter.Node, test bool) {
+func (e *extractor) addConst(n *sitter.Node, test bool, attrs []string) {
 	name, value := n.ChildByFieldName("name"), n.ChildByFieldName("value")
 	if name == nil || value == nil || n.HasError() {
 		return
@@ -1588,14 +1588,16 @@ func (e *extractor) addConst(n *sitter.Node, test bool) {
 		text = syntax.Compact(text)
 	}
 	e.decls.Consts = append(e.decls.Consts, unit.Const{
-		File:    e.path,
-		Name:    name.Utf8Text(e.src),
-		Value:   text,
-		Line:    syntax.Line(n.StartPosition()),
-		Nodes:   syntax.CountNodes(value),
-		Literal: literal,
-		Macro:   value.Kind() == "macro_invocation",
-		Test:    test,
+		File:     e.path,
+		Name:     name.Utf8Text(e.src),
+		Value:    text,
+		Line:     syntax.Line(n.StartPosition()),
+		Nodes:    syntax.CountNodes(value),
+		Literal:  literal,
+		Macro:    value.Kind() == "macro_invocation",
+		Public:   isPublic(n, e.src),
+		External: slices.ContainsFunc(attrs, isExternalAttr),
+		Test:     test,
 	})
 }
 

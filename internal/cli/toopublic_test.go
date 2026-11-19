@@ -6,14 +6,14 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
-// A pub function of an unpublished crate's library that only the library
-// uses can be pub(crate). Code compiled outside the library keeps it pub:
-// another crate, the crate's tests, a binary, a doc test, an exported
-// macro, a re-export. So do a function called from outside the source,
-// one only some builds call (the library's tests, code under a #[cfg]),
-// one only a comment names besides, one of a published crate and one of a
-// crate with no library.
-func TestCheckReportsRustFunctionsOnlyTheirCrateUses(t *testing.T) {
+// A pub function or constant of an unpublished crate's library that only
+// the library uses can be pub(crate). Code compiled outside the library
+// keeps it pub: another crate, the crate's tests, a binary, a doc test,
+// an exported macro, a re-export. So do an item read from outside the
+// source (#[no_mangle]), one only some builds use (the library's tests,
+// code under a #[cfg]), one only a comment names besides, one of a
+// published crate and one of a crate with no library.
+func TestCheckReportsRustItemsOnlyTheirCrateUses(t *testing.T) {
 	root := repo(t, map[string]string{
 		"Cargo.toml":             "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\npublish = false\n",
 		"crates/util/Cargo.toml": "[package]\nname = \"util\"\npublish.workspace = true\n",
@@ -61,6 +61,13 @@ pub fn mac_only() {}
 /// Not [linked] in code.
 pub fn linked() {}
 
+pub const LIMIT: u32 = 3;
+
+pub static SHOWN: &str = "cli";
+
+#[no_mangle]
+pub static EXPORTED: u32 = 1;
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -72,9 +79,9 @@ mod tests {
 #[no_mangle]
 pub extern "C" fn ffi() {}
 `,
-		"crates/util/src/text.rs":    "pub fn reexported() {}\n\npub fn run(s: &crate::Store) {\n    s.reset();\n    crate::helper();\n    crate::tested();\n    crate::documented();\n    crate::by_macro();\n    crate::narrow();\n    crate::ffi();\n    reexported();\n}\n",
+		"crates/util/src/text.rs":    "pub fn reexported() {}\n\npub fn run(s: &crate::Store) {\n    s.reset();\n    crate::helper();\n    crate::tested();\n    crate::documented();\n    crate::by_macro();\n    crate::narrow();\n    crate::ffi();\n    reexported();\n    let _ = (crate::LIMIT, crate::EXPORTED);\n}\n",
 		"crates/util/src/real.rs":    "fn start() {\n    crate::mac_only();\n}\n",
-		"crates/util/src/bin/cli.rs": "fn main() {\n    util::text::run(&util::Store);\n}\n",
+		"crates/util/src/bin/cli.rs": "fn main() {\n    util::text::run(&util::Store);\n    println!(\"{}\", util::SHOWN);\n}\n",
 		"crates/util/tests/it.rs":    "#[test]\nfn works() {\n    util::tested();\n}\n",
 		"crates/app/Cargo.toml":      "[package]\nname = \"app\"\npublish.workspace = true\n",
 		"crates/app/src/main.rs":     "pub fn local() {}\n\nfn main() {\n    local();\n    util::shared();\n}\n",
@@ -87,5 +94,6 @@ pub extern "C" fn ffi() {}
 	testutil.Lines(t, "too public", candidateLines(decode(t, stdout), "too-public"), []string{
 		"rust too-public [crates/util/src/lib.rs Store::reset]",
 		"rust too-public [crates/util/src/lib.rs helper]",
+		"rust too-public [crates/util/src/lib.rs LIMIT]",
 	})
 }

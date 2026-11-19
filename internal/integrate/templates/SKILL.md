@@ -250,11 +250,11 @@ What to do per `kind`:
   (Go), whose name appears nowhere else in the repository. Delete it, and
   anything only it used. Keep it if it is meant for code outside the
   repository.
-- `too-public` (`restrict-visibility`): a `pub` function of an
-  unpublished crate's library (Rust) that only that library uses: no
-  other crate, test, binary, doc test, exported macro or `pub use` names
-  it. Make it `pub(crate)`, then run `cargo check`, `cargo clippy` and
-  `cargo test --doc`; revert it if any of them fails.
+- `too-public` (`restrict-visibility`): a `pub` function, constant or
+  static of an unpublished crate's library (Rust) that only that library
+  uses: no other crate, test, binary, doc test, exported macro or
+  `pub use` names it. Make it `pub(crate)`, then run `cargo check`,
+  `cargo clippy` and `cargo test --doc`; revert it if any of them fails.
 - `pass-through` (`inline-wrapper`): the function only passes its
   parameters to the `target`. Call the target directly and delete the
   wrapper, or rename the target if the wrapper's name is better. Keep

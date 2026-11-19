@@ -633,6 +633,7 @@ func caseStrings(n *sitter.Node, src []byte) []string {
 // variant.
 func quoted(literal string) string { return `"` + literal[1:len(literal)-1] + `"` }
 
+// ddslop:ignore fills unit.Enum as constant fills unit.Const; only a data model change could merge them
 func (p *parser) addEnum(decl *sitter.Node, variants []unit.Variant) {
 	name := decl.ChildByFieldName("name")
 	if name == nil {

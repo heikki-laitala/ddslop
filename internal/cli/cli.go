@@ -752,7 +752,7 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 		Dead: simplify.Dead(units, words, func(file string) bool {
 			return internal(file) && !importedWhole[file]
 		}),
-		TooPublic: simplify.TooPublic(units, words, libraryWords(root, files, internal)),
+		TooPublic: simplify.TooPublic(append(constUnits(consts), units...), words, libraryWords(root, files, internal)),
 		Wrappers:  simplify.PassThrough(g),
 		Traits:    singleImpls(traitDecls, files, internal),
 		Scopes:    byLanguage(units, func(_ string, u []unit.Unit) []pattern.ScopeGroup { return pattern.Scopes(u) }),
@@ -1233,6 +1233,17 @@ func libraryCrates(files []index.File, crates *codemap.Packages) map[string]bool
 		}
 	}
 	return libraries
+}
+
+// constUnits returns constants as units, so TooPublic judges them as it
+// does functions.
+func constUnits(consts []unit.Const) []unit.Unit {
+	out := make([]unit.Unit, 0, len(consts))
+	for _, c := range consts {
+		out = append(out, unit.Unit{File: c.File, Name: c.Name, StartLine: c.Line, EndLine: c.Line, Nodes: c.Nodes,
+			Public: c.Public, External: c.External, Test: c.Test})
+	}
+	return out
 }
 
 // libraryWords returns, for a Rust file in the library of an unpublished

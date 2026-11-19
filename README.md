@@ -164,7 +164,7 @@ the check that stops an agent adding the next copy.
 | `dependency-cycle` | Rust modules of a crate depending on each other in a loop, through calls or paths naming the other module: a constant, a type, a `use` (Go and Cargo forbid it between packages and crates); TypeScript directories whose files loop, through calls or imports, and a directory its subdirectories import back (`move-shared-down`) | remove one direction of the loop, or move the shared files below the directory |
 | **Code to simplify** | | |
 | `dead-code` | a public function nothing in the repository uses | delete it |
-| `too-public` | a Rust `pub` function only its own crate's library uses | make it `pub(crate)` |
+| `too-public` | a Rust `pub` function or constant only its own crate's library uses | make it `pub(crate)` |
 | `pass-through` | a wrapper that only forwards its parameters | call the target |
 | `single-impl-trait` | a trait or TypeScript interface with one implementation and no test double | drop the trait |
 
