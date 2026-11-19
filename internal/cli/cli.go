@@ -1265,7 +1265,7 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 		if _, rel := codemap.CratePath(f.Path, crates); rel != "lib.rs" || languageOf(f.Path) != "rust" || !internal(f.Path) {
 			continue
 		}
-		lib := &simplify.Library{Words: map[string]int{}, Optional: map[string]int{}, Declared: map[string]int{}}
+		lib := &simplify.Library{Words: map[string]int{}, Optional: map[string]int{}, Declared: map[string]int{}, Exposed: map[string]bool{}}
 		for queue := []module{{path: f.Path}}; len(queue) > 0; queue = queue[1:] {
 			m := queue[0]
 			file, ok := byPath[m.path]
@@ -1284,9 +1284,32 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 					queue = append(queue, module{path, optional || slices.Contains(file.Decls.Reach.CfgModules, name)})
 				}
 			}
+			addGlobbed(lib.Exposed, file, dir)
 		}
 	}
 	return func(file string) *simplify.Library { return owner[file] }
+}
+
+// addGlobbed adds to exposed the modules a file's plain pub globs
+// re-export whole (see unit.Reach.Globs), of those it declares: an inline
+// one, as "file#module", or one out of line, by its files (see
+// moduleFiles), a #[path] module's included. dir is the file's module
+// directory.
+func addGlobbed(exposed map[string]bool, file index.File, dir string) {
+	for _, glob := range file.Decls.Reach.Globs {
+		if slices.Contains(file.InlineModules, glob) {
+			exposed[file.Path+"#"+glob] = true
+		}
+		entry := glob
+		if path, ok := file.Decls.Reach.PathModules[glob]; ok {
+			entry = path
+		}
+		if slices.Contains(file.Modules, entry) {
+			for _, path := range moduleFiles(file.Path, dir, entry) {
+				exposed[path] = true
+			}
+		}
+	}
 }
 
 // addLibraryWords adds a file's words to its library's: all of them

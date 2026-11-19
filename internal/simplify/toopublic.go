@@ -14,6 +14,10 @@ type Library struct {
 	// (functions, methods, constants, fields, variants): a declaration
 	// is no use.
 	Declared map[string]int
+	// Exposed are the modules a glob re-exports whole (pub use shapes::*),
+	// whose items other crates reach: a module's file, or a file and an
+	// inline module in it, as "file#module".
+	Exposed map[string]bool
 }
 
 // TooPublic returns the public functions and constants that only their
@@ -31,7 +35,11 @@ func TooPublic(units []unit.Unit, words map[string]int, library func(file string
 		if !ok {
 			continue
 		}
-		if lib := library(u.File); lib != nil && lib.Words[name] == words[name] && lib.Words[name]-lib.Optional[name]-lib.Declared[name] > 0 {
+		lib := library(u.File)
+		if lib == nil || lib.Exposed[u.File] || u.Module != "" && lib.Exposed[u.File+"#"+u.Module] {
+			continue
+		}
+		if lib.Words[name] == words[name] && lib.Words[name]-lib.Optional[name]-lib.Declared[name] > 0 {
 			out = append(out, u)
 		}
 	}

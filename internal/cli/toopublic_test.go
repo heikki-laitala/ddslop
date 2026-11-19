@@ -162,3 +162,44 @@ func TestCheckReportsRustItemsOnlyTheirLibraryModulesUse(t *testing.T) {
 		"rust too-public [named/src/parts.rs named_inner]",
 	})
 }
+
+// A glob re-export (pub use module::*) exposes the module's items to
+// other crates, whether the module is a file, an inline module or a file
+// a #[path] attribute names under another name; a pub(crate) glob exposes
+// nothing.
+func TestCheckLeavesRustItemsAGlobReexportsPublic(t *testing.T) {
+	root := repo(t, map[string]string{
+		"app/Cargo.toml": "[package]\nname = \"app\"\npublish = false\n",
+		"app/src/lib.rs": `mod shapes_file;
+pub use shapes_file::*;
+
+mod inline_shapes {
+    pub fn inline_globbed() {}
+}
+pub use inline_shapes::*;
+
+#[path = "wire.rs"]
+mod wired;
+pub use wired::*;
+
+mod private_glob;
+pub(crate) use private_glob::*;
+
+pub fn api() {
+    file_globbed();
+    inline_globbed();
+    wired_fn();
+    crate_globbed();
+}
+`,
+		"app/src/shapes_file.rs":  "pub fn file_globbed() {}\n",
+		"app/src/wire.rs":         "pub fn wired_fn() {}\n",
+		"app/src/private_glob.rs": "pub fn crate_globbed() {}\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "too public", candidateLines(decode(t, stdout), "too-public"), []string{
+		"rust too-public [app/src/private_glob.rs crate_globbed]",
+	})
+}

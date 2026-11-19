@@ -30,9 +30,17 @@ func reachOf(root *sitter.Node, file syntax.Source) unit.Reach {
 	}
 	eachItem(root, file.Src, func(item *sitter.Node, attrs []string) bool {
 		cfg := slices.ContainsFunc(attrs, isCfg)
-		if name := item.ChildByFieldName("name"); (cfg || slices.ContainsFunc(attrs, isCfgPath)) && name != nil && item.Kind() == "mod_item" &&
-			item.ChildByFieldName("body") == nil && item.Parent().Kind() == "source_file" {
+		outOfLine := item.Kind() == "mod_item" && item.ChildByFieldName("body") == nil && item.Parent().Kind() == "source_file"
+		if name := item.ChildByFieldName("name"); (cfg || slices.ContainsFunc(attrs, isCfgPath)) && name != nil && outOfLine {
 			reach.CfgModules = append(reach.CfgModules, moduleEntry(name.Utf8Text(file.Src), attrs))
+		}
+		if name := item.ChildByFieldName("name"); name != nil && outOfLine {
+			if entry := moduleEntry(name.Utf8Text(file.Src), attrs); entry != name.Utf8Text(file.Src) {
+				if reach.PathModules == nil {
+					reach.PathModules = map[string]string{}
+				}
+				reach.PathModules[name.Utf8Text(file.Src)] = entry
+			}
 		}
 		if reach.AllOptional {
 			return false
@@ -44,6 +52,24 @@ func reachOf(root *sitter.Node, file syntax.Source) unit.Reach {
 		return true
 	})
 	return reach
+}
+
+// globs returns the modules a use declaration re-exports whole, each by
+// the last name of its path: shapes for pub use shapes::* and pub use
+// crate::{shapes::*}.
+func globs(n *sitter.Node, src []byte) []string {
+	var out []string
+	if n.Kind() == "use_wildcard" {
+		path := strings.TrimSuffix(strings.TrimSpace(n.Utf8Text(src)), "*")
+		path = strings.TrimSuffix(strings.TrimSpace(path), "::")
+		if last := path[strings.LastIndex(path, ":")+1:]; last != "" {
+			out = append(out, last)
+		}
+	}
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		out = append(out, globs(n.NamedChild(i), src)...)
+	}
+	return out
 }
 
 // addExported sets reach.Exported, the words of the code that code
@@ -70,6 +96,9 @@ func addExported(root *sitter.Node, src []byte, reach *unit.Reach) {
 		exported := item.Kind() == "macro_definition" && slices.ContainsFunc(attrs, func(a string) bool { return attrName(a) == "macro_export" })
 		if exported || item.Kind() == "use_declaration" && isPublic(item, src) {
 			addWords(words, item.Utf8Text(src))
+		}
+		if item.Kind() == "use_declaration" && isPublic(item, src) {
+			reach.Globs = append(reach.Globs, globs(item, src)...)
 		}
 		return true
 	})
