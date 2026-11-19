@@ -1660,6 +1660,12 @@ func internalCrates(root string, files []index.File, crates *codemap.Packages) f
 	workspace := manifest(root, ".")
 	ts := tsManifests(root, files)
 	libraries := crates.Libraries
+	executables := map[string]bool{} // Go package directories declaring func main
+	for _, f := range files {
+		if languageOf(f.Path) == "go" && slices.ContainsFunc(f.Units, func(u unit.Unit) bool { return u.Name == "main" }) {
+			executables[libraries.CrateOf(f.Path)] = true
+		}
+	}
 	internal := map[string]bool{}
 	for _, f := range files {
 		dir := libraries.CrateOf(f.Path)
@@ -1668,7 +1674,7 @@ func internalCrates(root string, files []index.File, crates *codemap.Packages) f
 		}
 		switch languageOf(f.Path) {
 		case "go":
-			internal[dir] = golang.Internal(f.Path, f.Decls.Package)
+			internal[dir] = golang.Internal(f.Path, f.Decls.Package, executables[dir])
 		case "rust":
 			pkg := libraries.PackageOf(f.Path) // a placed target's crate is not its package
 			if pkg == "" {

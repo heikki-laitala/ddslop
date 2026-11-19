@@ -1185,10 +1185,12 @@ func IsTestPath(path string) bool {
 // Internal reports whether a Go package can only be used by the analysed
 // code: it sits under an internal directory, which the go tool forbids
 // importing from outside its parent, or it is package main, which nothing
-// imports.
-func Internal(path, pkg string) bool {
+// imports, and executable, declaring func main. A main package without
+// it is a plugin's (go build -buildmode=plugin), whose host looks its
+// exported names up.
+func Internal(path, pkg string, executable bool) bool {
 	if pkg == "main" {
-		return true
+		return executable
 	}
 	parts := strings.Split(filepath.ToSlash(filepath.Dir(path)), "/")
 	return slices.Contains(parts, "internal")

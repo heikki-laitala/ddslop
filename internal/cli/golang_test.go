@@ -181,12 +181,15 @@ func inNamespace(principal string, tokenID int) bool {
 // another package keeps it exported, its external tests' (package
 // text_test, generated or not) included; so do a name only some builds
 // use besides (the package's own tests, generated or not, a file with
-// build constraints, after a byte order mark or a block comment too
-// (//go:builder is none), for any architecture Go knows, which a _linux inside its name is not), one only a comment
-// names, a function cgo exports (//export) and a method, which may
-// satisfy an interface. pkg/ is importable from outside; a main package is internal whatever its
-// external tests' package, and an external test is a _test.go file. An
-// enum-style constant (iota, an implicit value) counts too.
+// build constraints, after a byte order mark or a block comment too,
+// //go:builder being none, for any architecture Go knows, which a _linux
+// inside its name is not), one only a comment names, a function cgo
+// exports (//export) and a method, which may satisfy an interface. pkg/
+// is importable from outside, and so is a main package without func main
+// (a plugin's, whose host looks its names up); one with it is internal
+// whatever its external tests' package, and an external test is a
+// _test.go file. An enum-style constant (iota, an implicit value) counts
+// too.
 func TestCheckReportsExportedGoNamesOnlyTheirPackageUses(t *testing.T) {
 	root := repo(t, map[string]string{
 		"go.mod": "module example.com/app\n",
@@ -259,11 +262,12 @@ func main() { println(text.UsedOutside(""), Helper()) }
 
 func Helper() int { return 1 }
 `,
-		"internal/odd/odd.go": "package odd_test\n\nfunc OddOnly() int { return 1 }\n",
-		"internal/odd/use.go": "package odd_test\n\nvar _ = OddOnly()\n",
-		"cmd/tool/a_test.go":  "package main_test\n",
-		"cmd/tool/main.go":    "package main\n\nfunc main() { println(ToolHelper()) }\n\nfunc ToolHelper() int { return 1 }\n",
-		"pkg/api/api.go":      "package api\n\nfunc PublicAPI() int { return publicHelper() }\n\nfunc publicHelper() int { return PublicAPI() }\n",
+		"internal/odd/odd.go":  "package odd_test\n\nfunc OddOnly() int { return 1 }\n",
+		"internal/odd/use.go":  "package odd_test\n\nvar _ = OddOnly()\n",
+		"cmd/plugin/plugin.go": "package main\n\nfunc Symbol() int { return helper() }\n\nfunc helper() int { return Symbol() }\n",
+		"cmd/tool/a_test.go":   "package main_test\n",
+		"cmd/tool/main.go":     "package main\n\nfunc main() { println(ToolHelper()) }\n\nfunc ToolHelper() int { return 1 }\n",
+		"pkg/api/api.go":       "package api\n\nfunc PublicAPI() int { return publicHelper() }\n\nfunc publicHelper() int { return PublicAPI() }\n",
 	})
 
 	wantCandidatesOf(t, root, "too-public", "cmd/app/main.go Helper", "cmd/tool/main.go ToolHelper", "internal/odd/odd.go OddOnly", "internal/text/text.go BackupOnly", "internal/text/text.go BuilderUse", "internal/text/text.go KindA", "internal/text/text.go KindB", "internal/text/text.go MaxItems", "internal/text/text.go OnlyInside")
