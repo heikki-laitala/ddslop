@@ -167,7 +167,8 @@ func TestCheckReportsRustItemsOnlyTheirLibraryModulesUse(t *testing.T) {
 // other crates, whether the module is a file, an inline module (its
 // constants too) or a file a #[path] attribute names under another name,
 // and with it the modules it declares and those inside them, by a longer
-// path too (pub use shapes::inner::*); a pub(crate) glob exposes nothing,
+// path too (pub use shapes::inner::*), from another module too
+// (crate::, super::, or a name imported for one); a pub(crate) glob exposes nothing,
 // and nor does another crate's module of a local module's name.
 func TestCheckLeavesRustItemsAGlobReexportsPublic(t *testing.T) {
 	root := repo(t, map[string]string{
@@ -206,6 +207,11 @@ mod path_shapes {
 }
 pub use path_shapes::inner::*;
 
+pub mod facade;
+mod far_shapes;
+mod up_shapes;
+mod alias_shapes;
+
 pub fn api() {
     file_globbed();
     inline_globbed();
@@ -215,6 +221,9 @@ pub fn api() {
     local_same_name();
     deep_nested::deep_inline();
     path_globbed();
+    far_fn();
+    up_fn();
+    alias_fn();
     let _ = INLINE_LIMIT;
 }
 `,
@@ -223,6 +232,10 @@ pub fn api() {
 		"app/src/same_name.rs":          "pub fn local_same_name() {}\n",
 		"app/src/wire.rs":               "pub fn wired_fn() {}\n",
 		"app/src/private_glob.rs":       "pub fn crate_globbed() {}\n",
+		"app/src/facade.rs":             "use crate::alias_shapes as aliased;\n\npub use crate::far_shapes::*;\npub use super::up_shapes::*;\npub use aliased::*;\n",
+		"app/src/far_shapes.rs":         "pub fn far_fn() {}\n",
+		"app/src/up_shapes.rs":          "pub fn up_fn() {}\n",
+		"app/src/alias_shapes.rs":       "pub fn alias_fn() {}\n",
 	})
 
 	_, stdout, _ := run("check", "--format", "json", root)

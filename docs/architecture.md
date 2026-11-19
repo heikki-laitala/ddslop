@@ -1085,7 +1085,12 @@ flattened, the other half of cleaning up generated code:
   outside the library also reaches it from the library's own files:
   through its doc tests and its `#[macro_export]` macros, which other
   crates compile, and through a `pub use`, which re-exports it; their
-  words count as outside, in generated files too. Doc tests are the code
+  words count as outside, in generated files too. A glob (`pub use
+  shapes::*`) re-exports a whole local module, so its items, and those of
+  the modules inside it, stay `pub`; the glob's path is resolved from the
+  module declaring it (`crate::`, `self::`, `super::` or a name it
+  imports); a path into an inline module keeps that module whole, and one
+  that leaves the crate's modules keeps nothing. Doc tests are the code
   blocks, fenced or indented, of `///` and `//!` lines, of `/** */` and
   `/*! */` comments, of `#[doc = "..."]` attributes and of the files a
   `#[doc = include_str!(...)]` attribute includes, such as a README. Of

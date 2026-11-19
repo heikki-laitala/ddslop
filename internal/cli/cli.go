@@ -1258,6 +1258,7 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 	}
 	type module struct {
 		path     string
+		segments []string // its module path
 		optional bool
 	}
 	owner := map[string]*simplify.Library{}
@@ -1266,6 +1267,7 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 			continue
 		}
 		lib := &simplify.Library{Words: map[string]int{}, Optional: map[string]int{}, Declared: map[string]int{}, Exposed: map[string]bool{}}
+		tree := map[string]index.File{} // by module path
 		for queue := []module{{path: f.Path}}; len(queue) > 0; queue = queue[1:] {
 			m := queue[0]
 			file, ok := byPath[m.path]
@@ -1281,49 +1283,74 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 			}
 			for _, name := range file.Modules {
 				for _, path := range moduleFiles(file.Path, dir, name) {
-					queue = append(queue, module{path, optional || slices.Contains(file.Decls.Reach.CfgModules, name)})
+					segments := append(slices.Clone(m.segments), declaredName(file, name))
+					queue = append(queue, module{path, segments, optional || slices.Contains(file.Decls.Reach.CfgModules, name)})
 				}
 			}
-			addGlobbed(lib.Exposed, file, dir, m.path == f.Path)
+			tree[strings.Join(m.segments, "::")] = file
 		}
+		addGlobbed(lib.Exposed, tree)
 	}
 	return func(file string) *simplify.Library { return owner[file] }
 }
 
-// addGlobbed adds to exposed the modules a file's plain pub globs
-// re-export whole (see unit.Reach.Globs), of those it declares: an inline
-// one, as "file#module", or one out of line, by its files (see
-// moduleFiles), a #[path] module's included. A glob's path starts at one
-// of them (shapes, self::shapes, crate::shapes in the crate root, root;
-// or a module inside one, shapes::inner), which is exposed whole, the
-// modules inside it too; a path starting elsewhere is another crate's.
-// An exposed file exposes the modules it declares in turn, which the
-// glob re-exports with it. dir is the file's module directory.
-func addGlobbed(exposed map[string]bool, file index.File, dir string, root bool) {
-	if exposed[file.Path] {
-		for _, name := range file.Modules {
-			for _, path := range moduleFiles(file.Path, dir, name) {
-				exposed[path] = true
-			}
+// declaredName returns the name a file declares a module by, given its
+// entry in the file's Modules: the file a #[path] attribute names, or the
+// name itself.
+func declaredName(file index.File, entry string) string {
+	for name, path := range file.Decls.Reach.PathModules {
+		if path == entry {
+			return name
 		}
 	}
-	for _, path := range file.Decls.Reach.Globs {
-		glob, ok := strings.CutPrefix(path, "self::")
-		if !ok && root {
-			glob, _ = strings.CutPrefix(path, "crate::")
-		}
-		glob, _, _ = strings.Cut(glob, "::") // shapes::inner is inside shapes
-		if slices.Contains(file.InlineModules, glob) {
-			exposed[file.Path+"#"+glob] = true
-		}
-		entry := glob
-		if path, ok := file.Decls.Reach.PathModules[glob]; ok {
-			entry = path
-		}
-		if slices.Contains(file.Modules, entry) {
-			for _, path := range moduleFiles(file.Path, dir, entry) {
-				exposed[path] = true
+	return entry
+}
+
+// addGlobbed adds to exposed the modules a crate's plain pub globs
+// re-export whole (see unit.Reach.Globs): one out of line by its file,
+// and the modules inside it, or an inline one, as "file#module". A glob's
+// path is resolved from the module declaring it (crate::, self::,
+// super::, a child's name, or a name it imports for a path); a path into
+// an inline module exposes it whole, and one that leaves the crate's
+// modules (another crate, an enum's variants) exposes nothing. tree is
+// the crate's module files, by module path.
+func addGlobbed(exposed map[string]bool, tree map[string]index.File) {
+	for here, file := range tree {
+		for _, glob := range file.Decls.Reach.Globs {
+			first, _, _ := strings.Cut(glob, "::")
+			if path, ok := file.TopImports[first]; ok {
+				glob = path + glob[len(first):]
 			}
+			resolved, ok := flow.ResolvePath(glob, here)
+			if !ok {
+				resolved, _ = flow.ResolvePath("self::"+glob, here) // shapes is self::shapes
+			}
+			exposeModule(exposed, tree, resolved)
+		}
+	}
+}
+
+// exposeModule adds to exposed the module at a module path, with the
+// modules inside it, or nothing if the crate has no such module.
+func exposeModule(exposed map[string]bool, tree map[string]index.File, module string) {
+	at := ""
+	for _, segment := range strings.Split(module, "::") {
+		if segment == "" {
+			break
+		}
+		child := strings.TrimPrefix(at+"::"+segment, "::")
+		if _, ok := tree[child]; ok {
+			at = child
+			continue
+		}
+		if file := tree[at]; slices.Contains(file.InlineModules, segment) {
+			exposed[file.Path+"#"+segment] = true
+		}
+		return
+	}
+	for path, file := range tree {
+		if path == at || at == "" || strings.HasPrefix(path, at+"::") {
+			exposed[file.Path] = true
 		}
 	}
 }
