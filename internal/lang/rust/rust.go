@@ -14,6 +14,7 @@ import (
 
 	"github.com/heikki-laitala/ddslop/internal/lang/syntax"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
+	"github.com/heikki-laitala/ddslop/internal/source"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -51,7 +52,7 @@ func (grammar) Declares(parent string, parentDeclares bool, field, child string)
 }
 
 // Binds: in Rust patterns, capitalised names are variants or constants.
-func (grammar) Binds(name string) bool { return !isUpper(name) }
+func (grammar) Binds(name string) bool { return !source.Capitalized(name) }
 
 func (grammar) Statements(kind string) bool { return kind == "block" }
 
@@ -272,7 +273,7 @@ func (g grammar) set(name string, op syntax.Operand) {
 func (g grammar) forget(pattern *sitter.Node, src []byte) {
 	switch pattern.Kind() {
 	case "identifier", "shorthand_field_identifier":
-		if name := pattern.Utf8Text(src); !isUpper(name) {
+		if name := pattern.Utf8Text(src); !source.Capitalized(name) {
 			delete(g.vars, name)
 		}
 		return
@@ -398,7 +399,7 @@ func typePath(t, self string, generic map[string]string, imports map[string]stri
 	switch name := unit.SimpleName(path); {
 	case path == "Self":
 		return self
-	case name == "" || !isUpper(name):
+	case name == "" || !source.Capitalized(name):
 		return ""
 	case !strings.Contains(path, "::") && imports[path] != "":
 		return imports[path]
@@ -666,7 +667,7 @@ func isVariantPath(pattern string) bool {
 		pattern = pattern[:i]
 	}
 	i := strings.LastIndex(pattern, "::")
-	return i >= 0 && isUpper(pattern[i+2:])
+	return i >= 0 && source.Capitalized(pattern[i+2:])
 }
 
 // anyhowContext reports whether a context or with_context call wraps an
@@ -1423,7 +1424,7 @@ func forwards(fn *sitter.Node, src []byte) string {
 	}
 	switch callee.Kind() {
 	case "identifier", "scoped_identifier":
-		if isUpper(lastSegment(callee.Utf8Text(src))) {
+		if source.Capitalized(lastSegment(callee.Utf8Text(src))) {
 			return "" // a constructor
 		}
 	case "field_expression":
@@ -1857,12 +1858,6 @@ func childDeclares(parent string, parentDeclares bool, field, child string) bool
 		return false
 	}
 	return parentDeclares
-}
-
-// isUpper reports whether a name starts with an upper-case ASCII letter. In
-// Rust patterns such names are enum variants or constants, not bindings.
-func isUpper(name string) bool {
-	return name != "" && name[0] >= 'A' && name[0] <= 'Z'
 }
 
 // CrateName returns the name Rust code uses for a crate, from its

@@ -731,17 +731,20 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 		StringMatches: s.Matches,
 		// Exported names are public; methods may satisfy an interface
 		// without being named; main and init are called by the runtime.
-		Public:     exported(short),
+		Public:     source.Capitalized(short),
 		Dispatched: owner != "",
 		External:   owner == "" && (short == "main" || short == "init"),
 	}, true
 }
 
-// exported reports whether a Go name is exported: it starts with an upper
-// case letter.
-func exported(name string) bool {
-	r, _ := utf8.DecodeRuneInString(name)
-	return unicode.IsUpper(r)
+// PackageName returns the name a Go file's package clause gives, or "".
+func PackageName(src []byte) string {
+	for _, line := range strings.Split(string(src), "\n") {
+		if name, ok := strings.CutPrefix(strings.TrimSpace(line), "package "); ok {
+			return strings.TrimSpace(name)
+		}
+	}
+	return ""
 }
 
 // linkedNames returns the names a file's cgo export comments (//export
@@ -787,7 +790,7 @@ func Reach(path string, src []byte) unit.Reach {
 // constrained reports whether some builds leave a Go file out: a build
 // constraint (//go:build, // +build) before its package clause, or an
 // operating system or architecture its name ends in (file_linux.go,
-// file_windows_amd64.go).
+// file_windows_amd64.go), not one inside it (cache_linux_backup.go).
 func constrained(path string, src []byte) bool {
 	for _, line := range strings.Split(string(src), "\n") {
 		line = strings.TrimSpace(line)
@@ -798,13 +801,10 @@ func constrained(path string, src []byte) bool {
 			return true
 		}
 	}
-	parts := strings.Split(strings.TrimSuffix(filepath.Base(path), ".go"), "_")
-	for _, part := range parts[1:] {
-		if goOS[part] || goArch[part] {
-			return true
-		}
-	}
-	return false
+	// the name's last part only, after _test: x_linux.go, x_linux_amd64.go, x_amd64_test.go
+	parts := strings.Split(strings.TrimSuffix(strings.TrimSuffix(filepath.Base(path), ".go"), "_test"), "_")
+	last := parts[len(parts)-1]
+	return len(parts) > 1 && (goOS[last] || goArch[last])
 }
 
 // goOS and goArch are the operating systems and architectures a Go file
@@ -857,7 +857,7 @@ func constants(n *sitter.Node, path string, src []byte, test bool) []unit.Const 
 			}
 			out = append(out, unit.Const{
 				File: path, Name: name.Utf8Text(src), Value: text, Line: syntax.Line(spec.StartPosition()),
-				Nodes: syntax.CountNodes(v), Literal: literal, Public: exported(name.Utf8Text(src)), Test: test,
+				Nodes: syntax.CountNodes(v), Literal: literal, Public: source.Capitalized(name.Utf8Text(src)), Test: test,
 			})
 		}
 	}

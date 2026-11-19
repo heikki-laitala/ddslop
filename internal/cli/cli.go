@@ -1951,6 +1951,10 @@ func parseSource(file syntax.Source) (index.Parsed, error) {
 			entries = rust.Traits(src)
 		}
 		parsed := index.Parsed{Generated: true, Traits: entries, Words: source.Words(src)}
+		if language == "go" {
+			// An external test's (package text_test) words are no use from its package.
+			parsed.Decls.Package = golang.PackageName(src)
+		}
 		if language == "rust" {
 			// Its pub uses still re-export what they name.
 			parsed.Decls.Reach = rust.Reach(file)
