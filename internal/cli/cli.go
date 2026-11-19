@@ -1249,43 +1249,73 @@ func tooPublic(units []unit.Unit, consts []unit.Const, words map[string]int, lib
 
 // libraryWords returns, for a Rust file in the library of an unpublished
 // crate, the words of that library's files (see simplify.Library); for
-// any other file, nil.
+// any other file, nil. A library's files are its root file's module tree:
+// a binary's modules beside them are not.
 func libraryWords(files []index.File, crates *codemap.Packages, internal func(file string) bool) func(file string) *simplify.Library {
-	withLibrary := libraryCrates(files, crates)
-	library := func(file string) string {
-		crate, _ := codemap.CratePath(file, crates)
-		if languageOf(file) != "rust" || !internal(file) || !withLibrary[crate] || !inLibrary(file, crates, withLibrary) {
-			return ""
-		}
-		return crate
-	}
-	optional := inModules(files, func(f index.File) []string { return f.Decls.Reach.CfgModules })
-	out := map[string]*simplify.Library{}
+	byPath := map[string]index.File{}
 	for _, f := range files {
-		crate := library(f.Path)
-		if crate == "" {
+		byPath[f.Path] = f
+	}
+	type module struct {
+		path     string
+		optional bool
+	}
+	owner := map[string]*simplify.Library{}
+	for _, f := range files {
+		if _, rel := codemap.CratePath(f.Path, crates); rel != "lib.rs" || languageOf(f.Path) != "rust" || !internal(f.Path) {
 			continue
 		}
-		lib := out[crate]
-		if lib == nil {
-			lib = &simplify.Library{Words: map[string]int{}, Optional: map[string]int{}}
-			out[crate] = lib
-		}
-		for w, n := range f.Words {
-			lib.Words[w] += n
-		}
-		for w, n := range f.Decls.Reach.Exported {
-			lib.Words[w] -= n
-		}
-		optionalWords := f.Decls.Reach.Optional
-		if f.Decls.Reach.AllOptional || optional(f.Path) {
-			optionalWords = f.Words
-		}
-		for w, n := range optionalWords {
-			lib.Optional[w] += n
+		lib := &simplify.Library{Words: map[string]int{}, Optional: map[string]int{}}
+		for queue := []module{{path: f.Path}}; len(queue) > 0; queue = queue[1:] {
+			m := queue[0]
+			file, ok := byPath[m.path]
+			if !ok || owner[m.path] != nil {
+				continue
+			}
+			owner[m.path] = lib
+			optional := m.optional || file.Decls.Reach.AllOptional
+			addLibraryWords(lib, file, optional)
+			dir := moduleDir(file.Path)
+			if m.path == f.Path {
+				dir = filepath.Dir(f.Path) // a crate root's modules sit beside it, whatever its name
+			}
+			for _, name := range file.Modules {
+				for _, path := range moduleFiles(file.Path, dir, name) {
+					queue = append(queue, module{path, optional || slices.Contains(file.Decls.Reach.CfgModules, name)})
+				}
+			}
 		}
 	}
-	return func(file string) *simplify.Library { return out[library(file)] }
+	return func(file string) *simplify.Library { return owner[file] }
+}
+
+// addLibraryWords adds a file's words to its library's: all of them
+// optional when the file is compiled in some builds only.
+func addLibraryWords(lib *simplify.Library, f index.File, optional bool) {
+	for w, n := range f.Words {
+		lib.Words[w] += n
+	}
+	for w, n := range f.Decls.Reach.Exported {
+		lib.Words[w] -= n
+	}
+	optionalWords := f.Decls.Reach.Optional
+	if optional {
+		optionalWords = f.Words
+	}
+	for w, n := range optionalWords {
+		lib.Optional[w] += n
+	}
+}
+
+// moduleFiles returns the files that may hold a module a file declares
+// out of line, as index.Parsed.Modules names it: the file a #[path]
+// attribute names, relative to the declaring file's directory, or
+// name.rs or name/mod.rs in dir, the declaring file's module directory.
+func moduleFiles(parent, dir, name string) []string {
+	if strings.HasSuffix(name, ".rs") {
+		return []string{filepath.Join(filepath.Dir(parent), name)}
+	}
+	return []string{filepath.Join(dir, name+".rs"), filepath.Join(dir, name, "mod.rs")}
 }
 
 // inLibrary reports whether a Rust file belongs to its package's library

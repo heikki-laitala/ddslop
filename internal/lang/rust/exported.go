@@ -22,7 +22,7 @@ func reachOf(root *sitter.Node, file syntax.Source) unit.Reach {
 		cfg := slices.ContainsFunc(attrs, isCfg)
 		if name := item.ChildByFieldName("name"); cfg && name != nil && item.Kind() == "mod_item" &&
 			item.ChildByFieldName("body") == nil && item.Parent().Kind() == "source_file" {
-			reach.CfgModules = append(reach.CfgModules, name.Utf8Text(file.Src))
+			reach.CfgModules = append(reach.CfgModules, moduleEntry(name.Utf8Text(file.Src), attrs))
 		}
 		if reach.AllOptional {
 			return false

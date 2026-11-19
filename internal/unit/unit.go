@@ -325,7 +325,8 @@ type Reach struct {
 	Optional    map[string]int
 	AllOptional bool
 	// CfgModules are the modules the file declares out of line under a
-	// #[cfg]: their files are compiled in some builds only.
+	// #[cfg], as index.File.Modules names them: their files are compiled
+	// in some builds only.
 	CfgModules []string
 }
 

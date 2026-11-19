@@ -1850,14 +1850,18 @@ func manifestValues(cargoToml []byte, key string, sections ...string) []string {
 // name;), at its top level, in source order: each one's name, or the file
 // a #[path] attribute places it in, ending in .rs.
 func DeclaredModules(src []byte) []string {
-	return topModules(src, false, func(name string, attrs []string) string {
-		for _, attr := range attrs {
-			if file, ok := pathAttribute(attr); ok {
-				return file
-			}
+	return topModules(src, false, moduleEntry)
+}
+
+// moduleEntry is how DeclaredModules names a module: the file a #[path]
+// attribute places it in, else its name.
+func moduleEntry(name string, attrs []string) string {
+	for _, attr := range attrs {
+		if file, ok := pathAttribute(attr); ok {
+			return file
 		}
-		return name
-	})
+	}
+	return name
 }
 
 // pathAttribute returns the file a #[path = "..."] attribute names.

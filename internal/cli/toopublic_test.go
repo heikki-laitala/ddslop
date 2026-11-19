@@ -102,3 +102,32 @@ pub extern "C" fn ffi() {}
 		"rust too-public [crates/util/src/lib.rs LIMIT]",
 	})
 }
+
+// The library is the module tree of its root file. A binary's modules
+// (mod cli; from src/main.rs, a [[bin]] path under src/) are outside it,
+// and so is another library of the same name. A root the manifest names
+// has its modules beside it.
+func TestCheckReportsRustItemsOnlyTheirLibraryModulesUse(t *testing.T) {
+	root := repo(t, map[string]string{
+		"app/Cargo.toml":     "[package]\nname = \"app\"\npublish = false\n\n[[bin]]\nname = \"tool\"\npath = \"src/tool.rs\"\n",
+		"app/src/lib.rs":     "pub mod util;\n\npub fn api() {\n    util::from_main_module();\n    util::from_placed_bin();\n    util::inner_only();\n}\n",
+		"app/src/util.rs":    "pub fn from_main_module() {}\n\npub fn from_placed_bin() {}\n\npub fn inner_only() {}\n",
+		"app/src/main.rs":    "mod cli;\n\nfn main() {\n    cli::run();\n}\n",
+		"app/src/cli.rs":     "pub fn run() {\n    app::api();\n    app::util::from_main_module();\n}\n",
+		"app/src/tool.rs":    "fn main() {\n    app::util::from_placed_bin();\n}\n",
+		"a/Cargo.toml":       "[package]\nname = \"server\"\npublish = false\n",
+		"a/src/lib.rs":       "pub fn shared_thing() {}\n\npub fn start() {\n    shared_thing();\n}\n",
+		"b/Cargo.toml":       "[package]\nname = \"server\"\npublish = false\n",
+		"b/src/lib.rs":       "pub fn run() {\n    shared_thing();\n}\n\nfn shared_thing() {}\n",
+		"named/Cargo.toml":   "[package]\nname = \"named\"\npublish = false\n\n[lib]\npath = \"src/named.rs\"\n",
+		"named/src/named.rs": "pub mod parts;\n\npub fn api() {\n    parts::named_inner();\n}\n",
+		"named/src/parts.rs": "pub fn named_inner() {}\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "too public", candidateLines(decode(t, stdout), "too-public"), []string{
+		"rust too-public [app/src/util.rs inner_only]",
+		"rust too-public [named/src/parts.rs named_inner]",
+	})
+}

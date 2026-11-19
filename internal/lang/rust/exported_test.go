@@ -104,9 +104,13 @@ mod real;
 #[cfg(feature = "x")]
 mod inline {}
 
+#[cfg(feature = "y")]
+#[path = "other.rs"]
+mod placed;
+
 mod production;
 `
-	if got := fmt.Sprint(reach(t, "src/lib.rs", []byte(src)).CfgModules); got != "[fixture real]" {
-		t.Errorf("Reach.CfgModules = %s, want [fixture real]", got)
+	if got := fmt.Sprint(reach(t, "src/lib.rs", []byte(src)).CfgModules); got != "[fixture real other.rs]" {
+		t.Errorf("Reach.CfgModules = %s, want [fixture real other.rs]", got)
 	}
 }
