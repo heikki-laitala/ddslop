@@ -2,9 +2,10 @@
 package golang
 
 import (
-	"bytes"
 	"errors"
 	"go/build/constraint"
+	"go/parser"
+	"go/token"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -799,14 +800,18 @@ func Reach(path string, src []byte) unit.Reach {
 // operating system or architecture its name ends in (file_linux.go,
 // file_windows_amd64.go), not one inside it (cache_linux_backup.go).
 func constrained(path string, src []byte) bool {
-	src = bytes.TrimPrefix(src, []byte("\ufeff")) // a byte order mark may open the file
-	for _, line := range strings.Split(string(src), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "package ") {
-			break
-		}
-		if constraint.IsGoBuild(line) || constraint.IsPlusBuild(line) {
-			return true
+	// The Go parser reads the header as the go tool does: a byte order
+	// mark, block comments, the package clause.
+	if f, err := parser.ParseFile(token.NewFileSet(), "", src, parser.PackageClauseOnly|parser.ParseComments); err == nil {
+		for _, group := range f.Comments {
+			if group.Pos() > f.Package {
+				break
+			}
+			for _, c := range group.List {
+				if constraint.IsGoBuild(c.Text) || constraint.IsPlusBuild(c.Text) {
+					return true
+				}
+			}
 		}
 	}
 	// the name's last part only, after _test: x_linux.go, x_linux_amd64.go, x_amd64_test.go
