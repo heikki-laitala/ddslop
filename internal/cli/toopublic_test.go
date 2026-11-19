@@ -164,9 +164,10 @@ func TestCheckReportsRustItemsOnlyTheirLibraryModulesUse(t *testing.T) {
 }
 
 // A glob re-export (pub use module::*) exposes the module's items to
-// other crates, whether the module is a file, an inline module or a file
-// a #[path] attribute names under another name; a pub(crate) glob exposes
-// nothing.
+// other crates, whether the module is a file, an inline module (its
+// constants too) or a file a #[path] attribute names under another name,
+// and with it the modules it declares; a pub(crate) glob exposes nothing,
+// and nor does another crate's module of a local module's name.
 func TestCheckLeavesRustItemsAGlobReexportsPublic(t *testing.T) {
 	root := repo(t, map[string]string{
 		"app/Cargo.toml": "[package]\nname = \"app\"\npublish = false\n",
@@ -175,6 +176,8 @@ pub use shapes_file::*;
 
 mod inline_shapes {
     pub fn inline_globbed() {}
+
+    pub const INLINE_LIMIT: u32 = 3;
 }
 pub use inline_shapes::*;
 
@@ -185,21 +188,30 @@ pub use wired::*;
 mod private_glob;
 pub(crate) use private_glob::*;
 
+mod same_name;
+pub use other_crate::same_name::*;
+
 pub fn api() {
     file_globbed();
     inline_globbed();
     wired_fn();
     crate_globbed();
+    nested_fn();
+    local_same_name();
+    let _ = INLINE_LIMIT;
 }
 `,
-		"app/src/shapes_file.rs":  "pub fn file_globbed() {}\n",
-		"app/src/wire.rs":         "pub fn wired_fn() {}\n",
-		"app/src/private_glob.rs": "pub fn crate_globbed() {}\n",
+		"app/src/shapes_file.rs":        "pub mod nested;\n\npub fn file_globbed() {}\n",
+		"app/src/shapes_file/nested.rs": "pub fn nested_fn() {}\n",
+		"app/src/same_name.rs":          "pub fn local_same_name() {}\n",
+		"app/src/wire.rs":               "pub fn wired_fn() {}\n",
+		"app/src/private_glob.rs":       "pub fn crate_globbed() {}\n",
 	})
 
 	_, stdout, _ := run("check", "--format", "json", root)
 
 	testutil.Lines(t, "too public", candidateLines(decode(t, stdout), "too-public"), []string{
 		"rust too-public [app/src/private_glob.rs crate_globbed]",
+		"rust too-public [app/src/same_name.rs local_same_name]",
 	})
 }

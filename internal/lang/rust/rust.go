@@ -982,7 +982,7 @@ func (e *extractor) walk(n *sitter.Node, sc scope, test bool, own []string) {
 		return
 	case "const_item", "static_item":
 		if sc.owner == "" {
-			e.addConst(n, test, own)
+			e.addConst(n, sc.module, test, own)
 		}
 		return
 	case "impl_item":
@@ -1582,7 +1582,7 @@ func enclosingImpl(fn *sitter.Node) *sitter.Node {
 }
 
 // addConst records a constant or static item.
-func (e *extractor) addConst(n *sitter.Node, test bool, attrs []string) {
+func (e *extractor) addConst(n *sitter.Node, module string, test bool, attrs []string) {
 	name, value := n.ChildByFieldName("name"), n.ChildByFieldName("value")
 	if name == nil || value == nil || n.HasError() {
 		return
@@ -1595,6 +1595,7 @@ func (e *extractor) addConst(n *sitter.Node, test bool, attrs []string) {
 	e.decls.Consts = append(e.decls.Consts, unit.Const{
 		File:     e.path,
 		Name:     name.Utf8Text(e.src),
+		Module:   module,
 		Value:    text,
 		Line:     syntax.Line(n.StartPosition()),
 		Nodes:    syntax.CountNodes(value),

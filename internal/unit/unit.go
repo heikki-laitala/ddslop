@@ -335,9 +335,10 @@ type Reach struct {
 	// #[cfg] or a #[cfg_attr(..., path = ...)], as index.File.Modules
 	// names them: their files are compiled in some builds only.
 	CfgModules []string
-	// Globs are the modules the file's plain pub uses re-export whole
-	// (pub use shapes::*), each by the last name of its path: other
-	// crates reach their items through the file's module.
+	// Globs are the paths of the modules the file's plain pub uses
+	// re-export whole (shapes for pub use shapes::*, crate::shapes for pub
+	// use crate::{shapes::*}): other crates reach their items through the
+	// file's module.
 	Globs []string
 	// PathModules are the modules the file declares out of line in a
 	// file a #[path] attribute names, each name with that file, as
@@ -400,6 +401,9 @@ type Impl struct {
 // function or impl block.
 type Const struct {
 	File, Name string
+	// Module is the inline module the constant is declared in, as
+	// Unit.Module (Rust only).
+	Module string
 	// Value is the initialiser as written: a string literal exactly, any
 	// other value without whitespace.
 	Value string

@@ -1241,7 +1241,7 @@ func libraryCrates(files []index.File, crates *codemap.Packages) map[string]bool
 func tooPublic(units []unit.Unit, consts []unit.Const, words map[string]int, library func(file string) *simplify.Library) []unit.Unit {
 	asUnits := make([]unit.Unit, 0, len(consts))
 	for _, c := range consts {
-		asUnits = append(asUnits, unit.Unit{File: c.File, Name: c.Name, StartLine: c.Line, EndLine: c.Line, Nodes: c.Nodes,
+		asUnits = append(asUnits, unit.Unit{File: c.File, Name: c.Name, Module: c.Module, StartLine: c.Line, EndLine: c.Line, Nodes: c.Nodes,
 			Public: c.Public, External: c.External, Test: c.Test})
 	}
 	return append(simplify.TooPublic(asUnits, words, library), simplify.TooPublic(units, words, library)...)
@@ -1284,7 +1284,7 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 					queue = append(queue, module{path, optional || slices.Contains(file.Decls.Reach.CfgModules, name)})
 				}
 			}
-			addGlobbed(lib.Exposed, file, dir)
+			addGlobbed(lib.Exposed, file, dir, m.path == f.Path)
 		}
 	}
 	return func(file string) *simplify.Library { return owner[file] }
@@ -1293,10 +1293,27 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 // addGlobbed adds to exposed the modules a file's plain pub globs
 // re-export whole (see unit.Reach.Globs), of those it declares: an inline
 // one, as "file#module", or one out of line, by its files (see
-// moduleFiles), a #[path] module's included. dir is the file's module
-// directory.
-func addGlobbed(exposed map[string]bool, file index.File, dir string) {
-	for _, glob := range file.Decls.Reach.Globs {
+// moduleFiles), a #[path] module's included. A glob names one of them as
+// shapes, self::shapes, or crate::shapes in the crate root (root); one of
+// a longer path is another module's. An exposed file exposes the modules
+// it declares in turn, which the glob re-exports with it. dir is the
+// file's module directory.
+func addGlobbed(exposed map[string]bool, file index.File, dir string, root bool) {
+	if exposed[file.Path] {
+		for _, name := range file.Modules {
+			for _, path := range moduleFiles(file.Path, dir, name) {
+				exposed[path] = true
+			}
+		}
+	}
+	for _, path := range file.Decls.Reach.Globs {
+		glob, ok := strings.CutPrefix(path, "self::")
+		if !ok && root {
+			glob, _ = strings.CutPrefix(path, "crate::")
+		}
+		if strings.Contains(glob, "::") {
+			continue // another module's, deeper or in another crate
+		}
 		if slices.Contains(file.InlineModules, glob) {
 			exposed[file.Path+"#"+glob] = true
 		}

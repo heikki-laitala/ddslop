@@ -54,20 +54,31 @@ func reachOf(root *sitter.Node, file syntax.Source) unit.Reach {
 	return reach
 }
 
-// globs returns the modules a use declaration re-exports whole, each by
-// the last name of its path: shapes for pub use shapes::* and pub use
-// crate::{shapes::*}.
-func globs(n *sitter.Node, src []byte) []string {
-	var out []string
-	if n.Kind() == "use_wildcard" {
-		path := strings.TrimSuffix(strings.TrimSpace(n.Utf8Text(src)), "*")
-		path = strings.TrimSuffix(strings.TrimSpace(path), "::")
-		if last := path[strings.LastIndex(path, ":")+1:]; last != "" {
-			out = append(out, last)
+// globs returns the paths of the modules a use declaration re-exports
+// whole, under prefix, the path of the use list it is in: shapes for pub
+// use shapes::*, crate::shapes for pub use crate::{shapes::*}.
+func globs(n *sitter.Node, src []byte, prefix string) []string {
+	join := func(a, b string) string {
+		if a == "" || b == "" {
+			return a + b
+		}
+		return a + "::" + b
+	}
+	switch n.Kind() {
+	case "use_wildcard":
+		path := strings.TrimSuffix(strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(n.Utf8Text(src)), "*")), "::")
+		return []string{join(prefix, strings.Join(strings.Fields(path), ""))}
+	case "scoped_use_list":
+		if path, list := n.ChildByFieldName("path"), n.ChildByFieldName("list"); list != nil {
+			if path != nil {
+				prefix = join(prefix, strings.Join(strings.Fields(path.Utf8Text(src)), ""))
+			}
+			return globs(list, src, prefix)
 		}
 	}
+	var out []string
 	for i := uint(0); i < n.NamedChildCount(); i++ {
-		out = append(out, globs(n.NamedChild(i), src)...)
+		out = append(out, globs(n.NamedChild(i), src, prefix)...)
 	}
 	return out
 }
@@ -98,7 +109,7 @@ func addExported(root *sitter.Node, src []byte, reach *unit.Reach) {
 			addWords(words, item.Utf8Text(src))
 		}
 		if item.Kind() == "use_declaration" && isPublic(item, src) {
-			reach.Globs = append(reach.Globs, globs(item, src)...)
+			reach.Globs = append(reach.Globs, globs(item, src, "")...)
 		}
 		return true
 	})
