@@ -1309,18 +1309,15 @@ func declaredName(file index.File, entry string) string {
 // addGlobbed adds to exposed the modules a crate's plain pub globs
 // re-export whole (see unit.Reach.Globs): one out of line by its file,
 // and the modules inside it, or an inline one, as "file#module". A glob's
-// path is resolved from the module declaring it (crate::, self::,
-// super::, a child's name, or a name it imports for a path); a path into
-// an inline module exposes it whole, and one that leaves the crate's
-// modules (another crate, an enum's variants) exposes nothing. tree is
-// the crate's module files, by module path.
+// path, which rust.Reach reads from the file's module, an imported name
+// as its path, is resolved from the file's module (crate::, self::,
+// super::, or a child's name); a path into an inline module exposes it
+// whole, and one that leaves the crate's modules (another crate, an
+// enum's variants) exposes nothing. tree is the crate's module files, by
+// module path.
 func addGlobbed(exposed map[string]bool, tree map[string]index.File) {
 	for here, file := range tree {
 		for _, glob := range file.Decls.Reach.Globs {
-			first, _, _ := strings.Cut(glob, "::")
-			if path, ok := file.TopImports[first]; ok {
-				glob = path + glob[len(first):]
-			}
 			resolved, ok := flow.ResolvePath(glob, here)
 			if !ok {
 				resolved, _ = flow.ResolvePath("self::"+glob, here) // shapes is self::shapes

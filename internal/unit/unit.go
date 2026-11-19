@@ -337,8 +337,10 @@ type Reach struct {
 	CfgModules []string
 	// Globs are the paths of the modules the file's plain pub uses
 	// re-export whole (shapes for pub use shapes::*, crate::shapes for pub
-	// use crate::{shapes::*}): other crates reach their items through the
-	// file's module.
+	// use crate::{shapes::*}), read from the file's own module: an
+	// imported name as the path it imports, and one an inline module
+	// declares from the file's module (self::facade::shapes). Other
+	// crates reach their items through the file's module.
 	Globs []string
 	// PathModules are the modules the file declares out of line in a
 	// file a #[path] attribute names, each name with that file, as
