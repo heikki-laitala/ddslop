@@ -2,6 +2,7 @@
 package golang
 
 import (
+	"bytes"
 	"errors"
 	"maps"
 	"path/filepath"
@@ -797,6 +798,7 @@ func Reach(path string, src []byte) unit.Reach {
 // operating system or architecture its name ends in (file_linux.go,
 // file_windows_amd64.go), not one inside it (cache_linux_backup.go).
 func constrained(path string, src []byte) bool {
+	src = bytes.TrimPrefix(src, []byte("\ufeff")) // a byte order mark may open the file
 	for _, line := range strings.Split(string(src), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "package ") {
