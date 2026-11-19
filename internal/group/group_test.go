@@ -19,7 +19,7 @@ func TestByGroupsByKeyAndSortsMembersByLocation(t *testing.T) {
 		{"c.rs", 1, "y"},
 		{"d.rs", 1, "skip"},
 	}
-	got := By(items, func(i item) (string, bool) { return i.key, i.key != "skip" })
+	got := by(items, func(i item) (string, bool) { return i.key, i.key != "skip" })
 	if fmt.Sprint(got["x"]) != "[{a.rs 2 x} {a.rs 9 x} {b.rs 3 x}]" || len(got["y"]) != 1 || got["skip"] != nil {
 		t.Errorf("By = %v", got)
 	}

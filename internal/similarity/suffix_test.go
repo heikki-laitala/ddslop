@@ -26,11 +26,11 @@ func TestSuffixArrayAndLCPMatchNaive(t *testing.T) {
 		}
 		slices.SortFunc(want, func(a, b int) int { return slices.Compare(seq[a:], seq[b:]) })
 
-		sa := SuffixArray(seq)
+		sa := suffixArray(seq)
 		if !slices.Equal(sa, want) {
 			t.Fatalf("SuffixArray(%v) = %v, want %v", seq, sa, want)
 		}
-		lcp := LCP(seq, sa)
+		lcp := lcp(seq, sa)
 		for i := 1; i < len(sa); i++ {
 			n := 0
 			for sa[i-1]+n < len(seq) && sa[i]+n < len(seq) && seq[sa[i-1]+n] == seq[sa[i]+n] {

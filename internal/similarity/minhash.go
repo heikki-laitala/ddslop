@@ -5,18 +5,18 @@ import (
 	"slices"
 )
 
-// LSH parameters: SignatureSize = bands × rows. With 16 bands of 8 rows,
+// LSH parameters: signatureSize = bands × rows. With 16 bands of 8 rows,
 // pairs become candidates from a Jaccard similarity of roughly 0.7.
 const (
-	SignatureSize = bands * rows
+	signatureSize = bands * rows
 	bands         = 16
 	rows          = 8
 	shingleSize   = 4
 )
 
-// seeds give each of the SignatureSize hash functions its own salt.
-var seeds = func() [SignatureSize]uint64 {
-	var out [SignatureSize]uint64
+// seeds give each of the signatureSize hash functions its own salt.
+var seeds = func() [signatureSize]uint64 {
+	var out [signatureSize]uint64
 	x := uint64(0x9e3779b97f4a7c15)
 	for i := range out {
 		x += 0x9e3779b97f4a7c15
@@ -46,10 +46,10 @@ func HashSymbols(syms []uint32) uint64 {
 }
 
 // Signature returns the MinHash signature of a symbol sequence: for each of
-// SignatureSize salted hash functions, the minimum over all shingles (runs
+// signatureSize salted hash functions, the minimum over all shingles (runs
 // of shingleSize symbols). A sequence shorter than a shingle is one shingle.
 func Signature(seq []uint32) []uint64 {
-	sig := make([]uint64, SignatureSize)
+	sig := make([]uint64, signatureSize)
 	for i := range sig {
 		sig[i] = ^uint64(0)
 	}

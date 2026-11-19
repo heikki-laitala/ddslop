@@ -96,7 +96,7 @@ func TestADirectCallPastAMiddleLayerIsABypass(t *testing.T) {
 		t.Fatalf("breaks = %+v, want one bypass", m.Breaks)
 	}
 	b := m.Breaks[0]
-	if b.Kind != Bypass || b.From != "handlers" || b.To != "store" || b.Via != "service" || b.Calls != 3 || b.UsualCalls != 40 || len(b.Callers) != 3 {
+	if b.Kind != bypass || b.From != "handlers" || b.To != "store" || b.Via != "service" || b.Calls != 3 || b.UsualCalls != 40 || len(b.Callers) != 3 {
 		t.Errorf("break = %+v, want a bypass of service by 3 of handlers' calls, 40 usual", b)
 	}
 }
@@ -150,7 +150,7 @@ func TestAModuleCalledFromBelowTheSkippedLayerIsNoBypassTarget(t *testing.T) {
 	m := Layers(graphOf(call{"handlers", "service", 40}, call{"service", "types", 40}, call{"handlers", "types", 3},
 		call{"service", "index", 40}, call{"index", "types", 10}), ByModule(nil))
 	for _, b := range m.Breaks {
-		if b.Kind == Bypass {
+		if b.Kind == bypass {
 			t.Errorf("break %+v: types is reached from below service too", b)
 		}
 	}

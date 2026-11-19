@@ -29,8 +29,8 @@ func edit(s []uint32, step int) []uint32 {
 func TestSignatureIsDeterministicAndSized(t *testing.T) {
 	s := randomSeq(1, 300)
 	a, b := Signature(s), Signature(slices.Clone(s))
-	if len(a) != SignatureSize {
-		t.Fatalf("signature has %d values, want %d", len(a), SignatureSize)
+	if len(a) != signatureSize {
+		t.Fatalf("signature has %d values, want %d", len(a), signatureSize)
 	}
 	if !slices.Equal(a, b) {
 		t.Error("equal sequences have different signatures")
@@ -39,7 +39,7 @@ func TestSignatureIsDeterministicAndSized(t *testing.T) {
 
 func TestShortSequencesStillGetSignatures(t *testing.T) {
 	short := []uint32{7, 8, 9}
-	if sig := Signature(short); len(sig) != SignatureSize {
+	if sig := Signature(short); len(sig) != signatureSize {
 		t.Fatalf("short sequence signature has %d values", len(sig))
 	}
 	if got := Candidates([][]uint64{Signature(short), Signature(slices.Clone(short))}); len(got) != 1 {

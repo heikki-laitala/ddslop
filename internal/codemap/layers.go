@@ -20,8 +20,8 @@ type BreakKind string
 
 // Break kinds.
 const (
-	Upward BreakKind = "upward"
-	Bypass BreakKind = "bypass"
+	upward BreakKind = "upward"
+	bypass BreakKind = "bypass"
 )
 
 // Break is calls from one module to another that go against the layers.
@@ -95,7 +95,7 @@ func Layers(g *flow.Graph, group Grouping) LayerMap {
 				continue
 			}
 			if back[a] > 0 && float64(e.calls) < weak*float64(back[a]) {
-				setAside = append(setAside, Break{Kind: Upward, From: names[a], To: names[b],
+				setAside = append(setAside, Break{Kind: upward, From: names[a], To: names[b],
 					Calls: e.calls, UsualCalls: back[a], Callers: e.callers})
 				continue
 			}
@@ -132,7 +132,7 @@ func Layers(g *flow.Graph, group Grouping) LayerMap {
 	for a := range n {
 		for c, e := range kept[a] {
 			if via, usual := kept.bypassed(a, c, layer); via >= 0 && float64(e.calls) < weak*float64(usual) {
-				out.Breaks = append(out.Breaks, Break{Kind: Bypass, From: names[a], To: names[c], Via: names[via],
+				out.Breaks = append(out.Breaks, Break{Kind: bypass, From: names[a], To: names[c], Via: names[via],
 					Calls: e.calls, UsualCalls: usual, Callers: e.callers})
 			}
 		}

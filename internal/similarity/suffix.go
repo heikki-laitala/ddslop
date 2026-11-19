@@ -5,10 +5,10 @@ import (
 	"slices"
 )
 
-// SuffixArray returns the start positions of seq's suffixes in sorted order,
+// suffixArray returns the start positions of seq's suffixes in sorted order,
 // built by prefix doubling: suffixes are sorted by their first k symbols,
 // then 2k, until every rank is distinct.
-func SuffixArray(seq []int) []int {
+func suffixArray(seq []int) []int {
 	n := len(seq)
 	sa := make([]int, n)
 	rank := make([]int, n)
@@ -48,9 +48,9 @@ func SuffixArray(seq []int) []int {
 // minInt sorts before every symbol, so a suffix ending first sorts first.
 const minInt = -int(^uint(0)>>1) - 1
 
-// LCP returns, for each i > 0, the length of the longest common prefix of
+// lcp returns, for each i > 0, the length of the longest common prefix of
 // the suffixes at sa[i-1] and sa[i]; lcp[0] is 0. Kasai's algorithm.
-func LCP(seq, sa []int) []int {
+func lcp(seq, sa []int) []int {
 	n := len(seq)
 	lcp := make([]int, n)
 	rank := make([]int, n)
@@ -88,8 +88,8 @@ type Repeat struct {
 // reported when its occurrences are also left-maximal. Unique separator
 // symbols between blocks keep repeats inside blocks.
 func Repeats(seq []int) []Repeat {
-	sa := SuffixArray(seq)
-	lcp := LCP(seq, sa)
+	sa := suffixArray(seq)
+	lcp := lcp(seq, sa)
 
 	type interval struct{ lcp, lb int }
 	var out []Repeat
