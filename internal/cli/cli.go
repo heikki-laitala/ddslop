@@ -1663,8 +1663,8 @@ func internalCrates(root string, files []index.File, crates *codemap.Packages) f
 	internal := map[string]bool{}
 	for _, f := range files {
 		dir := libraries.CrateOf(f.Path)
-		if _, done := internal[dir]; done {
-			continue
+		if _, done := internal[dir]; done || strings.HasSuffix(f.Decls.Package, "_test") {
+			continue // an external test (package main_test) is no package main
 		}
 		switch languageOf(f.Path) {
 		case "go":
@@ -1952,8 +1952,9 @@ func parseSource(file syntax.Source) (index.Parsed, error) {
 		}
 		parsed := index.Parsed{Generated: true, Traits: entries, Words: source.Words(src)}
 		if language == "go" {
-			// An external test's (package text_test) words are no use from its package.
-			parsed.Decls.Package = golang.PackageName(src)
+			// An external test's (package text_test) words are no use from
+			// its package, and a test's or constrained file's not always.
+			parsed.Decls.Package, parsed.Decls.Reach = golang.PackageName(src), golang.Reach(path, src)
 		}
 		if language == "rust" {
 			// Its pub uses still re-export what they name.
