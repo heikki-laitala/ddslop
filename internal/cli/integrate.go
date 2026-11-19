@@ -142,7 +142,7 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	path := filepath.Join(root, indexPath)
-	info, err := os.Stat(path)
+	info, err := os.Stat(path) //nolint:gosec // the index under the analysed root
 	if err != nil {
 		return fail(stderr, fmt.Errorf("no index at %s; run ddslop index first", path))
 	}

@@ -1114,8 +1114,17 @@ flattened, the other half of cleaning up generated code:
   otherwise `pub(crate)` would make the compiler report the item unused in
   some builds, as `pub` does not. A declaration is no use either: two
   modules may each declare a constant of the name, or two types a method.
-  A module the walk cannot place, such as one declared in an inline
-  module, counts as outside. Trait methods and functions called from
+  The walk places a `#[path]` file's modules beside it, as a `mod.rs`'s,
+  and a module declared out of line inside inline modules under their
+  names (`mod holder { mod held; }` is `holder/held.rs`); one it cannot
+  place, under a `#[cfg]` or a `#[path]` inside an inline module, counts
+  as outside. Which items re-exports expose is checked against the
+  compiler: an opt-in test (`make oracle`) generates crates whose modules
+  are all `pub(crate)`, with random re-exports (globs, named, aliases,
+  chains, `self::`, `super::`, `crate::`, inline and `#[path]` modules),
+  and fails when too-public reports an item rustc's `unreachable_pub`
+  lint finds reachable. Its first run found both placing gaps above,
+  which ten review rounds had missed. Trait methods and functions called from
   outside the source are left out as for dead code (an impl block's
   attributes count too: `#[wasm_bindgen] impl`), and so are crates without
   a library (a binary's `pub` items are never seen outside it). Associated

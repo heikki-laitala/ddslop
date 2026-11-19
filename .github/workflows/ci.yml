@@ -49,6 +49,19 @@ jobs:
       - name: Smoke test
         run: scripts/smoke-test.sh bin/ddslop
 
+  rustc-oracle:
+    # Rust too-public against the compiler: generated crates, checked with
+    # rustc's unreachable_pub lint (see TestTooPublicAgreesWithRustcOnReachability).
+    name: Rust too-public against rustc
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Compare with rustc
+        run: cargo --version && make oracle ORACLE_CASES=300
+
   latest-release:
     name: Latest release
     runs-on: ubuntu-26.04

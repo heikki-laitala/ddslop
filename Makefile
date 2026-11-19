@@ -7,10 +7,12 @@ VERSION           ?= $(shell git describe --tags --always --dirty 2>/dev/null ||
 LDFLAGS           := -X github.com/heikki-laitala/ddslop/internal/cli.version=$(VERSION)
 COVER_MIN         ?= 80
 COVER_PROFILE     := coverage.out
+ORACLE_CASES      ?= 300
+ORACLE_SEED       ?= 0
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build run test cover notices lint lint-go lint-md fmt tidy clean
+.PHONY: help build run test cover oracle notices lint lint-go lint-md fmt tidy clean
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -30,6 +32,10 @@ cover: ## Run tests with coverage; fail below COVER_MIN percent (default 80)
 	echo "total coverage: $$total% (minimum $(COVER_MIN)%)"; \
 	awk -v t="$$total" -v m="$(COVER_MIN)" 'BEGIN { exit !(t + 0 >= m + 0) }' || \
 		{ echo "coverage $$total% is below $(COVER_MIN)%"; exit 1; }
+
+oracle: ## Compare Rust too-public with rustc on generated crates (ORACLE_CASES, ORACLE_SEED; needs cargo)
+	@command -v cargo >/dev/null || { echo "make oracle needs cargo"; exit 1; }
+	DDSLOP_RUSTC_CASES=$(ORACLE_CASES) DDSLOP_RUSTC_SEED=$(ORACLE_SEED) $(GO) test -count=1 -run TestTooPublicAgreesWithRustcOnReachability -v ./internal/cli
 
 notices: ## Regenerate THIRD_PARTY_NOTICES.md from the compiled-in modules
 	scripts/notices.sh > THIRD_PARTY_NOTICES.md
