@@ -43,3 +43,10 @@ func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 func Capitalized(name string) bool {
 	return name != "" && name[0] >= 'A' && name[0] <= 'Z'
 }
+
+// AddWords adds the words of text to words.
+func AddWords(words map[string]int, text string) {
+	for w, n := range Words([]byte(text)) {
+		words[w] += n
+	}
+}

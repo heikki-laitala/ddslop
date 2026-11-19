@@ -933,7 +933,8 @@ flowchart TB
   from the template.
 - `delete-dead`: a public function nothing uses (see below). Delete it.
 - `restrict-visibility`: a public function or constant only its own
-  library uses (see below). Make it `pub(crate)`.
+  library uses (see below). Make it `pub(crate)`, unexport it in Go, or
+  remove `export` in TypeScript.
 - `extract-pipeline`: produced by the flow layer (see below).
 - `inline-wrapper`: a function that only forwards its parameters; call
   its target directly.
@@ -1129,6 +1130,16 @@ flattened, the other half of cleaning up generated code:
   then needed. On a 100-file Go service, 12 candidates; unexporting all
   of them (one under another name) built, vetted and compiled the tests
   cleanly. On ddslop itself, 7, which it unexports.
+  In TypeScript, the library is one file of a private package (see dead
+  code), and the suggestion is to remove `export`: a module's scope is its
+  file. A file another file imports whole (`import * as`, `import()`) is
+  left out, and so are default and framework exports, as for dead code.
+  The words of an export clause (`export { load }`), of comments and of
+  strings are no use, so a name a clause exports is reported too; remove
+  it from the clause. A clause that renames a name (`export { load as
+  fetch }`) exports it under another name, which is left out as a
+  default export is. Class methods are left out: their visibility is the
+  class's.
 - **Pass-through wrappers** (`pass-through`, `inline-wrapper`): a function
   whose body is one call, possibly awaited, passing its parameters on in
   order, as is or borrowed. Constructors (`Self(x)`), delegation to a field

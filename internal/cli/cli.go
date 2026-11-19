@@ -738,6 +738,8 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 	flows := parallelFlows(g, traits, opts.minNodes)
 	found, conventions := drifts(units, crates, judged)
 	importedWhole := wholeImported(root, files)
+	// The public items of these files are used by name only, if at all.
+	namedOnly := func(file string) bool { return internal(file) && !importedWhole[file] }
 	words, err := wordCounts(root, files)
 	if err != nil {
 		return report.Report{}, nil, err
@@ -750,10 +752,8 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 		Inlined: byLanguage(consts, func(lang string, c []unit.Const) []clone.InlinedConst {
 			return clone.InlinedConstants(c, inLanguage(lang, units), flow.CrateOf)
 		}),
-		Dead: simplify.Dead(units, words, func(file string) bool {
-			return internal(file) && !importedWhole[file]
-		}),
-		TooPublic: tooPublic(units, consts, words, libraryWords(root, files, crates, internal)),
+		Dead:      simplify.Dead(units, words, namedOnly),
+		TooPublic: tooPublic(units, consts, words, libraryWords(root, files, crates, namedOnly)),
 		Wrappers:  simplify.PassThrough(g),
 		Traits:    singleImpls(traitDecls, files, internal),
 		Scopes:    byLanguage(units, func(_ string, u []unit.Unit) []pattern.ScopeGroup { return pattern.Scopes(u) }),
@@ -1224,12 +1224,13 @@ func tooPublic(units []unit.Unit, consts []unit.Const, words map[string]int, lib
 }
 
 // libraryWords returns, for a Rust file in the library of an unpublished
-// crate, or a Go file of an internal package (see golang.Internal) but
-// a main one, the words of that library's files (see simplify.Library);
-// for any other file, nil. A Rust library's files are its root file's module tree: a
-// binary's modules beside them are not. A Go package's are its
-// directory's files but those of its external tests (package text_test),
-// a package of their own.
+// crate, a Go file of an internal package (see golang.Internal) but a
+// main one, or a TypeScript file of a private package, the words of that
+// library's files (see simplify.Library); for any other file, nil. A
+// Rust library's files are its root file's module tree: a binary's
+// modules beside them are not. A Go package's are its directory's files
+// but those of its external tests (package text_test), a package of their
+// own. A TypeScript library is the file alone: a module's scope.
 func libraryWords(root string, files []index.File, crates *codemap.Packages, internal func(file string) bool) func(file string) *simplify.Library {
 	byPath := map[string]index.File{}
 	for _, f := range files {
@@ -1280,21 +1281,32 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 	}
 	packageLibs := map[string]*simplify.Library{} // Go package directory -> its library
 	for _, f := range files {
-		// Any main package may be built as a plugin too, whose host looks
-		// its exported names up.
-		if languageOf(f.Path) != "go" || !internal(f.Path) || golang.ExternalTest(f.Path, f.Decls.Package) || f.Decls.Package == "main" {
+		if !internal(f.Path) {
 			continue
 		}
-		dir := filepath.Dir(f.Path)
-		lib := packageLibs[dir]
-		if lib == nil {
-			lib = &simplify.Library{Words: map[string]int{}, Optional: map[string]int{}, Declared: map[string]int{}}
-			packageLibs[dir] = lib
+		switch languageOf(f.Path) {
+		case "typescript":
+			owner[f.Path] = newLibrary()
+			addLibraryWords(root, owner[f.Path], f, "", false)
+		case "go":
+			// Any main package may be built as a plugin too, whose host
+			// looks its exported names up.
+			if golang.ExternalTest(f.Path, f.Decls.Package) || f.Decls.Package == "main" {
+				continue
+			}
+			dir := filepath.Dir(f.Path)
+			if packageLibs[dir] == nil {
+				packageLibs[dir] = newLibrary()
+			}
+			owner[f.Path] = packageLibs[dir]
+			addLibraryWords(root, packageLibs[dir], f, "", f.Decls.Reach.AllOptional)
 		}
-		owner[f.Path] = lib
-		addLibraryWords(root, lib, f, "", f.Decls.Reach.AllOptional)
 	}
 	return func(file string) *simplify.Library { return owner[file] }
+}
+
+func newLibrary() *simplify.Library {
+	return &simplify.Library{Words: map[string]int{}, Optional: map[string]int{}, Declared: map[string]int{}}
 }
 
 // declaredNames returns the names a file declares a module by, in

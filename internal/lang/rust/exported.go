@@ -46,7 +46,7 @@ func reachOf(root *sitter.Node, file syntax.Source) unit.Reach {
 			return false
 		}
 		if cfg || item.Kind() == "function_item" && slices.ContainsFunc(attrs, isTestAttr) {
-			addWords(reach.Optional, item.Utf8Text(file.Src))
+			source.AddWords(reach.Optional, item.Utf8Text(file.Src))
 			return false
 		}
 		return true
@@ -101,12 +101,12 @@ func addExported(root *sitter.Node, src []byte, reach *unit.Reach) {
 			} else if file, ok := docIncludeOf(attr, packageDocInclude); ok {
 				reach.PackageDocFiles = append(reach.PackageDocFiles, file)
 			} else if isDocValue(attr) {
-				addWords(words, attr) // its text may hold a doc test
+				source.AddWords(words, attr) // its text may hold a doc test
 			}
 		}
 		exported := item.Kind() == "macro_definition" && slices.ContainsFunc(attrs, func(a string) bool { return attrName(a) == "macro_export" })
 		if exported || item.Kind() == "use_declaration" && isPublic(item, src) {
-			addWords(words, item.Utf8Text(src))
+			source.AddWords(words, item.Utf8Text(src))
 		}
 		if scope, ok := inlineScope(item, src); ok && item.Kind() == "use_declaration" && isPublic(item, src) {
 			var targets map[string][]string // the declaring module's, for a glob through aliases
@@ -209,7 +209,7 @@ func addCommentsAndStrings(words map[string]int, n *sitter.Node, src []byte) {
 		child := n.Child(i)
 		switch child.Kind() {
 		case "line_comment", "block_comment", "string_literal", "raw_string_literal":
-			addWords(words, child.Utf8Text(src))
+			source.AddWords(words, child.Utf8Text(src))
 			continue
 		}
 		addCommentsAndStrings(words, child, src)
@@ -300,16 +300,10 @@ func addCodeBlocks(words map[string]int, lines []string) {
 		case strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~"):
 			fenced = !fenced
 		case fenced:
-			addWords(words, line)
+			source.AddWords(words, line)
 		case trimmed != "" && (strings.HasPrefix(line[indent:], "    ") || strings.HasPrefix(line[indent:], "\t")):
-			addWords(words, line)
+			source.AddWords(words, line)
 		}
-	}
-}
-
-func addWords(words map[string]int, text string) {
-	for w, n := range source.Words([]byte(text)) {
-		words[w] += n
 	}
 }
 

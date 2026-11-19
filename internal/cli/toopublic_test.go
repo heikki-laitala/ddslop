@@ -313,3 +313,76 @@ pub fn api() {
 		"rust too-public [app/src/same_name.rs local_same_name]",
 	})
 }
+
+// An exported function or constant of a private TypeScript package that
+// only its own file uses needs no export. A use in another file, a test,
+// a whole import (import * as) or a framework config keeps it exported;
+// so does a default export, a framework export and a package that is not
+// private. A comment, a string, an export clause and the declaration are
+// no use, so a name an export clause exports is reported too, unless
+// the clause renames it; a class method is called through its class.
+func TestCheckReportsTypeScriptExportsOnlyTheirFileUses(t *testing.T) {
+	root := repo(t, map[string]string{
+		"package.json": `{"name": "app", "private": true}`,
+		"src/util.ts": `export function helper() {}
+
+export const LIMIT = 3;
+
+export function shared() {}
+
+export function tested() {}
+
+export function commented() {}
+
+export function quoted() {}
+
+export function clause() {}
+
+export function listed() {}
+
+function viaClause() {}
+
+function renamed() {}
+
+export default function main() {
+  helper();
+  shared();
+  tested();
+  listed();
+  viaClause();
+  renamed();
+  return LIMIT;
+}
+
+export class Store {
+  reset() {}
+  run() {
+    this.reset();
+  }
+}
+
+// commented() is no use.
+const text = "quoted";
+
+export { clause, viaClause, renamed as alias };
+`,
+		"src/app.ts":        "import { alias, shared } from \"./util\";\n\nshared();\nalias();\n",
+		"src/util.test.ts":  "import { tested } from \"./util\";\n\ntested();\n",
+		"src/whole.ts":      "export function viaWhole() {}\n\nviaWhole();\n",
+		"src/reader.ts":     "import * as whole from \"./whole\";\n\nconsole.log(whole);\n",
+		"src/routes.ts":     "export function routed() {}\n\nrouted();\n",
+		"serverless.yml":    "functions:\n  routed: src/routes.routed\n",
+		"src/limits.ts":     "const MAX = 1;\n\nconsole.log(MAX);\n\nexport default MAX;\n",
+		"src/listed.ts":     "export { listed } from \"./util\";\n",
+		"open/package.json": `{"name": "open"}`,
+		"open/api.ts":       "export function api() {}\n\napi();\n",
+	})
+
+	_, stdout, _ := run("check", "--format", "json", root)
+
+	testutil.Lines(t, "too public", candidateLines(decode(t, stdout), "too-public"), []string{
+		"typescript too-public [src/util.ts helper]",
+		"typescript too-public [src/util.ts viaClause]",
+		"typescript too-public [src/util.ts LIMIT]",
+	})
+}
