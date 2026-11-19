@@ -1255,6 +1255,7 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 		segments  []string // its module path
 		optional  bool
 		ancestors []string // the files of the modules it is inside
+		placed    bool     // loaded through #[path]
 	}
 	owner := map[string]*simplify.Library{}
 	for _, f := range files {
@@ -1279,14 +1280,16 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 			}
 			ancestors := append(slices.Clone(m.ancestors), m.path)
 			dir := moduleDir(file.Path)
-			if m.path == f.Path {
-				dir = filepath.Dir(f.Path) // a crate root's modules sit beside it, whatever its name
+			if m.path == f.Path || m.placed {
+				// a crate root's modules, and a #[path] file's, sit beside it, whatever its name
+				dir = filepath.Dir(m.path)
 			}
 			for _, name := range file.Modules {
 				for _, path := range moduleFiles(file.Path, dir, name) {
 					for _, declared := range declaredNames(file, name) {
 						segments := append(slices.Clone(m.segments), declared)
-						queue = append(queue, module{path, segments, optional || slices.Contains(file.Decls.Reach.CfgModules, name), ancestors})
+						queue = append(queue, module{path, segments, optional || slices.Contains(file.Decls.Reach.CfgModules, name), ancestors,
+							strings.HasSuffix(name, ".rs")})
 					}
 				}
 			}

@@ -171,7 +171,8 @@ func TestCheckReportsRustItemsOnlyTheirLibraryModulesUse(t *testing.T) {
 // (crate::, super::, or a name imported for one) or an inline module, and
 // a file two #[path]s declare under either name, with the modules inside
 // it, each file #[cfg]-gated #[path]s give one name, and a path through
-// the crate's own alias (extern crate self as mycrate);
+// the crate's own alias (extern crate self as mycrate), and from a module a
+// #[path] file declares, whose files sit beside it as a mod.rs's do;
 // a pub(crate) glob exposes nothing,
 // and nor does another crate's module of a local module's name.
 func TestCheckLeavesRustItemsAGlobReexportsPublic(t *testing.T) {
@@ -239,6 +240,7 @@ pub mod scoped_facade {
         imp_unix_fn();
         imp_other_fn();
         self_crate_fn();
+        placed_fn();
     }
 }
 mod up_inline;
@@ -260,6 +262,11 @@ mod imp;
 #[path = "imp_other.rs"]
 mod imp;
 pub use imp::*;
+
+#[path = "placed/lib_placed.rs"]
+mod placed;
+mod placed_shapes;
+pub use placed::child::*;
 
 extern crate self as mycrate;
 mod self_crate_shapes;
@@ -298,6 +305,9 @@ pub fn api() {
 		"app/src/shared/nested_shared.rs": "pub fn nested_shared_fn() {}\n",
 		"app/src/imp_unix.rs":             "pub fn imp_unix_fn() {}\n",
 		"app/src/imp_other.rs":            "pub fn imp_other_fn() {}\n",
+		"app/src/placed/lib_placed.rs":    "pub(crate) mod child;\n",
+		"app/src/placed/child.rs":         "pub use crate::placed_shapes::*;\n",
+		"app/src/placed_shapes.rs":        "pub fn placed_fn() {}\n",
 		"app/src/self_crate_shapes.rs":    "pub fn self_crate_fn() {}\n",
 		"app/src/alias_inline.rs":         "pub fn alias_inline_fn() {}\n",
 		"app/src/up_inline.rs":            "pub fn up_inline_fn() {}\n",
