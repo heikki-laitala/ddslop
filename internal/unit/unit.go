@@ -309,13 +309,14 @@ type Decls struct {
 	// TypeScript class's, interface's or object type's fields, written as
 	// Call.Type; fields of other types (slices, maps) are left out.
 	FieldTypes []FieldType
-	Reach      Reach // Rust and TypeScript
+	Reach      Reach // Rust, Go and TypeScript
 }
 
 // Reach is how far a file's words reach beyond the code every build of
-// its library compiles. TypeScript sets Optional only: the words of its
-// comments, strings, export clauses and signature names, which use no
-// name.
+// its library compiles. Go sets Optional (its comments' words) or
+// AllOptional (a test file, or one with build constraints). TypeScript
+// sets Optional only: the words of its comments, strings, export clauses
+// and signature names, which use no name.
 type Reach struct {
 	// Exported counts the words of the code that code outside the crate
 	// compiles or reaches through the file: its doc tests, its

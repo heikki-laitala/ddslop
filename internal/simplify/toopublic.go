@@ -46,12 +46,13 @@ func exposed(lib *Library, u unit.Unit) bool {
 
 // TooPublic returns the public functions and constants that only their
 // own library names, which can be visible to the library alone
-// (pub(crate) in Rust, no export in TypeScript). library returns the
-// library a file belongs to, or nil when it is in no library of an
-// internal crate or package; words counts every word of every source
-// file, as for Dead. One of the library's words must use the name in
-// code every build compiles, not optional and no declaration: else it is
-// dead code, or the compiler would report it unused in some builds.
+// (pub(crate) in Rust, unexported in Go, no export in TypeScript).
+// library returns the library a file belongs to, or nil when it is in no
+// library of an internal crate or package; words counts every word of
+// every source file, as for Dead. One of the library's words must use the
+// name in code every build compiles, not optional and no declaration:
+// else it is dead code, or the compiler would report it unused in some
+// builds.
 func TooPublic(units []unit.Unit, words map[string]int, library func(file string) *Library) []unit.Unit {
 	var out []unit.Unit
 	for _, u := range units {

@@ -256,10 +256,9 @@ What to do per `kind`:
   `pub use` names it. Make it `pub(crate)`, then run `cargo check`,
   `cargo clippy` and `cargo test --doc`; revert it if any of them fails.
   In Go, an exported function or constant of a package under `internal/`
-  or of `package main` that only its own package uses: unexport it,
-  under a name the package does not already declare (`PriceUSDC` beside a
-  `priceUSDC` variable needs another), then run `go build`, `go vet` and
-  `go test`.
+  that only its own package uses: unexport it, under a name the package
+  does not already declare (`PriceUSDC` beside a `priceUSDC` variable
+  needs another), then run `go build`, `go vet` and `go test`.
   In TypeScript: an exported function or constant of a private package
   that only its own file uses. Remove `export` (from its overload
   signatures too, or its name from the `export { ... }` list), then run
