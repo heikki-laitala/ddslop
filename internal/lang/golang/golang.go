@@ -737,11 +737,14 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 	}, true
 }
 
-// PackageName returns the name a Go file's package clause gives, or "".
+// PackageName returns the name a Go file's package clause gives, or "":
+// its identifier alone, without a comment after it.
 func PackageName(src []byte) string {
 	for _, line := range strings.Split(string(src), "\n") {
-		if name, ok := strings.CutPrefix(strings.TrimSpace(line), "package "); ok {
-			return strings.TrimSpace(name)
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "package "); ok {
+			if fields := strings.Fields(rest); len(fields) > 0 {
+				return fields[0]
+			}
 		}
 	}
 	return ""
