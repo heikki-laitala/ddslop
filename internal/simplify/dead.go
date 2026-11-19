@@ -13,7 +13,7 @@ import (
 // library crate the file belongs to ("" for a file of no library: another
 // target, such as a binary or an integration test, or another language),
 // how many times, and whether the file exposes the name to other crates
-// anyway (a #[macro_export] macro or a pub use re-export naming it).
+// anyway (a #[macro_export] macro naming it).
 type Mention struct {
 	Crate   string
 	Count   int
@@ -23,19 +23,19 @@ type Mention struct {
 // TooPublic returns the public functions of internal crates (see Dead)
 // that only their own library crate names (crateOf, "" for a file of no
 // library): every mention of the name (mentions, by name), other than
-// its declaration, is in a file of that crate, and none exposes it. Such
-// a function can be pub(crate). One named nowhere else is Dead's; trait
-// methods, External functions and test code are left out, as Dead leaves
-// them.
-func TooPublic(units []unit.Unit, mentions map[string][]Mention, crateOf func(file string) string, internal func(file string) bool) []unit.Unit {
+// its declaration, is in a file of that crate, none exposes it, and the
+// crate does not re-export it (exported). Such a function can be
+// pub(crate). One named nowhere else is Dead's; trait methods, External
+// functions and test code are left out, as Dead leaves them.
+func TooPublic(units []unit.Unit, mentions map[string][]Mention, crateOf func(file string) string, internal func(file string) bool, exported func(u unit.Unit) bool) []unit.Unit {
 	var out []unit.Unit
 	for _, u := range units {
 		crate := crateOf(u.File)
-		if !u.Public || u.External || u.ViaInterface() || u.Test || crate == "" || !internal(u.File) {
+		if !u.Public || u.External || u.ViaInterface() || u.Test || crate == "" || !internal(u.File) || exported(u) {
 			continue
 		}
 		total, inside := 0, true
-		for _, m := range mentions[simpleName(u.Name)] {
+		for _, m := range mentions[ShortName(u.Name)] {
 			total += m.Count
 			inside = inside && m.Crate == crate && !m.Exposes
 		}
@@ -46,8 +46,9 @@ func TooPublic(units []unit.Unit, mentions map[string][]Mention, crateOf func(fi
 	return out
 }
 
-// simpleName is a unit's own name, without its owner (Type::new is new).
-func simpleName(name string) string {
+// ShortName is a unit's own name, without its owner (new for Type::new),
+// or a Rust path's last segment (helper for inner::helper).
+func ShortName(name string) string {
 	return name[strings.LastIndex(name, ":")+1:]
 }
 
@@ -66,7 +67,7 @@ func Dead(units []unit.Unit, words map[string]int, internal func(file string) bo
 		if !u.Public || u.External || u.ViaInterface() || u.Test || !internal(u.File) {
 			continue
 		}
-		if words[simpleName(u.Name)] <= 1 {
+		if words[ShortName(u.Name)] <= 1 {
 			dead = append(dead, u)
 		}
 	}

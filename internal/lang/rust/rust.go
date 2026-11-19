@@ -1963,9 +1963,22 @@ func TopExports(src []byte) []string {
 // of the file's module supplies besides its items. A visible glob (pub use
 // a::*) is kept under "*" and its source. Test code's uses are left out.
 func TopReexports(src []byte) map[string]string {
+	return reexports(src, visible)
+}
+
+// PublicReexports is TopReexports of the plain pub uses alone: what the
+// file's module can expose to other crates.
+// ddslop:ignore TopReexports' shape, picking which visibility counts
+func PublicReexports(src []byte) map[string]string {
+	return reexports(src, isPublic)
+}
+
+// reexports returns what the top-level use declarations keep accepts
+// bring in (see TopReexports).
+func reexports(src []byte, keep func(n *sitter.Node, src []byte) bool) map[string]string {
 	out := map[string]string{}
 	topLevel(src, func(item *sitter.Node, attrs []string) {
-		if item.Kind() != "use_declaration" || slices.ContainsFunc(attrs, isCfgTest) || !visible(item, src) {
+		if item.Kind() != "use_declaration" || slices.ContainsFunc(attrs, isCfgTest) || !keep(item, src) {
 			return
 		}
 		if arg := item.ChildByFieldName("argument"); arg != nil {

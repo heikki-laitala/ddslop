@@ -752,7 +752,7 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 		Dead: simplify.Dead(units, words, func(file string) bool {
 			return internal(file) && !importedWhole[file]
 		}),
-		TooPublic: tooPublic(units, files, packages(root, files), internal),
+		TooPublic: tooPublic(root, units, files, packages(root, files), internal),
 		Wrappers:  simplify.PassThrough(g),
 		Traits:    singleImpls(traitDecls, files, internal),
 		Scopes:    byLanguage(units, func(_ string, u []unit.Unit) []pattern.ScopeGroup { return pattern.Scopes(u) }),

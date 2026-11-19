@@ -1081,12 +1081,14 @@ flattened, the other half of cleaning up generated code:
   file of another crate, of the package's other targets (a binary, an
   integration test under `tests/`, a bench or an example, crates of their
   own that see only the public API), or of another language. So does a
-  file exposing the name to other crates anyway: one exporting a macro
-  (`#[macro_export]`, expanded in the crates that call it), one
-  re-exporting it (`pub use inner::helper`), or the module a `pub use
-  inner::*` re-exports. Trait methods, `#[no_mangle]` and similar
+  file exporting a macro (`#[macro_export]`, expanded in the crates that
+  call it). Nor is a function its crate re-exports with a plain `pub use`
+  reported: by name, under any alias (`pub use inner::helper as h`), or
+  with the module, file or inline, a glob re-exports (`pub use
+  inner::*`); a `pub(crate) use` exposes nothing, so it does not count.
+  Trait methods, `#[no_mangle]` and similar
   functions, test code and dead code are left out. On a workspace of
-  about 30 crates (where `dead-code` found 6 functions), 486 candidates;
+  about 30 crates (where `dead-code` found 6 functions), 493 candidates;
   making all of them `pub(crate)` built cleanly (`cargo check --workspace
   --all-targets`, with and without `--all-features`), and the compiler
   then reported dozens of them, and types only they used, as never used:

@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/codemap"
 	"github.com/heikki-laitala/ddslop/internal/index"
+	"github.com/heikki-laitala/ddslop/internal/lang/rust"
 	"github.com/heikki-laitala/ddslop/internal/simplify"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
@@ -14,11 +17,11 @@ import (
 // their own library names (see simplify.TooPublic). A name's mentions are
 // the words of every analysed file: a file of another crate, of the
 // package's other targets (a binary, an integration test, an example),
-// or of another language is outside the library. A file exposes the
-// names it re-exports with pub use, every name when it exports a macro
-// (#[macro_export], expanded in other crates), and the names it declares
-// when its crate re-exports its module whole (pub use module::*).
-func tooPublic(units []unit.Unit, files []index.File, crates *codemap.Packages, internal func(file string) bool) []unit.Unit {
+// or of another language is outside the library. A file exporting a macro
+// (#[macro_export], expanded in other crates) exposes every name it
+// mentions. A crate exports what its plain pub uses re-export (see
+// reexported), which a pub(crate) use cannot.
+func tooPublic(root string, units []unit.Unit, files []index.File, crates *codemap.Packages, internal func(file string) bool) []unit.Unit {
 	libraries := libraryCrates(files, crates)
 	crateOf := func(file string) string {
 		if !strings.HasSuffix(file, ".rs") || !inLibrary(file, crates, libraries) {
@@ -29,30 +32,51 @@ func tooPublic(units []unit.Unit, files []index.File, crates *codemap.Packages, 
 	names := map[string]bool{}
 	for _, u := range units {
 		if u.Public && strings.HasSuffix(u.File, ".rs") {
-			names[u.Name[strings.LastIndex(u.Name, ":")+1:]] = true
-		}
-	}
-	globbed := map[string]bool{} // crate + "\x00" + module: re-exported whole
-	for _, f := range files {
-		for name, target := range f.TopReexports {
-			if strings.HasPrefix(name, "*") {
-				globbed[crateOf(f.Path)+"\x00"+target[strings.LastIndex(target, ":")+1:]] = true
-			}
+			names[simplify.ShortName(u.Name)] = true
 		}
 	}
 	mentions := map[string][]simplify.Mention{}
 	for _, f := range files {
-		crate := crateOf(f.Path)
-		macros := f.Words["macro_export"] > 0
-		whole := globbed[crate+"\x00"+fileModule(f.Path)]
+		crate, macros := crateOf(f.Path), f.Words["macro_export"] > 0
 		for name := range names {
 			if n := f.Words[name]; n > 0 {
-				_, reexported := f.TopReexports[name]
-				mentions[name] = append(mentions[name], simplify.Mention{Crate: crate, Count: n, Exposes: macros || reexported || whole})
+				mentions[name] = append(mentions[name], simplify.Mention{Crate: crate, Count: n, Exposes: macros})
 			}
 		}
 	}
-	return simplify.TooPublic(units, mentions, crateOf, internal)
+	exported := reexported(root, files, crateOf)
+	return simplify.TooPublic(units, mentions, crateOf, internal, func(u unit.Unit) bool {
+		crate := crateOf(u.File)
+		return exported[crate+"\x00"+simplify.ShortName(u.Name)] || exported[crate+"\x00*"+fileModule(u.File)] ||
+			u.Module != "" && exported[crate+"\x00*"+simplify.ShortName(u.Module)]
+	})
+}
+
+// reexported returns, by crate + "\x00" + name, what each crate's plain
+// pub uses re-export (see rust.PublicReexports): the item each names, its
+// last segment, whatever alias it takes (pub use inner::helper as h), and
+// "*" + the module a glob re-exports whole (pub use inner::*). Only the
+// files with visible uses are read again.
+func reexported(root string, files []index.File, crateOf func(file string) string) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range files {
+		crate := crateOf(f.Path)
+		if crate == "" || len(f.TopReexports) == 0 {
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(f.Path))) //nolint:gosec // a file under the analysed root
+		if err != nil {
+			continue
+		}
+		for name, target := range rust.PublicReexports(src) {
+			if strings.HasPrefix(name, "*") {
+				out[crate+"\x00*"+simplify.ShortName(target)] = true
+			} else {
+				out[crate+"\x00"+simplify.ShortName(target)] = true
+			}
+		}
+	}
+	return out
 }
 
 // fileModule returns the name of the module a Rust file is: inner for
