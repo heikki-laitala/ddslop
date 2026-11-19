@@ -261,9 +261,10 @@ What to do per `kind`:
   `priceUSDC` variable needs another), then run `go build`, `go vet` and
   `go test`.
   In TypeScript: an exported function or constant of a private package
-  that only its own file uses. Remove `export` (or its name from the
-  `export { ... }` list), then run the type check (`tsc --noEmit`) and the
-  linter; revert it if either fails.
+  that only its own file uses. Remove `export` (from its overload
+  signatures too, or its name from the `export { ... }` list), then run
+  the type check (`tsc --noEmit`) and the linter; revert it if either
+  fails.
 - `pass-through` (`inline-wrapper`): the function only passes its
   parameters to the `target`. Call the target directly and delete the
   wrapper, or rename the target if the wrapper's name is better. Keep

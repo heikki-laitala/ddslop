@@ -1136,10 +1136,11 @@ flattened, the other half of cleaning up generated code:
   left out, and so are default and framework exports, as for dead code.
   The words of an export clause (`export { load }`), of comments and of
   strings are no use, so a name a clause exports is reported too; remove
-  it from the clause. A clause that renames a name (`export { load as
-  fetch }`) exports it under another name, which is left out as a
-  default export is. Class methods are left out: their visibility is the
-  class's.
+  it from the clause. Neither is the name of an overload or an interface
+  method signature, which declares it. A clause that renames a name
+  (`export { load as fetch }`) exports it under another name, which is
+  left out as a default export is. Class methods are left out: their
+  visibility is the class's.
 - **Pass-through wrappers** (`pass-through`, `inline-wrapper`): a function
   whose body is one call, possibly awaited, passing its parameters on in
   order, as is or borrowed. Constructors (`Self(x)`), delegation to a field

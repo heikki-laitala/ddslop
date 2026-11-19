@@ -210,7 +210,7 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 		}
 		p.decls.Reach.Optional = map[string]int{}
 		p.markExported(root)
-		addCommentsAndStrings(p.decls.Reach.Optional, root, src)
+		addNoUses(p.decls.Reach.Optional, root, src)
 		marked = syntax.MarkIgnored(root, src, p.units, &p.decls)
 	})
 	return p.units, p.decls, errors.Join(err, marked)
@@ -262,17 +262,24 @@ func (p *parser) markExported(root *sitter.Node) {
 	}
 }
 
-// addCommentsAndStrings adds the words of the comments and string
-// literals under n, a template string's text but not its substitutions.
-func addCommentsAndStrings(words map[string]int, n *sitter.Node, src []byte) {
+// addNoUses adds the words under n that use no name: those of comments
+// and string literals (a template string's text, not its substitutions)
+// and the names of signatures (an overload, an interface's method),
+// which declare one.
+func addNoUses(words map[string]int, n *sitter.Node, src []byte) {
 	for i := uint(0); i < n.ChildCount(); i++ {
 		child := n.Child(i)
 		switch child.Kind() {
 		case "comment", "string", "string_fragment":
 			source.AddWords(words, child.Utf8Text(src))
 			continue
+		case "function_signature", "method_signature", "abstract_method_signature":
+			// a computed name uses its words: [KEY]() uses KEY
+			if name := child.ChildByFieldName("name"); name != nil && strings.HasSuffix(name.Kind(), "identifier") {
+				source.AddWords(words, name.Utf8Text(src))
+			}
 		}
-		addCommentsAndStrings(words, child, src)
+		addNoUses(words, child, src)
 	}
 }
 

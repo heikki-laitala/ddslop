@@ -320,7 +320,8 @@ pub fn api() {
 // so does a default export, a framework export and a package that is not
 // private. A comment, a string, an export clause and the declaration are
 // no use, so a name an export clause exports is reported too, unless
-// the clause renames it; a class method is called through its class.
+// the clause renames it. Neither is an overload or a method signature;
+// a class method is called through its class.
 func TestCheckReportsTypeScriptExportsOnlyTheirFileUses(t *testing.T) {
 	root := repo(t, map[string]string{
 		"package.json": `{"name": "app", "private": true}`,
@@ -343,6 +344,15 @@ export function listed() {}
 function viaClause() {}
 
 function renamed() {}
+
+export function overloaded(a: string): void;
+export function overloaded(a: unknown) {}
+
+interface Probe {
+  signed(): void;
+}
+
+export function signed() {}
 
 export default function main() {
   helper();
