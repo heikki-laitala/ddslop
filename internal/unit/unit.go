@@ -343,10 +343,10 @@ type Reach struct {
 	// crates reach their items through the file's module.
 	Globs []string
 	// PathModules are the modules the file declares out of line in a
-	// file a #[path] attribute names, each name with that file, as
-	// index.File.Modules names it (wire.rs for #[path = "wire.rs"] mod
-	// wired;).
-	PathModules map[string]string
+	// file a #[path] attribute names, each name with those files (one per
+	// #[cfg]-gated declaration), as index.File.Modules names them (wire.rs
+	// for #[path = "wire.rs"] mod wired;).
+	PathModules map[string][]string
 }
 
 // FieldType is the type of one struct field: Server.store is a

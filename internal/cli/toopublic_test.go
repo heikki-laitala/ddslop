@@ -169,7 +169,9 @@ func TestCheckReportsRustItemsOnlyTheirLibraryModulesUse(t *testing.T) {
 // and with it the modules it declares and those inside them, by a longer
 // path too (pub use shapes::inner::*), from another module too
 // (crate::, super::, or a name imported for one) or an inline module, and
-// a file two #[path]s declare under either name;
+// a file two #[path]s declare under either name, with the modules inside
+// it, each file #[cfg]-gated #[path]s give one name, and a path through
+// the crate's own alias (extern crate self as mycrate);
 // a pub(crate) glob exposes nothing,
 // and nor does another crate's module of a local module's name.
 func TestCheckLeavesRustItemsAGlobReexportsPublic(t *testing.T) {
@@ -233,6 +235,10 @@ pub mod scoped_facade {
         other_fn();
         self_fn();
         shared_fn();
+        nested_shared_fn();
+        imp_unix_fn();
+        imp_other_fn();
+        self_crate_fn();
     }
 }
 mod up_inline;
@@ -246,6 +252,18 @@ mod a_private_mod;
 #[path = "shared.rs"]
 pub mod public_mod;
 pub use public_mod::*;
+
+#[cfg(unix)]
+#[path = "imp_unix.rs"]
+mod imp;
+#[cfg(not(unix))]
+#[path = "imp_other.rs"]
+mod imp;
+pub use imp::*;
+
+extern crate self as mycrate;
+mod self_crate_shapes;
+pub use mycrate::self_crate_shapes::*;
 
 pub mod facade;
 mod far_shapes;
@@ -267,21 +285,25 @@ pub fn api() {
     let _ = INLINE_LIMIT;
 }
 `,
-		"app/src/shapes_file.rs":        "pub mod nested;\n\npub fn file_globbed() {}\n",
-		"app/src/shapes_file/nested.rs": "pub fn nested_fn() {}\n",
-		"app/src/same_name.rs":          "pub fn local_same_name() {}\n",
-		"app/src/wire.rs":               "pub fn wired_fn() {}\n",
-		"app/src/private_glob.rs":       "pub fn crate_globbed() {}\n",
-		"app/src/facade.rs":             "use crate::alias_shapes as aliased;\n\npub use crate::far_shapes::*;\npub use super::up_shapes::*;\npub use aliased::*;\n",
-		"app/src/unix_shapes.rs":        "pub fn unix_fn() {}\n",
-		"app/src/other_shapes.rs":       "pub fn other_fn() {}\n",
-		"app/src/self_shapes.rs":        "pub fn self_fn() {}\n",
-		"app/src/shared.rs":             "pub fn shared_fn() {}\n",
-		"app/src/alias_inline.rs":       "pub fn alias_inline_fn() {}\n",
-		"app/src/up_inline.rs":          "pub fn up_inline_fn() {}\n",
-		"app/src/far_shapes.rs":         "pub fn far_fn() {}\n",
-		"app/src/up_shapes.rs":          "pub fn up_fn() {}\n",
-		"app/src/alias_shapes.rs":       "pub fn alias_fn() {}\n",
+		"app/src/shapes_file.rs":          "pub mod nested;\n\npub fn file_globbed() {}\n",
+		"app/src/shapes_file/nested.rs":   "pub fn nested_fn() {}\n",
+		"app/src/same_name.rs":            "pub fn local_same_name() {}\n",
+		"app/src/wire.rs":                 "pub fn wired_fn() {}\n",
+		"app/src/private_glob.rs":         "pub fn crate_globbed() {}\n",
+		"app/src/facade.rs":               "use crate::alias_shapes as aliased;\n\npub use crate::far_shapes::*;\npub use super::up_shapes::*;\npub use aliased::*;\n",
+		"app/src/unix_shapes.rs":          "pub fn unix_fn() {}\n",
+		"app/src/other_shapes.rs":         "pub fn other_fn() {}\n",
+		"app/src/self_shapes.rs":          "pub fn self_fn() {}\n",
+		"app/src/shared.rs":               "pub mod nested_shared;\n\npub fn shared_fn() {}\n",
+		"app/src/shared/nested_shared.rs": "pub fn nested_shared_fn() {}\n",
+		"app/src/imp_unix.rs":             "pub fn imp_unix_fn() {}\n",
+		"app/src/imp_other.rs":            "pub fn imp_other_fn() {}\n",
+		"app/src/self_crate_shapes.rs":    "pub fn self_crate_fn() {}\n",
+		"app/src/alias_inline.rs":         "pub fn alias_inline_fn() {}\n",
+		"app/src/up_inline.rs":            "pub fn up_inline_fn() {}\n",
+		"app/src/far_shapes.rs":           "pub fn far_fn() {}\n",
+		"app/src/up_shapes.rs":            "pub fn up_fn() {}\n",
+		"app/src/alias_shapes.rs":         "pub fn alias_fn() {}\n",
 	})
 
 	_, stdout, _ := run("check", "--format", "json", root)

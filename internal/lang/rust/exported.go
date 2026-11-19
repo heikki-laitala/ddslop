@@ -37,9 +37,9 @@ func reachOf(root *sitter.Node, file syntax.Source) unit.Reach {
 		if name := item.ChildByFieldName("name"); name != nil && outOfLine {
 			if entry := moduleEntry(name.Utf8Text(file.Src), attrs); entry != name.Utf8Text(file.Src) {
 				if reach.PathModules == nil {
-					reach.PathModules = map[string]string{}
+					reach.PathModules = map[string][]string{}
 				}
-				reach.PathModules[name.Utf8Text(file.Src)] = entry
+				reach.PathModules[name.Utf8Text(file.Src)] = append(reach.PathModules[name.Utf8Text(file.Src)], entry)
 			}
 		}
 		if reach.AllOptional {

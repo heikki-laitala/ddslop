@@ -1233,9 +1233,10 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 		byPath[f.Path] = f
 	}
 	type module struct {
-		path     string
-		segments []string // its module path
-		optional bool
+		path      string
+		segments  []string // its module path
+		optional  bool
+		ancestors []string // the files of the modules it is inside
 	}
 	owner := map[string]*simplify.Library{}
 	for _, f := range files {
@@ -1243,20 +1244,22 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 			continue
 		}
 		lib := &simplify.Library{Words: map[string]int{}, Optional: map[string]int{}, Declared: map[string]int{}, Exposed: map[string]bool{}}
-		tree := map[string]index.File{} // by module path
+		tree := map[string][]index.File{} // by module path: #[cfg]-gated #[path]s may give one several
 		for queue := []module{{path: f.Path}}; len(queue) > 0; queue = queue[1:] {
 			m := queue[0]
 			file, ok := byPath[m.path]
-			if !ok || owner[m.path] != nil && owner[m.path] != lib {
+			if !ok || owner[m.path] != nil && owner[m.path] != lib || slices.Contains(m.ancestors, m.path) {
 				continue
 			}
-			tree[strings.Join(m.segments, "::")] = file // under each name two #[path]s give it
-			if owner[m.path] == lib {
-				continue
-			}
-			owner[m.path] = lib
+			// A file two #[path]s declare is in the tree under each name,
+			// with the modules inside it, but its words count once.
+			tree[strings.Join(m.segments, "::")] = append(tree[strings.Join(m.segments, "::")], file)
 			optional := m.optional || file.Decls.Reach.AllOptional
-			addLibraryWords(root, lib, file, crates.Libraries.PackageOf(file.Path), optional)
+			if owner[m.path] == nil {
+				owner[m.path] = lib
+				addLibraryWords(root, lib, file, crates.Libraries.PackageOf(file.Path), optional)
+			}
+			ancestors := append(slices.Clone(m.ancestors), m.path)
 			dir := moduleDir(file.Path)
 			if m.path == f.Path {
 				dir = filepath.Dir(f.Path) // a crate root's modules sit beside it, whatever its name
@@ -1265,7 +1268,7 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 				for _, path := range moduleFiles(file.Path, dir, name) {
 					for _, declared := range declaredNames(file, name) {
 						segments := append(slices.Clone(m.segments), declared)
-						queue = append(queue, module{path, segments, optional || slices.Contains(file.Decls.Reach.CfgModules, name)})
+						queue = append(queue, module{path, segments, optional || slices.Contains(file.Decls.Reach.CfgModules, name), ancestors})
 					}
 				}
 			}
@@ -1280,8 +1283,8 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 // attribute names the entry, or the name itself.
 func declaredNames(file index.File, entry string) []string {
 	var names []string
-	for name, path := range file.Decls.Reach.PathModules {
-		if path == entry {
+	for name, paths := range file.Decls.Reach.PathModules {
+		if slices.Contains(paths, entry) {
 			names = append(names, name)
 		}
 	}
@@ -1301,21 +1304,34 @@ func declaredNames(file index.File, entry string) []string {
 // whole, and one that leaves the crate's modules (another crate, an
 // enum's variants) exposes nothing. tree is the crate's module files, by
 // module path.
-func addGlobbed(exposed map[string]bool, tree map[string]index.File) {
-	for here, file := range tree {
-		for _, glob := range file.Decls.Reach.Globs {
-			resolved, ok := flow.ResolvePath(glob, here)
-			if !ok {
-				resolved, _ = flow.ResolvePath("self::"+glob, here) // shapes is self::shapes
+func addGlobbed(exposed map[string]bool, tree map[string][]index.File) {
+	aliases := map[string]bool{} // the crate's own names (extern crate self as mycrate)
+	for _, root := range tree[""] {
+		for _, r := range root.References {
+			if r.Item == "extern crate" && r.Path == "crate" {
+				aliases[r.Alias] = true
 			}
-			exposeModule(exposed, tree, resolved)
+		}
+	}
+	for here, files := range tree {
+		for _, file := range files {
+			for _, glob := range file.Decls.Reach.Globs {
+				if first, rest, _ := strings.Cut(glob, "::"); aliases[first] {
+					glob = "crate::" + rest
+				}
+				resolved, ok := flow.ResolvePath(glob, here)
+				if !ok {
+					resolved, _ = flow.ResolvePath("self::"+glob, here) // shapes is self::shapes
+				}
+				exposeModule(exposed, tree, resolved)
+			}
 		}
 	}
 }
 
 // exposeModule adds to exposed the module at a module path, with the
 // modules inside it, or nothing if the crate has no such module.
-func exposeModule(exposed map[string]bool, tree map[string]index.File, module string) {
+func exposeModule(exposed map[string]bool, tree map[string][]index.File, module string) {
 	at := ""
 	for _, segment := range strings.Split(module, "::") {
 		if segment == "" {
@@ -1326,14 +1342,18 @@ func exposeModule(exposed map[string]bool, tree map[string]index.File, module st
 			at = child
 			continue
 		}
-		if file := tree[at]; slices.Contains(file.InlineModules, segment) {
-			exposed[file.Path+"#"+segment] = true
+		for _, file := range tree[at] {
+			if slices.Contains(file.InlineModules, segment) {
+				exposed[file.Path+"#"+segment] = true
+			}
 		}
 		return
 	}
-	for path, file := range tree {
+	for path, files := range tree {
 		if path == at || at == "" || strings.HasPrefix(path, at+"::") {
-			exposed[file.Path] = true
+			for _, file := range files {
+				exposed[file.Path] = true
+			}
 		}
 	}
 }
