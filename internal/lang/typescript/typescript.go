@@ -222,6 +222,8 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 // "./y") lists none of the file's. A default export and a renamed one
 // (export { load as fetch }) are External: other files know the name by
 // another. A clause's words are no use of the names (see unit.Reach).
+// A route option a clause exports is no constant, as when exported
+// directly (see routeOption).
 func (p *parser) markExported(root *sitter.Node) {
 	names, external := map[string]bool{}, map[string]bool{}
 	for i := uint(0); i < root.NamedChildCount(); i++ {
@@ -238,9 +240,12 @@ func (p *parser) markExported(root *sitter.Node) {
 			if clause.Kind() != "export_clause" {
 				continue
 			}
-			source.AddWords(p.decls.Reach.Optional, clause.Utf8Text(p.src))
 			for k := uint(0); k < clause.NamedChildCount(); k++ {
 				spec := clause.NamedChild(k)
+				if spec.Kind() != "export_specifier" {
+					continue // a comment, whose words addNoUses adds
+				}
+				source.AddWords(p.decls.Reach.Optional, spec.Utf8Text(p.src))
 				if name := spec.ChildByFieldName("name"); name != nil {
 					names[name.Utf8Text(p.src)] = true
 					if spec.ChildByFieldName("alias") != nil {
@@ -255,11 +260,16 @@ func (p *parser) markExported(root *sitter.Node) {
 		u.Public = u.Public || names[u.Name]
 		u.External = u.External || external[u.Name] || (u.Public && frameworkExports[u.Name])
 	}
-	for i := range p.decls.Consts {
-		c := &p.decls.Consts[i]
+	consts := p.decls.Consts[:0]
+	for _, c := range p.decls.Consts {
 		c.Public = c.Public || names[c.Name]
+		if c.Public && p.routeOption(c.Name) {
+			continue // the route's config, as an export const of it is
+		}
 		c.External = c.External || external[c.Name]
+		consts = append(consts, c)
 	}
+	p.decls.Consts = consts
 }
 
 // addNoUses adds the words under n that use no name: those of comments
