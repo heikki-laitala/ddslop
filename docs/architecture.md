@@ -1081,13 +1081,16 @@ flattened, the other half of cleaning up generated code:
   file of another crate, of the package's other targets (a binary, the
   manifest's `[[bin]]` under `src/` included, an integration test under
   `tests/`, a bench or an example, crates of their own that see only the
-  public API), or of another language. So does a documentation example
-  (a code block in a `///` or `//!` comment, which rustdoc compiles as a
-  crate of its own), and a file exporting a macro (`#[macro_export]`,
-  expanded in the crates that call it). Nor is a function its crate re-exports with a plain `pub use`
+  public API), or of another language. So does a documentation example,
+  which rustdoc compiles as a crate of its own: a code block of a doc
+  comment (`///`, `//!`, `/** */`, `/*! */`) or of a file a doc attribute
+  includes (`#![doc = include_str!("../README.md")]`); and a file
+  exporting a macro (`#[macro_export]`, expanded in the crates that call
+  it). Nor is a function its crate re-exports with a plain `pub use`
   reported: by name, under any alias (`pub use inner::helper as h`), or
-  with the module, file or inline, a glob re-exports (`pub use
-  inner::*`); a `pub(crate) use` exposes nothing, so it does not count.
+  with the module a glob re-exports (`pub use inner::*`): its file, its
+  inline module, or the file a `#[path]` attribute gives it; a
+  `pub(crate) use` exposes nothing, so it does not count.
   Trait methods, `#[no_mangle]` and similar
   functions, test code and dead code are left out. On a workspace of
   about 30 crates (where `dead-code` found 6 functions), 491 candidates;

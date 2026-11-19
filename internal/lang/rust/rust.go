@@ -1968,28 +1968,80 @@ func TopReexports(src []byte) map[string]string {
 }
 
 // DoctestWords returns the words of a file's documentation examples:
-// the code blocks of its doc comments (/// and //!), which rustdoc
-// compiles as crates of their own, so a name they mention is used from
-// outside the file's crate.
-func DoctestWords(src []byte) map[string]bool {
+// the code blocks of its doc comments, line (/// and //!) and block (/**
+// */ and /*! */), and of the files its doc attributes include (doc =
+// include_str!("../README.md"), read with read, relative to the file's
+// directory). rustdoc compiles each as a crate of its own, so a name they
+// mention is used from outside the file's crate.
+func DoctestWords(src []byte, read func(file string) []byte) map[string]bool {
 	out := map[string]bool{}
-	inBlock := false
-	for _, line := range strings.Split(string(src), "\n") {
-		text, doc := strings.CutPrefix(strings.TrimSpace(line), "///")
-		if !doc {
-			text, doc = strings.CutPrefix(strings.TrimSpace(line), "//!")
-		}
-		switch text = strings.TrimSpace(text); {
+	inCode := false
+	text := func(line string, doc bool) {
+		switch line = strings.TrimSpace(line); {
 		case !doc:
-			inBlock = false
-		case strings.HasPrefix(text, "```"):
-			inBlock = !inBlock
-		case inBlock:
-			for w := range source.Words([]byte(text)) {
+			inCode = false
+		case strings.HasPrefix(line, "```"):
+			inCode = !inCode
+		case inCode:
+			for w := range source.Words([]byte(line)) {
 				out[w] = true
 			}
 		}
 	}
+	inBlock := false
+	for _, line := range strings.Split(string(src), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if inBlock {
+			body, closed := strings.CutSuffix(trimmed, "*/")
+			text(strings.TrimPrefix(body, "*"), true)
+			if closed {
+				inBlock = false
+				text("", false)
+			}
+			continue
+		}
+		if m := includedDoc.FindStringSubmatch(trimmed); m != nil {
+			for _, l := range strings.Split(string(read(m[1])), "\n") {
+				text(l, true)
+			}
+			text("", false)
+			continue
+		}
+		after, line := strings.CutPrefix(trimmed, "///")
+		if !line {
+			after, line = strings.CutPrefix(trimmed, "//!")
+		}
+		block := strings.HasPrefix(trimmed, "/**") || strings.HasPrefix(trimmed, "/*!")
+		switch {
+		case line:
+			text(after, true)
+		case block && !strings.HasSuffix(trimmed, "*/"):
+			inBlock = true
+			text(trimmed[3:], true)
+		default:
+			text("", false)
+		}
+	}
+	return out
+}
+
+// includedDoc matches a doc attribute including a file, capturing it:
+// #![doc = include_str!("../README.md")].
+var includedDoc = regexp.MustCompile(`doc\s*=\s*include_str!\(\s*"([^"]+)"\s*\)`)
+
+// PathModules returns the modules a file declares out of line in a file a
+// #[path] attribute names (#[path = "wire.rs"] mod shapes;): each one's
+// name, with that file.
+func PathModules(src []byte) map[string]string {
+	out := map[string]string{}
+	topModules(src, false, func(name string, attrs []string) string {
+		for _, attr := range attrs {
+			if file, ok := pathAttribute(attr); ok {
+				out[name] = file
+			}
+		}
+		return name
+	})
 	return out
 }
 

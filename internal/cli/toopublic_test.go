@@ -12,7 +12,7 @@ import (
 // names can be pub(crate). Another crate's mention keeps it pub, as do
 // the crate's own integration tests and binaries (crates of their own),
 // a pub use re-exporting it, under its name or another, or its module
-// (file or inline) whole, and a #[macro_export] macro naming it; a
+// (file, inline or #[path]) whole, and a #[macro_export] macro naming it; a
 // pub(crate) use exposes nothing; a doctest and a binary the manifest
 // places under src/ are crates of their own too; a trait
 // method and a function nothing names (dead-code) are not reported.
@@ -20,8 +20,9 @@ func TestCheckReportsPublicFunctionsOnlyTheirCrateUses(t *testing.T) {
 	root := repo(t, map[string]string{
 		"Cargo.toml":              "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\npublish = false\n",
 		"crates/util/Cargo.toml":  "[package]\nname = \"util\"\npublish.workspace = true\n\n[[bin]]\nname = \"tool\"\npath = \"src/tool.rs\"\n",
+		"crates/util/src/wire.rs": "pub fn wired_fn() -> u32 {\n    7\n}\n\nfn wire_user() -> u32 {\n    wired_fn()\n}\n",
 		"crates/util/src/tool.rs": "fn main() {\n    println!(\"{}\", util::tool_helper());\n}\n",
-		"crates/util/src/lib.rs": "mod inner;\nmod macros;\npub use inner::reexported_helper;\npub use inner::aliased as public_alias;\npub(crate) use inner::crate_reexport;\npub use shapes::*;\n\n" +
+		"crates/util/src/lib.rs": "mod inner;\nmod macros;\npub use inner::reexported_helper;\npub use inner::aliased as public_alias;\npub(crate) use inner::crate_reexport;\npub use shapes::*;\n#[path = \"wire.rs\"]\nmod wired;\npub use wired::*;\n\n" +
 			"mod shapes {\n    pub fn inline_globbed() -> u32 {\n        2\n    }\n}\n\n" +
 			"pub fn only_inside(text: &str) -> String {\n    text.trim().to_owned()\n}\n\n" +
 			"fn caller(text: &str) -> String {\n    only_inside(text) + &crate_only(text) + &tested(text) + &binary_use(text)\n}\n\n" +
@@ -52,9 +53,9 @@ func TestCheckReportsPublicFunctionsOnlyTheirCrateUses(t *testing.T) {
 		}
 	}
 	want := []string{
-		"dead-code delete-dead crates/util/src/lib.rs:38 never_named",
+		"dead-code delete-dead crates/util/src/lib.rs:41 never_named",
 		"too-public narrow-visibility crates/util/src/inner.rs:9 crate_reexport",
-		"too-public narrow-visibility crates/util/src/lib.rs:14 only_inside",
+		"too-public narrow-visibility crates/util/src/lib.rs:17 only_inside",
 	}
 	slices.Sort(got)
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {

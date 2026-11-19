@@ -365,3 +365,32 @@ mod production;
 		t.Errorf("TestModules = %s, want [real_ledger fixture]", got)
 	}
 }
+
+// A documentation example is a code block of a doc comment, line (///,
+// //!) or block (/** */, /*! */), or of a file a doc attribute includes
+// (#![doc = include_str!("../README.md")]); text outside a code block, and
+// code outside documentation, is none.
+func TestDoctestWordsAreThoseOfDocumentationExamples(t *testing.T) {
+	src := "#![doc = include_str!(\"../README.md\")]\n" +
+		"//! ```\n//! module_example();\n//! ```\n" +
+		"/// Says hi; see_also is prose.\n/// ```\n/// line_example();\n/// ```\nfn f() { not_docs(); }\n" +
+		"/**\n * ```\n * block_example();\n * ```\n */\nfn g() {}\n" +
+		"/*!\n```\ninner_block_example();\n```\n*/\n"
+	readme := "# Crate\n\n```rust\nreadme_example();\n```\n\nprose_word\n"
+	got := DoctestWords([]byte(src), func(file string) []byte {
+		if file == "../README.md" {
+			return []byte(readme)
+		}
+		return nil
+	})
+	for _, w := range []string{"module_example", "line_example", "block_example", "inner_block_example", "readme_example"} {
+		if !got[w] {
+			t.Errorf("DoctestWords misses %s", w)
+		}
+	}
+	for _, w := range []string{"see_also", "not_docs", "prose_word"} {
+		if got[w] {
+			t.Errorf("DoctestWords has %s, which is no example's", w)
+		}
+	}
+}

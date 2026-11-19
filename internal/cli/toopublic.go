@@ -17,11 +17,11 @@ import (
 // their own library names (see simplify.TooPublic). A name's mentions are
 // the words of every analysed file: a file of another crate, of the
 // package's other targets (a binary, an integration test, an example),
-// or of another language is outside the library. A file exporting a macro
-// (#[macro_export], expanded in other crates) exposes every name it
-// mentions, and its documentation examples (see rust.DoctestWords), crates
-// of their own, the names they mention. A crate exports what its plain pub uses re-export (see
-// reexported), which a pub(crate) use cannot.
+// or of another language is outside the library. A library file exposes
+// the names its documentation examples mention (see rust.DoctestWords),
+// crates of their own, and every name it mentions when it exports a macro
+// (#[macro_export], expanded in other crates). A crate exports what its
+// plain pub uses re-export (see exports), which a pub(crate) use cannot.
 func tooPublic(root string, units []unit.Unit, files []index.File, crates *codemap.Packages, internal func(file string) bool) []unit.Unit {
 	libraries := libraryCrates(files, crates)
 	crateOf := func(file string) string {
@@ -37,11 +37,16 @@ func tooPublic(root string, units []unit.Unit, files []index.File, crates *codem
 		}
 	}
 	mentions := map[string][]simplify.Mention{}
+	exported := exports{}
 	for _, f := range files {
 		crate, macros := crateOf(f.Path), f.Words["macro_export"] > 0
 		var doctests map[string]bool
 		if crate != "" {
-			doctests = rust.DoctestWords(readFile(root, f.Path))
+			src := readFile(root, f.Path)
+			doctests = rust.DoctestWords(src, func(included string) []byte {
+				return readFile(root, path.Join(path.Dir(f.Path), included))
+			})
+			exported.add(crate, f, src)
 		}
 		for name := range names {
 			if n := f.Words[name]; n > 0 {
@@ -49,35 +54,65 @@ func tooPublic(root string, units []unit.Unit, files []index.File, crates *codem
 			}
 		}
 	}
-	exported := reexported(root, files, crateOf)
 	return simplify.TooPublic(units, mentions, crateOf, internal, func(u unit.Unit) bool {
-		crate := crateOf(u.File)
-		return exported[crate+"\x00"+simplify.ShortName(u.Name)] || exported[crate+"\x00*"+fileModule(u.File)] ||
-			u.Module != "" && exported[crate+"\x00*"+simplify.ShortName(u.Module)]
+		return exported.of(crateOf(u.File), u)
 	})
 }
 
-// reexported returns, by crate + "\x00" + name, what each crate's plain
-// pub uses re-export (see rust.PublicReexports): the item each names, its
-// last segment, whatever alias it takes (pub use inner::helper as h), and
-// "*" + the module a glob re-exports whole (pub use inner::*). Only the
-// files with visible uses are read again.
-func reexported(root string, files []index.File, crateOf func(file string) string) map[string]bool {
-	out := map[string]bool{}
-	for _, f := range files {
-		crate := crateOf(f.Path)
-		if crate == "" || len(f.TopReexports) == 0 {
-			continue
-		}
-		for name, target := range rust.PublicReexports(readFile(root, f.Path)) {
-			if strings.HasPrefix(name, "*") {
-				out[crate+"\x00*"+simplify.ShortName(target)] = true
-			} else {
-				out[crate+"\x00"+simplify.ShortName(target)] = true
-			}
+// exports are what each crate's plain pub uses re-export (see
+// rust.PublicReexports), by crate: the item each names, its last segment,
+// whatever alias it takes (pub use inner::helper as h), and the modules
+// globs re-export whole (pub use inner::*), with the declared names of
+// the modules #[path] attributes place in other files.
+type exports map[string]*crateExports
+
+// crateExports are one crate's exports (see exports).
+type crateExports struct {
+	items, globs map[string]bool
+	paths        map[string]string // module declared with #[path] -> its file's module name
+}
+
+// add records what a file of a crate re-exports, and the modules it
+// declares with #[path].
+func (e exports) add(crate string, f index.File, src []byte) {
+	c := e[crate]
+	if c == nil {
+		c = &crateExports{items: map[string]bool{}, globs: map[string]bool{}, paths: map[string]string{}}
+		e[crate] = c
+	}
+	for name, file := range rust.PathModules(src) {
+		c.paths[name] = fileModule(path.Join(path.Dir(f.Path), file))
+	}
+	if len(f.TopReexports) == 0 {
+		return
+	}
+	for name, target := range rust.PublicReexports(src) {
+		if strings.HasPrefix(name, "*") {
+			c.globs[simplify.ShortName(target)] = true
+		} else {
+			c.items[simplify.ShortName(target)] = true
 		}
 	}
-	return out
+}
+
+// of reports whether a crate re-exports a unit: by its name, or its
+// module whole, the module its file is (by its name, or the one a #[path]
+// declaration gives it) or the inline module it is in.
+func (e exports) of(crate string, u unit.Unit) bool {
+	c := e[crate]
+	if c == nil {
+		return false
+	}
+	if c.items[simplify.ShortName(u.Name)] || u.Module != "" && c.globs[simplify.ShortName(u.Module)] {
+		return true
+	}
+	module := fileModule(u.File)
+	for glob := range c.globs {
+		if glob == module || c.paths[glob] == module {
+			return true
+		}
+	}
+	return false
 }
 
 // readFile returns a file under the analysed root, or nothing when it
