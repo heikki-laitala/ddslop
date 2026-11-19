@@ -1224,9 +1224,12 @@ func tooPublic(units []unit.Unit, consts []unit.Const, words map[string]int, lib
 }
 
 // libraryWords returns, for a Rust file in the library of an unpublished
-// crate, the words of that library's files (see simplify.Library); for
-// any other file, nil. A library's files are its root file's module tree:
-// a binary's modules beside them are not.
+// crate, or a Go file of an internal package (see golang.Internal), the
+// words of that library's files (see simplify.Library); for any other
+// file, nil. A Rust library's files are its root file's module tree: a
+// binary's modules beside them are not. A Go package's are its
+// directory's files but those of its external tests (package text_test),
+// a package of their own.
 func libraryWords(root string, files []index.File, crates *codemap.Packages, internal func(file string) bool) func(file string) *simplify.Library {
 	byPath := map[string]index.File{}
 	for _, f := range files {
@@ -1274,6 +1277,20 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 			}
 		}
 		addGlobbed(lib.Exposed, tree)
+	}
+	packageLibs := map[string]*simplify.Library{} // Go package directory -> its library
+	for _, f := range files {
+		if languageOf(f.Path) != "go" || !internal(f.Path) || strings.HasSuffix(f.Decls.Package, "_test") {
+			continue
+		}
+		dir := filepath.Dir(f.Path)
+		lib := packageLibs[dir]
+		if lib == nil {
+			lib = &simplify.Library{Words: map[string]int{}, Optional: map[string]int{}, Declared: map[string]int{}}
+			packageLibs[dir] = lib
+		}
+		owner[f.Path] = lib
+		addLibraryWords(root, lib, f, "", f.Decls.Reach.AllOptional)
 	}
 	return func(file string) *simplify.Library { return owner[file] }
 }
@@ -1949,6 +1966,7 @@ func parseSource(file syntax.Source) (index.Parsed, error) {
 	switch language {
 	case "go":
 		parsed.Units, parsed.Decls, err = golang.Parse(path, src)
+		parsed.Decls.Reach = golang.Reach(path, src)
 		parsed.Imports = golang.Imports(src)
 	case "typescript":
 		parsed.Units, parsed.Decls, err = typescript.Parse(path, src)

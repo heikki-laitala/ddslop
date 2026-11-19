@@ -255,6 +255,11 @@ What to do per `kind`:
   uses: no other crate, test, binary, doc test, exported macro or
   `pub use` names it. Make it `pub(crate)`, then run `cargo check`,
   `cargo clippy` and `cargo test --doc`; revert it if any of them fails.
+  In Go, an exported function or constant of a package under `internal/`
+  or of `package main` that only its own package uses: unexport it,
+  under a name the package does not already declare (`PriceUSDC` beside a
+  `priceUSDC` variable needs another), then run `go build`, `go vet` and
+  `go test`.
 - `pass-through` (`inline-wrapper`): the function only passes its
   parameters to the `target`. Call the target directly and delete the
   wrapper, or rename the target if the wrapper's name is better. Keep

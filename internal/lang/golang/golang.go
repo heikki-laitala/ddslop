@@ -15,6 +15,7 @@ import (
 
 	"github.com/heikki-laitala/ddslop/internal/lang/syntax"
 	"github.com/heikki-laitala/ddslop/internal/similarity"
+	"github.com/heikki-laitala/ddslop/internal/source"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
@@ -667,6 +668,12 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 		}
 		marked = syntax.MarkIgnored(root, src, units, &decls)
 	})
+	linked := linkedNames(src)
+	for i, u := range units {
+		if !u.Dispatched && linked[u.Name] {
+			units[i].External = true // //export, //go:linkname: called from outside the Go source
+		}
+	}
 	return units, decls, errors.Join(err, marked)
 }
 
@@ -724,11 +731,92 @@ func function(n *sitter.Node, path string, src []byte, test bool, packages map[s
 		StringMatches: s.Matches,
 		// Exported names are public; methods may satisfy an interface
 		// without being named; main and init are called by the runtime.
-		Public:     short != "" && short[0] >= 'A' && short[0] <= 'Z',
+		Public:     exported(short),
 		Dispatched: owner != "",
 		External:   owner == "" && (short == "main" || short == "init"),
 	}, true
 }
+
+// exported reports whether a Go name is exported: it starts with an upper
+// case letter.
+func exported(name string) bool {
+	r, _ := utf8.DecodeRuneInString(name)
+	return unicode.IsUpper(r)
+}
+
+// linkedNames returns the names a file's cgo export comments (//export
+// Name) and linkname directives (//go:linkname name target) give code
+// outside the Go source: a function of one is called by its name.
+func linkedNames(src []byte) map[string]bool {
+	out := map[string]bool{}
+	for _, line := range strings.Split(string(src), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && (fields[0] == "//export" || fields[0] == "//go:linkname") {
+			out[fields[1]] = true
+		}
+	}
+	return out
+}
+
+// Reach returns where a Go file's words reach (see unit.Reach): the words
+// outside the code every build compiles, those of its comments, or all of
+// a test file's or of one with build constraints (see constrained).
+func Reach(path string, src []byte) unit.Reach {
+	if IsTestPath(path) || constrained(path, src) {
+		return unit.Reach{AllOptional: true}
+	}
+	out := map[string]int{}
+	_ = syntax.Parse(language, src, func(root *sitter.Node) {
+		var walk func(n *sitter.Node)
+		walk = func(n *sitter.Node) {
+			if n.Kind() == "comment" {
+				for w, k := range source.Words([]byte(n.Utf8Text(src))) {
+					out[w] += k
+				}
+				return
+			}
+			for i := uint(0); i < n.ChildCount(); i++ {
+				walk(n.Child(i))
+			}
+		}
+		walk(root)
+	})
+	return unit.Reach{Optional: out}
+}
+
+// constrained reports whether some builds leave a Go file out: a build
+// constraint (//go:build, // +build) before its package clause, or an
+// operating system or architecture its name ends in (file_linux.go,
+// file_windows_amd64.go).
+func constrained(path string, src []byte) bool {
+	for _, line := range strings.Split(string(src), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "package ") {
+			break
+		}
+		if strings.HasPrefix(line, "//go:build") || strings.HasPrefix(line, "// +build") {
+			return true
+		}
+	}
+	parts := strings.Split(strings.TrimSuffix(filepath.Base(path), ".go"), "_")
+	for _, part := range parts[1:] {
+		if goOS[part] || goArch[part] {
+			return true
+		}
+	}
+	return false
+}
+
+// goOS and goArch are the operating systems and architectures a Go file
+// name may end in, as the go tool reads it.
+var (
+	goOS = map[string]bool{"aix": true, "android": true, "darwin": true, "dragonfly": true, "freebsd": true, "hurd": true,
+		"illumos": true, "ios": true, "js": true, "linux": true, "nacl": true, "netbsd": true, "openbsd": true, "plan9": true,
+		"solaris": true, "wasip1": true, "windows": true, "zos": true}
+	goArch = map[string]bool{"386": true, "amd64": true, "arm": true, "arm64": true, "loong64": true, "mips": true,
+		"mipsle": true, "mips64": true, "mips64le": true, "ppc64": true, "ppc64le": true, "riscv64": true, "s390x": true,
+		"sparc64": true, "wasm": true}
+)
 
 // fieldNodes returns n's named children under a field name, in order: a
 // const spec or struct field can declare several names. The commas between
@@ -769,7 +857,7 @@ func constants(n *sitter.Node, path string, src []byte, test bool) []unit.Const 
 			}
 			out = append(out, unit.Const{
 				File: path, Name: name.Utf8Text(src), Value: text, Line: syntax.Line(spec.StartPosition()),
-				Nodes: syntax.CountNodes(v), Literal: literal, Test: test,
+				Nodes: syntax.CountNodes(v), Literal: literal, Public: exported(name.Utf8Text(src)), Test: test,
 			})
 		}
 	}

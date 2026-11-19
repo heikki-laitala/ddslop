@@ -123,21 +123,10 @@ func Helper() int { return 1 }
 		"pkg/api/api.go": "package api\n\nfunc PublicAPI() int { return 1 }\n",
 	})
 
-	_, stdout, stderr := run("check", "--format", "json", root)
-
-	var got []string
-	for _, c := range decode(t, stdout).Candidates {
-		if c.Kind == "dead-code" {
-			got = append(got, filepath.ToSlash(c.Occurrences[0].File)+" "+c.Occurrences[0].Name)
-		}
-	}
-	slices.Sort(got) // ranked by size; compare as a set
 	// Under internal/ and in package main, an exported name nobody mentions
 	// is unused. A method may satisfy an interface (ServeHTTP), main is
 	// called by the runtime, and pkg/ is importable from outside.
-	if want := "cmd/app/main.go Helper\ninternal/text/text.go CompactBlocks"; strings.Join(got, "\n") != want {
-		t.Errorf("dead code:\n%s\nwant:\n%s\nstderr: %s", strings.Join(got, "\n"), want, stderr)
-	}
+	wantCandidatesOf(t, root, "dead-code", "cmd/app/main.go Helper", "internal/text/text.go CompactBlocks")
 }
 
 func TestCheckReportsGoWrappers(t *testing.T) {
@@ -182,5 +171,82 @@ func inNamespace(principal string, tokenID int) bool {
 	}
 	if !found {
 		t.Errorf("want visible reported as a wrapper of inNamespace:\n%s", stdout)
+	}
+}
+
+// An exported name of an internal package (under internal/, or package
+// main) that only its own package uses can be unexported. A use from
+// another package keeps it exported, its external tests' (package
+// text_test) included; so do a name only some builds use besides (the
+// package's own tests, a file with build constraints), one only a comment
+// names, a function cgo exports (//export) and a method, which may
+// satisfy an interface. pkg/ is importable from outside.
+func TestCheckReportsExportedGoNamesOnlyTheirPackageUses(t *testing.T) {
+	root := repo(t, map[string]string{
+		"go.mod": "module example.com/app\n",
+		"internal/text/text.go": `package text
+
+import "C"
+
+const MaxItems = 3
+
+func OnlyInside(s string) string { return s }
+
+func UsedOutside(s string) string { return s }
+
+func TestedOutside(s string) string { return s }
+
+func OnlyInTests(s string) string { return s }
+
+func LinuxOnly(s string) string { return s }
+
+// CommentOnly is named here.
+func CommentOnly(s string) string { return s }
+
+//export CgoName
+func CgoName() {}
+
+type Store struct{}
+
+func (s *Store) Reset() {}
+
+func caller(s *Store) string {
+	s.Reset()
+	CgoName()
+	return OnlyInside(s.name()) + UsedOutside("") + TestedOutside("") + string(rune(MaxItems))
+}
+`,
+		"internal/text/text_linux.go":         "package text\n\nfunc linux() string { return LinuxOnly(\"\") }\n",
+		"internal/text/text_internal_test.go": "package text\n\nimport \"testing\"\n\nfunc TestOnly(t *testing.T) { OnlyInTests(\"\") }\n",
+		"internal/text/text_test.go":          "package text_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/app/internal/text\"\n)\n\nfunc TestOutside(t *testing.T) { text.TestedOutside(\"\") }\n",
+		"cmd/app/main.go": `package main
+
+import "example.com/app/internal/text"
+
+func main() { println(text.UsedOutside(""), Helper()) }
+
+func Helper() int { return 1 }
+`,
+		"pkg/api/api.go": "package api\n\nfunc PublicAPI() int { return publicHelper() }\n\nfunc publicHelper() int { return PublicAPI() }\n",
+	})
+
+	wantCandidatesOf(t, root, "too-public", "cmd/app/main.go Helper", "internal/text/text.go MaxItems", "internal/text/text.go OnlyInside")
+}
+
+// wantCandidatesOf runs check on root and fails the test unless the
+// candidates of one kind are want, each "file name" of its first
+// occurrence, compared as a set: candidates are ranked by size.
+func wantCandidatesOf(t *testing.T, root, kind string, want ...string) {
+	t.Helper()
+	_, stdout, stderr := run("check", "--format", "json", root)
+	var got []string
+	for _, c := range decode(t, stdout).Candidates {
+		if c.Kind == kind {
+			got = append(got, filepath.ToSlash(c.Occurrences[0].File)+" "+c.Occurrences[0].Name)
+		}
+	}
+	slices.Sort(got)
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("%s:\n%s\nwant:\n%s\nstderr: %s", kind, strings.Join(got, "\n"), strings.Join(want, "\n"), stderr)
 	}
 }

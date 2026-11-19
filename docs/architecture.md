@@ -1106,8 +1106,24 @@ flattened, the other half of cleaning up generated code:
   outside the source are left out as for dead code (an impl block's
   attributes count too: `#[wasm_bindgen] impl`), and so are crates without
   a library (a binary's `pub` items are never seen outside it). Associated
-  constants are left out. Rust only, and no types: a type must stay `pub`
-  while a `pub` signature names it.
+  constants are left out. No types: a type must stay `pub` while a `pub`
+  signature names it.
+  In Go, the library is a package that serves only the analysed code, as
+  for dead code (under `internal/`, or `package main`): its directory's
+  files, but not those of its external tests (`package text_test`), a
+  package of their own whose use keeps a name exported. An exported
+  function or constant only its own package names can be unexported. The
+  words of its comments, of its own tests (`_test.go`) and of files with
+  build constraints (`//go:build`, a `_linux` or `_amd64` file name) are
+  optional (`golang.Reach`), so a name only they use besides is not
+  reported, and a declaration is no use, as in Rust. Methods are left
+  out, as they may satisfy an interface, and so are functions code
+  outside the Go source calls by name (a cgo `//export`, a
+  `//go:linkname`). Unexporting is a rename: the lower case name may
+  already be taken (`PriceUSDC` beside a `priceUSDC` map), and another is
+  then needed. On a 100-file Go service, 12 candidates; unexporting all
+  of them (one under another name) built, vetted and compiled the tests
+  cleanly. On ddslop itself, 7, which it unexports.
 - **Pass-through wrappers** (`pass-through`, `inline-wrapper`): a function
   whose body is one call, possibly awaited, passing its parameters on in
   order, as is or borrowed. Constructors (`Self(x)`), delegation to a field
