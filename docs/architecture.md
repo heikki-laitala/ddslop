@@ -1089,19 +1089,20 @@ flattened, the other half of cleaning up generated code:
   blocks, fenced or indented, of `///` and `//!` lines, of `/** */` and
   `/*! */` comments, of `#[doc = "..."]` attributes and of the files a
   `#[doc = include_str!(...)]` attribute includes, such as a README. Of
-  the library's words, at least one besides the declaration must be in
-  code every build compiles: not in a comment, a string literal, a test,
-  an item under a `#[cfg]`, a file under a `#![cfg]` or the file of a
-  module declared under a `#[cfg]` or a `#[cfg_attr(..., path = ...)]`
-  (`unit.Reach`); otherwise `pub(crate)` would make the compiler report
-  the item unused in some builds, as `pub` does not. A module the walk
-  cannot place, such as one declared in an inline module, counts as
-  outside. Trait methods and functions called from outside the source are
-  left out as for dead code (an impl block's attributes count too:
-  `#[wasm_bindgen] impl`), and so are crates without a library (a binary's
-  `pub` items are never seen outside it). Associated constants are left
-  out. Rust only, and no types: a type must stay `pub` while a `pub`
-  signature names it.
+  the library's words, at least one must use the name in code every build
+  compiles: not in a comment, a string literal, a test, an item under a
+  `#[cfg]`, a file under a `#![cfg]` or the file of a module declared
+  under a `#[cfg]` or a `#[cfg_attr(..., path = ...)]` (`unit.Reach`);
+  otherwise `pub(crate)` would make the compiler report the item unused in
+  some builds, as `pub` does not. A declaration is no use either: two
+  modules may each declare a constant of the name, or two types a method.
+  A module the walk cannot place, such as one declared in an inline
+  module, counts as outside. Trait methods and functions called from
+  outside the source are left out as for dead code (an impl block's
+  attributes count too: `#[wasm_bindgen] impl`), and so are crates without
+  a library (a binary's `pub` items are never seen outside it). Associated
+  constants are left out. Rust only, and no types: a type must stay `pub`
+  while a `pub` signature names it.
 - **Pass-through wrappers** (`pass-through`, `inline-wrapper`): a function
   whose body is one call, possibly awaited, passing its parameters on in
   order, as is or borrowed. Constructors (`Self(x)`), delegation to a field

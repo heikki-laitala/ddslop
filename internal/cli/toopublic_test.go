@@ -13,7 +13,8 @@ import (
 // So do an item read from outside the source (#[no_mangle]), one only
 // some builds use (the library's tests, code under a #[cfg] or
 // #![cfg]), one only a comment names besides, one of a published crate
-// and one of a crate with no library.
+// and one of a crate with no library. A name two items declare is no use
+// of either.
 func TestCheckReportsRustItemsOnlyTheirCrateUses(t *testing.T) {
 	root := repo(t, map[string]string{
 		"Cargo.toml":             "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\npublish = false\n",
@@ -85,6 +86,13 @@ pub fn linked() {}
 
 pub const LIMIT: u32 = 3;
 
+pub const SCRIPT: &str = "lib";
+
+#[cfg(test)]
+fn script() -> &'static str {
+    SCRIPT
+}
+
 pub static SHOWN: &str = "cli";
 
 #[no_mangle]
@@ -96,12 +104,15 @@ mod tests {
     fn works() {
         super::only_tested();
     }
+
+    #[test]
+    fn helper() {}
 }
 
 #[no_mangle]
 pub extern "C" fn ffi() {}
 `,
-		"crates/util/src/text.rs":      "#![doc = include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/GUIDE.md\"))]\n\npub fn gen_reexported() {}\n\npub fn reexported() {}\n\npub fn run(s: &crate::Store) {\n    s.reset();\n    crate::helper();\n    crate::tested();\n    crate::documented();\n    crate::by_macro();\n    crate::readme_helper();\n    crate::guide_helper();\n    crate::narrow();\n    crate::ffi();\n    gen_reexported();\n    reexported();\n    let _ = (crate::LIMIT, crate::EXPORTED);\n}\n",
+		"crates/util/src/text.rs":      "#![doc = include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/GUIDE.md\"))]\n\npub const SCRIPT: &str = \"text\";\n\n#[cfg(test)]\nfn script() -> &'static str {\n    SCRIPT\n}\n\npub fn gen_reexported() {}\n\npub fn reexported() {}\n\npub fn run(s: &crate::Store) {\n    s.reset();\n    crate::helper();\n    crate::tested();\n    crate::documented();\n    crate::by_macro();\n    crate::readme_helper();\n    crate::guide_helper();\n    crate::narrow();\n    crate::ffi();\n    gen_reexported();\n    reexported();\n    let _ = (crate::LIMIT, crate::EXPORTED);\n}\n",
 		"crates/util/src/real.rs":      "fn start() {\n    crate::mac_only();\n}\n",
 		"crates/util/src/gated.rs":     "#![cfg(windows)]\n\nfn start() {\n    crate::gated_only();\n}\n",
 		"crates/util/src/sys/imp.rs":   "fn start() {\n    crate::unix_only();\n}\n",

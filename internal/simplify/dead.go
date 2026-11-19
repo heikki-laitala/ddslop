@@ -24,15 +24,21 @@ func Dead(units []unit.Unit, words map[string]int, internal func(file string) bo
 	return dead
 }
 
-// publicName returns the name a function is called by, the last part of
-// its own as the words count it (Store::reset is called reset, r#type
-// type), and whether it is public API the words can judge. Private
-// functions are left to the compiler, which already reports them unused;
-// trait methods are called through the trait, External functions from
-// outside the source, and test code is no API.
+// publicName returns the name a function is called by (see CalledName),
+// and whether it is public API the words can judge. Private functions are
+// left to the compiler, which already reports them unused; trait methods
+// are called through the trait, External functions from outside the
+// source, and test code is no API.
 func publicName(u unit.Unit) (string, bool) {
 	if !u.Public || u.External || u.ViaInterface() || u.Test {
 		return "", false
 	}
-	return strings.TrimPrefix(u.Name[strings.LastIndex(u.Name, ":")+1:], "r#"), true
+	return CalledName(u.Name), true
+}
+
+// CalledName returns the name code calls or reads an item by, as the words
+// count it: the last part of its own, without r# (Store::reset is called
+// reset, r#type type).
+func CalledName(name string) string {
+	return strings.TrimPrefix(name[strings.LastIndex(name, ":")+1:], "r#")
 }

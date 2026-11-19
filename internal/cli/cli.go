@@ -1265,7 +1265,7 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 		if _, rel := codemap.CratePath(f.Path, crates); rel != "lib.rs" || languageOf(f.Path) != "rust" || !internal(f.Path) {
 			continue
 		}
-		lib := &simplify.Library{Words: map[string]int{}, Optional: map[string]int{}}
+		lib := &simplify.Library{Words: map[string]int{}, Optional: map[string]int{}, Declared: map[string]int{}}
 		for queue := []module{{path: f.Path}}; len(queue) > 0; queue = queue[1:] {
 			m := queue[0]
 			file, ok := byPath[m.path]
@@ -1308,12 +1308,47 @@ func addLibraryWords(root string, lib *simplify.Library, f index.File, packageDi
 			subtractDocTests(root, lib, filepath.Join(packageDir, doc))
 		}
 	}
+	if !optional {
+		addDeclared(lib.Declared, f) // an optional file's are among its optional words
+	}
 	optionalWords := f.Decls.Reach.Optional
 	if optional {
 		optionalWords = f.Words
 	}
 	for w, n := range optionalWords {
 		lib.Optional[w] += n
+	}
+}
+
+// addDeclared counts the names of the items a file declares outside test
+// code, whose words are optional already: functions, methods, constants,
+// statics, struct fields and enum variants.
+func addDeclared(declared map[string]int, f index.File) {
+	for _, u := range f.Units {
+		if !u.Test {
+			declared[simplify.CalledName(u.Name)]++
+		}
+	}
+	for _, c := range f.Decls.Consts {
+		if !c.Test {
+			declared[simplify.CalledName(c.Name)]++
+		}
+	}
+	for _, s := range f.Decls.Structs {
+		if s.Test {
+			continue
+		}
+		for _, field := range s.Fields {
+			declared[simplify.CalledName(field.Name)]++
+		}
+	}
+	for _, e := range f.Decls.Enums {
+		if e.Test {
+			continue
+		}
+		for _, v := range e.Variants {
+			declared[simplify.CalledName(v.Name)]++
+		}
 	}
 }
 
