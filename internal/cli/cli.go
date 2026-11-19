@@ -1224,9 +1224,9 @@ func tooPublic(units []unit.Unit, consts []unit.Const, words map[string]int, lib
 }
 
 // libraryWords returns, for a Rust file in the library of an unpublished
-// crate, or a Go file of an internal package (see golang.Internal), the
-// words of that library's files (see simplify.Library); for any other
-// file, nil. A Rust library's files are its root file's module tree: a
+// crate, or a Go file of an internal package (see golang.Internal) but
+// a main one, the words of that library's files (see simplify.Library);
+// for any other file, nil. A Rust library's files are its root file's module tree: a
 // binary's modules beside them are not. A Go package's are its
 // directory's files but those of its external tests (package text_test),
 // a package of their own.
@@ -1280,7 +1280,9 @@ func libraryWords(root string, files []index.File, crates *codemap.Packages, int
 	}
 	packageLibs := map[string]*simplify.Library{} // Go package directory -> its library
 	for _, f := range files {
-		if languageOf(f.Path) != "go" || !internal(f.Path) || golang.ExternalTest(f.Path, f.Decls.Package) {
+		// Any main package may be built as a plugin too, whose host looks
+		// its exported names up.
+		if languageOf(f.Path) != "go" || !internal(f.Path) || golang.ExternalTest(f.Path, f.Decls.Package) || f.Decls.Package == "main" {
 			continue
 		}
 		dir := filepath.Dir(f.Path)
@@ -1666,28 +1668,29 @@ func internalCrates(root string, files []index.File, crates *codemap.Packages) f
 			executables[libraries.CrateOf(f.Path)] = true
 		}
 	}
-	internal := map[string]bool{}
+	internal := map[[2]string]bool{} // by language and crate or package directory
 	for _, f := range files {
 		dir := libraries.CrateOf(f.Path)
-		if _, done := internal[dir]; done || golang.ExternalTest(f.Path, f.Decls.Package) {
+		key := [2]string{languageOf(f.Path), dir}
+		if _, done := internal[key]; done || golang.ExternalTest(f.Path, f.Decls.Package) {
 			continue // an external test (package main_test) is no package main
 		}
 		switch languageOf(f.Path) {
 		case "go":
-			internal[dir] = golang.Internal(f.Path, f.Decls.Package, executables[dir])
+			internal[key] = golang.Internal(f.Path, f.Decls.Package, executables[dir])
 		case "rust":
 			pkg := libraries.PackageOf(f.Path) // a placed target's crate is not its package
 			if pkg == "" {
 				pkg = dir
 			}
-			internal[dir] = rust.Unpublished(manifest(root, pkg), workspace)
+			internal[key] = rust.Unpublished(manifest(root, pkg), workspace)
 		}
 	}
 	return func(file string) bool {
 		if languageOf(file) == "typescript" {
 			return ts[tsfile.PackageDir(file, ts)].Private
 		}
-		return internal[libraries.CrateOf(file)]
+		return internal[[2]string{languageOf(file), libraries.CrateOf(file)}]
 	}
 }
 

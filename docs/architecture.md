@@ -1111,12 +1111,13 @@ flattened, the other half of cleaning up generated code:
   a library (a binary's `pub` items are never seen outside it). Associated
   constants are left out. No types: a type must stay `pub` while a `pub`
   signature names it.
-  In Go, the library is a package that serves only the analysed code, as
-  for dead code (under `internal/`, or `package main`): its directory's
-  files, but not those of its external tests (`package text_test` in a
-  `_test.go` file), a package of their own whose use keeps a name exported. An exported
-  function or constant (an `iota` one too) only its own package names
-  can be unexported. The
+  In Go, the library is a package under `internal/`, which serves only
+  the analysed code: its directory's files, but not those of its external
+  tests (`package text_test` in a `_test.go` file), a package of their
+  own whose use keeps a name exported. A `package main` is left out,
+  unlike for dead code: any may also be built as a plugin, whose host
+  looks its exported names up. An exported function or constant (an
+  `iota` one too) only its own package names can be unexported. The
   words of its comments, of its own tests (`_test.go`) and of files with
   build constraints (`//go:build`, a `_linux` or `_amd64` file name) are
   optional (`golang.Reach`), so a name only they use besides is not
