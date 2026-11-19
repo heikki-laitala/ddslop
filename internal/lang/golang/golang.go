@@ -781,9 +781,7 @@ func Reach(path string, src []byte) unit.Reach {
 		var walk func(n *sitter.Node)
 		walk = func(n *sitter.Node) {
 			if n.Kind() == "comment" {
-				for w, k := range source.Words([]byte(n.Utf8Text(src))) {
-					out[w] += k
-				}
+				source.AddWords(out, n.Utf8Text(src))
 				return
 			}
 			for i := uint(0); i < n.ChildCount(); i++ {
