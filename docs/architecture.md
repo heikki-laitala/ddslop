@@ -1082,11 +1082,10 @@ flattened, the other half of cleaning up generated code:
   reaches it from the library's own files: through the code blocks of its
   doc comments (doc tests) and its `#[macro_export]` macros, which other
   crates compile, and through a `pub use`, which re-exports it; their
-  words count as outside (`rust.ExportedWords`). Of the library's words,
-  at least one besides the declaration must be in code every build
-  compiles: not in a comment, a test, an item under a `#[cfg]`, a file
-  under a `#![cfg]` or the file of a module declared under one
-  (`rust.OptionalWords`, `rust.CfgModules`); otherwise `pub(crate)` would
+  words count as outside. Of the library's words, at least one besides the
+  declaration must be in code every build compiles: not in a comment, a
+  test, an item under a `#[cfg]`, a file under a `#![cfg]` or the file of
+  a module declared under one (`unit.Reach`); otherwise `pub(crate)` would
   make the compiler report the item unused in some builds, as `pub` does
   not. Trait methods and functions called from outside the source are left
   out as for dead code, and so are crates without a library (a binary's

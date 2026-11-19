@@ -309,14 +309,24 @@ type Decls struct {
 	// TypeScript class's, interface's or object type's fields, written as
 	// Call.Type; fields of other types (slices, maps) are left out.
 	FieldTypes []FieldType
-	// ExportedWords are the words of the code a file shows to code
-	// outside its crate (see rust.ExportedWords), OptionalWords those
-	// outside the code every build compiles (see rust.OptionalWords), and
-	// CfgModules the modules it declares out of line for some builds
-	// only (see rust.CfgModules). Rust only.
-	ExportedWords map[string]int
-	OptionalWords map[string]int
-	CfgModules    []string
+	Reach      Reach // Rust only
+}
+
+// Reach is how far a Rust file's words reach beyond the code every build
+// of its library compiles.
+type Reach struct {
+	// Exported counts the words of the code that code outside the crate
+	// compiles or reaches through the file: its doc tests, its
+	// #[macro_export] macros and its pub uses.
+	Exported map[string]int
+	// Optional counts the words outside the code every build compiles:
+	// in comments, test functions and items under a #[cfg]. AllOptional
+	// says all of the file is (a test file, or one under a #![cfg]).
+	Optional    map[string]int
+	AllOptional bool
+	// CfgModules are the modules the file declares out of line under a
+	// #[cfg]: their files are compiled in some builds only.
+	CfgModules []string
 }
 
 // FieldType is the type of one struct field: Server.store is a

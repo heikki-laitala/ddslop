@@ -733,9 +733,10 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 		FrequentDuplicated: frequentBlockDuplicated,
 	}, reported)
 	g, traits := callGraph(root, files)
-	internal := internalCrates(root, files)
+	crates := packages(root, files)
+	internal := internalCrates(root, files, crates)
 	flows := parallelFlows(g, traits, opts.minNodes)
-	found, conventions := drifts(units, packages(root, files), judged)
+	found, conventions := drifts(units, crates, judged)
 	importedWhole := wholeImported(root, files)
 	words, err := wordCounts(root, files)
 	if err != nil {
@@ -752,7 +753,7 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 		Dead: simplify.Dead(units, words, func(file string) bool {
 			return internal(file) && !importedWhole[file]
 		}),
-		TooPublic: simplify.TooPublic(append(constUnits(consts), units...), words, libraryWords(root, files, internal)),
+		TooPublic: tooPublic(units, consts, words, libraryWords(files, crates, internal)),
 		Wrappers:  simplify.PassThrough(g),
 		Traits:    singleImpls(traitDecls, files, internal),
 		Scopes:    byLanguage(units, func(_ string, u []unit.Unit) []pattern.ScopeGroup { return pattern.Scopes(u) }),
@@ -761,7 +762,7 @@ func check(root string, opts options, judged map[string]map[string]codemap.Conve
 			return pattern.ParameterGroups(u, funcTypes)
 		}),
 		Drifts: found,
-		Cycles: dependencyCycles(cycleGraph(g, root, files, units, opts.tests), files, packages(root, files), tsModules(root, files), opts.tests),
+		Cycles: dependencyCycles(cycleGraph(g, root, files, units, opts.tests), files, crates, tsModules(root, files), opts.tests),
 	}, summary)
 	return r, conventions, recordHealth(db, root, r.Summary.Health)
 }
@@ -1235,22 +1236,21 @@ func libraryCrates(files []index.File, crates *codemap.Packages) map[string]bool
 	return libraries
 }
 
-// constUnits returns constants as units, so TooPublic judges them as it
-// does functions.
-func constUnits(consts []unit.Const) []unit.Unit {
-	out := make([]unit.Unit, 0, len(consts))
+// tooPublic finds the too public functions and constants (see
+// simplify.TooPublic), judging constants as units.
+func tooPublic(units []unit.Unit, consts []unit.Const, words map[string]int, library func(file string) *simplify.Library) []unit.Unit {
+	asUnits := make([]unit.Unit, 0, len(consts))
 	for _, c := range consts {
-		out = append(out, unit.Unit{File: c.File, Name: c.Name, StartLine: c.Line, EndLine: c.Line, Nodes: c.Nodes,
+		asUnits = append(asUnits, unit.Unit{File: c.File, Name: c.Name, StartLine: c.Line, EndLine: c.Line, Nodes: c.Nodes,
 			Public: c.Public, External: c.External, Test: c.Test})
 	}
-	return out
+	return append(simplify.TooPublic(asUnits, words, library), simplify.TooPublic(units, words, library)...)
 }
 
 // libraryWords returns, for a Rust file in the library of an unpublished
 // crate, the words of that library's files (see simplify.Library); for
 // any other file, nil.
-func libraryWords(root string, files []index.File, internal func(file string) bool) func(file string) *simplify.Library {
-	crates := packages(root, files)
+func libraryWords(files []index.File, crates *codemap.Packages, internal func(file string) bool) func(file string) *simplify.Library {
 	withLibrary := libraryCrates(files, crates)
 	library := func(file string) string {
 		crate, _ := codemap.CratePath(file, crates)
@@ -1259,7 +1259,7 @@ func libraryWords(root string, files []index.File, internal func(file string) bo
 		}
 		return crate
 	}
-	optional := inModules(files, func(f index.File) []string { return f.Decls.CfgModules })
+	optional := inModules(files, func(f index.File) []string { return f.Decls.Reach.CfgModules })
 	out := map[string]*simplify.Library{}
 	for _, f := range files {
 		crate := library(f.Path)
@@ -1274,11 +1274,11 @@ func libraryWords(root string, files []index.File, internal func(file string) bo
 		for w, n := range f.Words {
 			lib.Words[w] += n
 		}
-		for w, n := range f.Decls.ExportedWords {
+		for w, n := range f.Decls.Reach.Exported {
 			lib.Words[w] -= n
 		}
-		optionalWords := f.Decls.OptionalWords
-		if optional(f.Path) {
+		optionalWords := f.Decls.Reach.Optional
+		if f.Decls.Reach.AllOptional || optional(f.Path) {
 			optionalWords = f.Words
 		}
 		for w, n := range optionalWords {
@@ -1479,10 +1479,10 @@ func wholeImported(root string, files []index.File) map[string]bool {
 // Rust workspace manifest is the one at root. A TypeScript package is
 // internal when its package.json, the nearest above the file, is private,
 // which keeps the package from being published (see tsfile.Manifest).
-func internalCrates(root string, files []index.File) func(file string) bool {
+func internalCrates(root string, files []index.File, crates *codemap.Packages) func(file string) bool {
 	workspace := manifest(root, ".")
 	ts := tsManifests(root, files)
-	libraries := packages(root, files).Libraries
+	libraries := crates.Libraries
 	internal := map[string]bool{}
 	for _, f := range files {
 		dir := libraries.CrateOf(f.Path)
@@ -1815,8 +1815,6 @@ func languageOf(path string) string {
 // traits a file declares, its imports and the paths naming other modules.
 func parseRust(file syntax.Source) (index.Parsed, error) {
 	units, decls, err := rust.ParseAs(file)
-	decls.ExportedWords, decls.OptionalWords = rust.ExportedWords(file.Src), rust.OptionalWords(file)
-	decls.CfgModules = rust.CfgModules(file.Src)
 	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(file.Src),
 		Modules: rust.DeclaredModules(file.Src), InlineModules: rust.InlineModules(file.Src), References: rust.ReferencesAs(file),
 		TopNames: rust.TopNames(file.Src), TopReexports: rust.TopReexports(file.Src), TopExports: rust.TopExports(file.Src)}

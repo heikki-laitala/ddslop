@@ -752,6 +752,7 @@ func ParseAs(file syntax.Source) ([]unit.Unit, unit.Decls, error) {
 		e := extractor{path: path, src: src, uses: map[[2]uint]map[string]string{}}
 		e.walk(root, scope{}, file.Test, nil)
 		units, decls = e.units, e.decls
+		decls.Reach = reachOf(root, file)
 		marked = syntax.MarkIgnored(root, src, units, &decls)
 	})
 	if isBinaryPath(path) {
@@ -1875,14 +1876,8 @@ func pathAttribute(attr string) (string, bool) {
 //
 // Only declarations at the top level of the file are considered.
 func TestModules(src []byte) []string {
-	return modulesUnder(src, isCfgTest)
-}
-
-// modulesUnder returns the names of the modules a file declares out of
-// line, at its top level, under an attribute attr accepts.
-func modulesUnder(src []byte, attr func(string) bool) []string {
 	return topModules(src, false, func(name string, attrs []string) string {
-		if slices.ContainsFunc(attrs, attr) {
+		if slices.ContainsFunc(attrs, isCfgTest) {
 			return name
 		}
 		return ""

@@ -8,60 +8,49 @@ import (
 
 	"github.com/heikki-laitala/ddslop/internal/lang/syntax"
 	"github.com/heikki-laitala/ddslop/internal/source"
+	"github.com/heikki-laitala/ddslop/internal/unit"
 )
 
-// ExportedWords counts the words of the code a file shows to code outside
-// its crate: the code blocks of its doc comments (doc tests) and its
-// #[macro_export] macros, which other crates compile, and its pub uses,
-// which re-export what they name.
-func ExportedWords(src []byte) map[string]int {
-	words := map[string]int{}
-	_ = syntax.Parse(language, src, func(root *sitter.Node) {
-		addDocTests(words, root, src)
-		eachItem(root, src, func(item *sitter.Node, attrs []string) bool {
-			exported := item.Kind() == "macro_definition" && slices.ContainsFunc(attrs, func(a string) bool { return attrName(a) == "macro_export" })
-			if exported || item.Kind() == "use_declaration" && isPublic(item, src) {
-				addWords(words, item.Utf8Text(src))
-			}
-			return true
-		})
-	})
-	return words
-}
-
-// OptionalWords counts the words a file writes outside the code every
-// build of its crate compiles: in comments, in test functions, in items
-// under a #[cfg] (#[cfg(test)], #[cfg(target_os = "macos")]), or all of
-// them in a test file or one under a #![cfg]. A comment inside such an
-// item counts twice.
-func OptionalWords(file syntax.Source) map[string]int {
-	if file.Test {
-		return source.Words(file.Src)
+// reachOf finds how far a file's words reach (see unit.Reach).
+func reachOf(root *sitter.Node, file syntax.Source) unit.Reach {
+	reach := unit.Reach{Exported: exportedWords(root, file.Src), AllOptional: file.Test || underCfg(root, file.Src)}
+	if !reach.AllOptional {
+		reach.Optional = map[string]int{}
+		addComments(reach.Optional, root, file.Src)
 	}
-	words := map[string]int{}
-	_ = syntax.Parse(language, file.Src, func(root *sitter.Node) {
-		if underCfg(root, file.Src) {
-			words = source.Words(file.Src)
-			return
+	eachItem(root, file.Src, func(item *sitter.Node, attrs []string) bool {
+		cfg := slices.ContainsFunc(attrs, isCfg)
+		if name := item.ChildByFieldName("name"); cfg && name != nil && item.Kind() == "mod_item" &&
+			item.ChildByFieldName("body") == nil && item.Parent().Kind() == "source_file" {
+			reach.CfgModules = append(reach.CfgModules, name.Utf8Text(file.Src))
 		}
-		addComments(words, root, file.Src)
-		eachItem(root, file.Src, func(item *sitter.Node, attrs []string) bool {
-			if slices.ContainsFunc(attrs, isCfg) || item.Kind() == "function_item" && slices.ContainsFunc(attrs, isTestAttr) {
-				addWords(words, item.Utf8Text(file.Src))
-				return false
-			}
-			return true
-		})
+		if reach.AllOptional {
+			return false
+		}
+		if cfg || item.Kind() == "function_item" && slices.ContainsFunc(attrs, isTestAttr) {
+			addWords(reach.Optional, item.Utf8Text(file.Src))
+			return false
+		}
+		return true
 	})
-	return words
+	return reach
 }
 
-// CfgModules returns the names of the modules a file declares out of line
-// under a #[cfg] ("#[cfg(target_os = "macos")] mod real;"): their files
-// are compiled in some builds only.
-// ddslop:ignore TestModules shares the shape, with the attribute of test builds
-func CfgModules(src []byte) []string {
-	return modulesUnder(src, isCfg)
+// exportedWords counts the words of the code that code outside the crate
+// compiles or reaches through a file: the code blocks of its doc comments
+// (doc tests) and its #[macro_export] macros, which other crates compile,
+// and its pub uses, which re-export what they name.
+func exportedWords(root *sitter.Node, src []byte) map[string]int {
+	words := map[string]int{}
+	addDocTests(words, root, src)
+	eachItem(root, src, func(item *sitter.Node, attrs []string) bool {
+		exported := item.Kind() == "macro_definition" && slices.ContainsFunc(attrs, func(a string) bool { return attrName(a) == "macro_export" })
+		if exported || item.Kind() == "use_declaration" && isPublic(item, src) {
+			addWords(words, item.Utf8Text(src))
+		}
+		return true
+	})
+	return words
 }
 
 func isCfg(attr string) bool { return attrName(attr) == "cfg" }

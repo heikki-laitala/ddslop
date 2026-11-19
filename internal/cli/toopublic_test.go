@@ -11,8 +11,8 @@ import (
 // keeps it pub: another crate, the crate's tests, a binary, a doc test,
 // an exported macro, a re-export. So do an item read from outside the
 // source (#[no_mangle]), one only some builds use (the library's tests,
-// code under a #[cfg]), one only a comment names besides, one of a
-// published crate and one of a crate with no library.
+// code under a #[cfg] or #![cfg]), one only a comment names besides, one
+// of a published crate and one of a crate with no library.
 func TestCheckReportsRustItemsOnlyTheirCrateUses(t *testing.T) {
 	root := repo(t, map[string]string{
 		"Cargo.toml":             "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\npublish = false\n",
@@ -58,6 +58,10 @@ mod real;
 
 pub fn mac_only() {}
 
+mod gated;
+
+pub fn gated_only() {}
+
 /// Not [linked] in code.
 pub fn linked() {}
 
@@ -81,6 +85,7 @@ pub extern "C" fn ffi() {}
 `,
 		"crates/util/src/text.rs":    "pub fn reexported() {}\n\npub fn run(s: &crate::Store) {\n    s.reset();\n    crate::helper();\n    crate::tested();\n    crate::documented();\n    crate::by_macro();\n    crate::narrow();\n    crate::ffi();\n    reexported();\n    let _ = (crate::LIMIT, crate::EXPORTED);\n}\n",
 		"crates/util/src/real.rs":    "fn start() {\n    crate::mac_only();\n}\n",
+		"crates/util/src/gated.rs":   "#![cfg(windows)]\n\nfn start() {\n    crate::gated_only();\n}\n",
 		"crates/util/src/bin/cli.rs": "fn main() {\n    util::text::run(&util::Store);\n    println!(\"{}\", util::SHOWN);\n}\n",
 		"crates/util/tests/it.rs":    "#[test]\nfn works() {\n    util::tested();\n}\n",
 		"crates/app/Cargo.toml":      "[package]\nname = \"app\"\npublish.workspace = true\n",

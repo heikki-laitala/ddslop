@@ -23,8 +23,10 @@ func TooPublic(units []unit.Unit, words map[string]int, library func(file string
 	var out []unit.Unit
 	for _, u := range units {
 		name, ok := publicName(u)
-		lib := library(u.File)
-		if ok && lib != nil && lib.Words[name] == words[name] && lib.Words[name]-lib.Optional[name] > 1 {
+		if !ok {
+			continue
+		}
+		if lib := library(u.File); lib != nil && lib.Words[name] == words[name] && lib.Words[name]-lib.Optional[name] > 1 {
 			out = append(out, u)
 		}
 	}
