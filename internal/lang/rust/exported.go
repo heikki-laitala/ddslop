@@ -109,16 +109,12 @@ func addExported(root *sitter.Node, src []byte, reach *unit.Reach) {
 			addWords(words, item.Utf8Text(src))
 		}
 		if scope, ok := inlineScope(item, src); ok && item.Kind() == "use_declaration" && isPublic(item, src) {
-			var imports map[string]string // the declaring module's, for a glob through an alias
+			var imports map[string]string // the declaring module's, for a glob through aliases
 			for _, glob := range globs(item, src, "") {
 				if imports == nil {
 					imports = usesIn(item.Parent(), src)
 				}
-				first, _, _ := strings.Cut(glob, "::")
-				if path, ok := imports[first]; ok {
-					glob = path + glob[len(first):]
-				}
-				reach.Globs = append(reach.Globs, fromFileModule(glob, scope))
+				reach.Globs = append(reach.Globs, fromFileModule(OwnPath(glob, nil, imports), scope))
 			}
 		}
 		return true

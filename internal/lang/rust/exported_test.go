@@ -166,7 +166,8 @@ mod production;
 }
 
 // A pub glob's path is kept as read from the file's own module, whatever
-// inline module declares it, an imported name as its path; a block's, which nothing outside sees, and a
+// inline module declares it, an imported name as its path, through
+// further such names; a block's, which nothing outside sees, and a
 // private one are left out.
 func TestReachListsPubGlobsFromTheFilesModule(t *testing.T) {
 	src := `pub use shapes::*;
@@ -179,6 +180,9 @@ pub mod facade {
 
     use super::shapes as aliased;
     pub use aliased::*;
+    use crate::chained as first;
+    use first as second;
+    pub use second::*;
 
     pub mod deep {
         pub use super::side::*;
@@ -190,7 +194,7 @@ fn f() {
     pub use hidden::*;
 }
 `
-	want := "[shapes crate::a::b crate::a::c super::up self::facade::inner self::shapes self::facade::side crate::far]"
+	want := "[shapes crate::a::b crate::a::c super::up self::facade::inner self::shapes crate::chained self::facade::side crate::far]"
 	if got := fmt.Sprint(reach(t, "src/lib.rs", []byte(src)).Globs); got != want {
 		t.Errorf("Reach.Globs = %s, want %s", got, want)
 	}

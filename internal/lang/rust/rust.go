@@ -784,6 +784,30 @@ func Traits(src []byte) []string {
 	return names
 }
 
+// OwnPath reads a bare re-export path as the module writing it does: a
+// first segment naming a module the file declares (pub mod inner; pub use
+// inner::X) is self::, and one naming a name the file's top-level uses
+// bring in (use crate::foo; pub use foo::X) is that use's path, followed
+// through further such names once each. Any other bare path is left as
+// it is: another crate's.
+func OwnPath(path string, declared map[string]bool, imports map[string]string) string {
+	seen := map[string]bool{}
+	for {
+		first, rest, more := strings.Cut(path, "::")
+		if declared[first] {
+			return "self::" + path
+		}
+		target, ok := imports[first]
+		if !ok || seen[first] || first == "crate" || first == "self" || first == "super" {
+			return path
+		}
+		seen[first] = true
+		if path = target; more {
+			path += "::" + rest
+		}
+	}
+}
+
 // Imports maps each name a file brings into scope with use to the path it
 // refers to: "use a::b::{c, d as e}" gives c -> a::b::c and e -> a::b::d.
 // Wildcard imports and imports inside #[cfg(test)] modules are skipped.
