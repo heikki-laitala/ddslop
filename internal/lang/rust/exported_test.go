@@ -164,3 +164,31 @@ mod production;
 		t.Errorf("Reach.CfgModules = %s, want [fixture real other.rs imp]", got)
 	}
 }
+
+// A pub glob's path is kept as read from the file's own module, whatever
+// inline module declares it; a block's, which nothing outside sees, and a
+// private one are left out.
+func TestReachListsPubGlobsFromTheFilesModule(t *testing.T) {
+	src := `pub use shapes::*;
+pub use crate::a::{b::*, c::*};
+use private::*;
+
+pub mod facade {
+    pub use super::super::up::*;
+    pub use self::inner::*;
+
+    pub mod deep {
+        pub use super::side::*;
+        pub use crate::far::*;
+    }
+}
+
+fn f() {
+    pub use hidden::*;
+}
+`
+	want := "[shapes crate::a::b crate::a::c super::up self::facade::inner self::facade::side crate::far]"
+	if got := fmt.Sprint(reach(t, "src/lib.rs", []byte(src)).Globs); got != want {
+		t.Errorf("Reach.Globs = %s, want %s", got, want)
+	}
+}

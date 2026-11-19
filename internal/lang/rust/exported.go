@@ -108,12 +108,51 @@ func addExported(root *sitter.Node, src []byte, reach *unit.Reach) {
 		if exported || item.Kind() == "use_declaration" && isPublic(item, src) {
 			addWords(words, item.Utf8Text(src))
 		}
-		if item.Kind() == "use_declaration" && isPublic(item, src) {
-			reach.Globs = append(reach.Globs, globs(item, src, "")...)
+		if scope, ok := inlineScope(item, src); ok && item.Kind() == "use_declaration" && isPublic(item, src) {
+			for _, glob := range globs(item, src, "") {
+				reach.Globs = append(reach.Globs, fromFileModule(glob, scope))
+			}
 		}
 		return true
 	})
 	reach.Exported = words
+}
+
+// inlineScope returns the inline modules an item is declared in,
+// outermost first; ok is false for an item in a block, such as a
+// function body's, which nothing outside it sees.
+func inlineScope(item *sitter.Node, src []byte) (scope []string, ok bool) {
+	for p := item.Parent(); p != nil && p.Kind() != "source_file"; p = p.Parent() {
+		switch p.Kind() {
+		case "declaration_list":
+		case "mod_item":
+			scope = append([]string{p.ChildByFieldName("name").Utf8Text(src)}, scope...)
+		default:
+			return nil, false
+		}
+	}
+	return scope, true
+}
+
+// fromFileModule returns a use path written in the inline modules scope
+// as one read from the file's own module: shapes::x in mod facade is
+// self::facade::shapes::x, and super::x there self::x. A crate:: path
+// reads the same anywhere.
+func fromFileModule(path string, scope []string) string {
+	segments := strings.Split(path, "::")
+	if len(scope) == 0 || segments[0] == "crate" {
+		return path
+	}
+	if segments[0] == "self" {
+		segments = segments[1:]
+	}
+	for len(segments) > 0 && segments[0] == "super" && len(scope) > 0 {
+		scope, segments = scope[:len(scope)-1], segments[1:]
+	}
+	if len(segments) > 0 && segments[0] == "super" {
+		return strings.Join(segments, "::") // above the file's module
+	}
+	return strings.Join(append(append([]string{"self"}, scope...), segments...), "::")
 }
 
 var (
