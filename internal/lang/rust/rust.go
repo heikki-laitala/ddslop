@@ -876,7 +876,13 @@ func collectUse(n *sitter.Node, prefix string, src []byte, out map[string]string
 	case "use_as_clause":
 		path, alias := n.ChildByFieldName("path"), n.ChildByFieldName("alias")
 		if path != nil && alias != nil {
-			out[alias.Utf8Text(src)] = join(path.Utf8Text(src))
+			target := join(path.Utf8Text(src))
+			if path.Kind() == "self" {
+				target = prefix // use a::b::{self as c} imports b as c
+			}
+			if target != "" {
+				out[alias.Utf8Text(src)] = target
+			}
 		}
 	case "scoped_use_list":
 		inner := prefix
@@ -949,11 +955,27 @@ func (e *extractor) visibleImports(item *sitter.Node) map[string]string {
 
 // usesIn returns the imports of the use declarations directly in a
 // module's item list or a block, as Imports gives them, but those marked
-// #[cfg(test)], which are test code's.
+// #[cfg(test)], which are test code's. A name several declare (under
+// different #[cfg]s) has the last one's path; useTargets has them all.
+func usesIn(container *sitter.Node, src []byte) map[string]string {
+	return lastTargets(useTargets(container, src))
+}
+
+// lastTargets returns, for each name useTargets lists, its last path.
+func lastTargets(targets map[string][]string) map[string]string {
+	out := map[string]string{}
+	for name, paths := range targets {
+		out[name] = paths[len(paths)-1]
+	}
+	return out
+}
+
+// useTargets returns, for each name the use declarations directly in a
+// container import (see usesIn), the paths it imports, in order.
 //
 // ddslop:ignore Rust's use walk; TypeScript's import walk reads another grammar
-func usesIn(container *sitter.Node, src []byte) map[string]string {
-	out := map[string]string{}
+func useTargets(container *sitter.Node, src []byte) map[string][]string {
+	out := map[string][]string{}
 	test := false
 	for i := uint(0); i < container.NamedChildCount(); i++ {
 		n := container.NamedChild(i)
@@ -966,7 +988,11 @@ func usesIn(container *sitter.Node, src []byte) map[string]string {
 		}
 		if n.Kind() == "use_declaration" && !test {
 			if arg := n.ChildByFieldName("argument"); arg != nil {
-				collectUse(arg, "", src, out)
+				one := map[string]string{}
+				collectUse(arg, "", src, one)
+				for name, path := range one {
+					out[name] = append(out[name], path)
+				}
 			}
 		}
 		test = false

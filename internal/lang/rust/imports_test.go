@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use token_credentials::{decode as decode_token, is_canonical_key_id};
 use tokio::sync::mpsc::channel;
 use super::helpers::{self, fill};
+use crate::shapes::{self as shape_alias};
 use serde::*;
 pub use acme_traces::subscriber;
 use tracing;
@@ -34,6 +35,7 @@ mod inner {
 		"channel":             "tokio::sync::mpsc::channel",
 		"helpers":             "super::helpers",
 		"fill":                "super::helpers::fill",
+		"shape_alias":         "crate::shapes",
 		"subscriber":          "acme_traces::subscriber",
 		"tracing":             "tracing",
 		"y":                   "x::y",

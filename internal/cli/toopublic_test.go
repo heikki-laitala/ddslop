@@ -216,15 +216,28 @@ pub mod scoped_facade {
     pub use super::up_inline::*;
     use super::alias_inline as inline_alias;
     pub use inline_alias::*;
+    #[cfg(unix)]
+    use super::unix_shapes as platform;
+    #[cfg(not(unix))]
+    use super::other_shapes as platform;
+    pub use platform::*;
+    use super::self_shapes::{self as self_alias};
+    pub use self_alias::*;
 
     pub fn call() {
         scoped_fn();
         up_inline_fn();
         alias_inline_fn();
+        unix_fn();
+        other_fn();
+        self_fn();
     }
 }
 mod up_inline;
 mod alias_inline;
+mod unix_shapes;
+mod other_shapes;
+mod self_shapes;
 
 pub mod facade;
 mod far_shapes;
@@ -252,6 +265,9 @@ pub fn api() {
 		"app/src/wire.rs":               "pub fn wired_fn() {}\n",
 		"app/src/private_glob.rs":       "pub fn crate_globbed() {}\n",
 		"app/src/facade.rs":             "use crate::alias_shapes as aliased;\n\npub use crate::far_shapes::*;\npub use super::up_shapes::*;\npub use aliased::*;\n",
+		"app/src/unix_shapes.rs":        "pub fn unix_fn() {}\n",
+		"app/src/other_shapes.rs":       "pub fn other_fn() {}\n",
+		"app/src/self_shapes.rs":        "pub fn self_fn() {}\n",
 		"app/src/alias_inline.rs":       "pub fn alias_inline_fn() {}\n",
 		"app/src/up_inline.rs":          "pub fn up_inline_fn() {}\n",
 		"app/src/far_shapes.rs":         "pub fn far_fn() {}\n",
