@@ -461,8 +461,10 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 			if typ := p.declaredType(d); name != nil && name.Kind() == "identifier" && typ != "" {
 				p.moduleVars[name.Utf8Text(p.src)] = typ // const orders = new OrdersController()
 			}
-			if name != nil && name.Kind() == "identifier" && value != nil && unwrapped(value).Kind() == "call_expression" {
-				p.made = append(p.made, made{name.Utf8Text(p.src), d, exported}) // const handler = NextAuth(options)
+			if name != nil && name.Kind() == "identifier" && value != nil &&
+				slices.Contains([]string{"call_expression", "identifier", "member_expression"}, unwrapped(value).Kind()) {
+				// const handler = NextAuth(options), or export const GET = handler
+				p.made = append(p.made, made{name.Utf8Text(p.src), d, exported})
 			}
 			if name != nil && value != nil && unwrapped(value).Kind() == "object" {
 				p.typedAs(d, name.Utf8Text(p.src), d.ChildByFieldName("type"))
@@ -643,18 +645,19 @@ func (p *parser) reference(ref *sitter.Node, line int) (unit.Call, bool) {
 	return g.callee(ref, line, p.src)
 }
 
-// made is a module variable a call makes: its name, its declarator and
-// whether its declaration exports it.
+// made is a module variable a call makes or another function names: its
+// name, its declarator and whether its declaration exports it.
 type made struct {
 	name     string
 	decl     *sitter.Node
 	exported bool
 }
 
-// madeHandlers adds a unit for each variable a call makes that a route
-// file exports as an HTTP method (export const GET = withAuth(handler),
-// or const handler = NextAuth(options) and export { handler as GET }),
-// calling what the call does and the functions it is given.
+// madeHandlers adds a unit for each variable a call makes, or another
+// function names, that a route file exports as an HTTP method (export
+// const GET = withAuth(handler), const handler = NextAuth(options) and
+// export { handler as GET }, or export const GET = handler), calling what
+// the call does and the functions it is given, or the function named.
 func (p *parser) madeHandlers() {
 	for _, m := range p.made {
 		asMethod := m.exported && nextMethods[m.name] || slices.ContainsFunc(p.exportedAs[m.name], func(as string) bool { return nextMethods[as] })
@@ -664,7 +667,11 @@ func (p *parser) madeHandlers() {
 		u := p.unit(m.name, m.decl, m.decl, true)
 		u.Entry, u.External = true, true
 		var given []unit.Call
-		args := unwrapped(m.decl.ChildByFieldName("value")).ChildByFieldName("arguments")
+		value := unwrapped(m.decl.ChildByFieldName("value"))
+		if c, ok := p.reference(value, u.StartLine); ok { // export const GET = handler
+			given = append(given, c)
+		}
+		args := value.ChildByFieldName("arguments")
 		for i := uint(0); args != nil && i < args.NamedChildCount(); i++ {
 			if arg := unwrapped(args.NamedChild(i)); arg.Kind() == "identifier" && p.isFunctionName(arg.Utf8Text(p.src)) {
 				if c, ok := p.reference(arg, u.StartLine); ok {

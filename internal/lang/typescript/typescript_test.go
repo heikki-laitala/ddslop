@@ -810,6 +810,7 @@ export function wrap(err: unknown, fetchError: Error) {
 }
 
 export function rethrow(err: Error) {
+  reportError("rethrow: " + err);
   throw Error("rethrow", { cause: err });
 }
 `
@@ -825,7 +826,7 @@ export function rethrow(err: Error) {
 			"11 error-wrapping cause",
 		},
 		"rethrow": {
-			"22 error-wrapping cause",
+			"23 error-wrapping cause",
 		},
 		"wrap": {
 			"16 error-checks instanceof/code",
@@ -921,7 +922,7 @@ export default router;
 	})
 	testutil.Lines(t, "re-exported handlers", got, []string{"GET entry=true calls @/auth GET", "POST entry=true calls @/auth handler"})
 
-	factories := "const handler = NextAuth(options);\nexport { handler as GET };\nexport const POST = withAuth(save);\nconst helper = make();\n\nfunction save() {\n  return 1;\n}\n"
+	factories := "const handler = NextAuth(options);\nexport { handler as GET };\nexport const POST = withAuth(save);\nconst helper = make();\nexport const PUT = save;\n\nfunction save() {\n  return 1;\n}\n"
 	units, _, err = Parse("src/app/api/auth/route.ts", []byte(factories))
 	if err != nil {
 		t.Fatal(err)
@@ -933,7 +934,7 @@ export default router;
 		}
 		return fmt.Sprintf("%s entry=%v calls %s", u.Name, u.Entry, strings.Join(calls, " "))
 	})
-	testutil.Lines(t, "handlers a factory makes", got, []string{"save entry=false calls ", "handler entry=true calls NextAuth", "POST entry=true calls save withAuth"})
+	testutil.Lines(t, "handlers a factory makes", got, []string{"save entry=false calls ", "handler entry=true calls NextAuth", "POST entry=true calls save withAuth", "PUT entry=true calls save"})
 
 	middleware := "import { Router } from \"express\";\nconst router = Router();\nrouter.get(\"/private\", (req, res, next) => authenticate(req, next), async (req, res) => render(res));\n"
 	units, _, err = Parse("src/routes/private.ts", []byte(middleware))

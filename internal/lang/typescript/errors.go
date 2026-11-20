@@ -54,7 +54,7 @@ func errorForm(n *sitter.Node, src []byte, isError func(name string) bool) unit.
 		}
 	case "call_expression":
 		callee, args := n.ChildByFieldName("function"), n.ChildByFieldName("arguments")
-		if callee != nil && callee.Kind() == "identifier" && strings.HasSuffix(callee.Utf8Text(src), "Error") && args != nil {
+		if callee != nil && callee.Kind() == "identifier" && callableErrors[callee.Utf8Text(src)] && args != nil {
 			// the built-in error constructors are callable without new: Error("x", { cause })
 			form.Concern, form.Form = wrapping(args, src, isError)
 			break
@@ -91,6 +91,14 @@ func wrapping(args *sitter.Node, src []byte, isError func(name string) bool) (co
 		return unit.ErrorWrapping, "message"
 	}
 	return "", ""
+}
+
+// callableErrors are the built-in error constructors, which a call makes
+// an error with as new does; a class's, or a function such as
+// reportError, does not.
+var callableErrors = map[string]bool{
+	"Error": true, "TypeError": true, "RangeError": true, "SyntaxError": true, "ReferenceError": true,
+	"EvalError": true, "URIError": true, "AggregateError": true,
 }
 
 // isErrorName reports whether n is a name holding an error, asserted or
