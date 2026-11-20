@@ -2207,8 +2207,8 @@ it into its message (`err.message`, `String(err)`, `err` in a template or
 a `+`). An error is a `catch` clause's parameter, or `err`, `error` or a
 name ending in `Error` or `Err`; a plain `e` is not, being as often an
 event, whose `e.code` is a key's. Measured on a Next.js monorepo, errors
-are checked by class or field in 79 of 80 checks, the other a message
-compared, and on a 590-file Express app in all 49; both mostly wrap into
+are checked by class or field in 80 of 81 checks, the other a message
+compared, and on a 590-file Express app in all 53; both mostly wrap into
 the message (7 of 8, and all 8), which the map reports as their
 convention beside the idiomatic `{ cause }`. Telling `code` and `name`
 apart from `instanceof` reported five `DOMException` name checks as
