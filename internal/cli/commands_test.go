@@ -114,14 +114,36 @@ func TestStatusAndCheckSayASkillIsOutOfDate(t *testing.T) {
 
 	testutil.WriteFiles(t, root, map[string]string{".claude/skills/ddslop/SKILL.md": "an earlier ddslop's skill\n"})
 	_, stdout, _ := run("status", root)
-	wantContains(t, stdout, "claude: skill (out of date), instructions", "ddslop init --claude")
+	wantContains(t, stdout, "claude: skill (out of date), instructions", "ddslop init --claude "+root)
 	stdout, stderr := runCode(t, 0, "check", "--format", "json", root)
-	wantContains(t, stderr, "out of date", "ddslop init --claude")
+	wantContains(t, stderr, "out of date", "ddslop init --claude "+root)
 	decodeJSON[targetReport](t, stdout)
 
 	run("init", "--claude", root)
 	if _, stderr := runCode(t, 0, "check", "--format", "json", root); strings.Contains(stderr, "out of date") {
 		t.Errorf("check still warns after init:\n%s", stderr)
+	}
+}
+
+// An old section in instructions two agents share (CLAUDE.md linking to
+// AGENTS.md) updates through the agent whose skill is installed: the
+// hint does not install another's.
+func TestStatusUpdatesSharedInstructionsThroughTheInstalledAgent(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users, "AGENTS.md": "# Project\n"})
+	if err := os.Symlink("AGENTS.md", filepath.Join(root, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	run("init", "--claude", root)
+	old, err := os.ReadFile("../integrate/templates/former/1.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFiles(t, root, map[string]string{"AGENTS.md": "# Project\n\n" + string(old)})
+
+	_, stdout, _ := run("status", root)
+	wantContains(t, stdout, "run `ddslop init --claude "+root+"`")
+	if strings.Contains(stdout, "--codex") {
+		t.Errorf("status suggests installing Codex, whose skill is not installed:\n%s", stdout)
 	}
 }
 

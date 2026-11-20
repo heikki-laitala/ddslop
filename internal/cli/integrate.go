@@ -90,7 +90,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stdout, "%s: %s\n", agent, strings.Join(parts, ", "))
 	}
-	if hint := staleHintOf(s); hint != "" {
+	if hint := staleHintOf(root, s); hint != "" {
 		fmt.Fprintln(stdout, hint)
 	}
 	return exitClean
@@ -110,19 +110,33 @@ func staleHint(root string) string {
 	if err != nil {
 		return ""
 	}
-	return staleHintOf(s)
+	return staleHintOf(root, s)
 }
 
-// staleHintOf is staleHint for a project's status.
-func staleHintOf(s integrate.Status) string {
-	var flags []string
+// staleHintOf is staleHint for the status of the project at root. An old
+// section is updated through an agent whose skill is installed: agents
+// may share their instructions (CLAUDE.md linking to AGENTS.md), and init
+// would install the other's skill too. Only when none has one is the
+// first agent sharing it named.
+func staleHintOf(root string, s integrate.Status) string {
+	var flags, unowned []string
 	for _, agent := range integrate.Agents {
-		if a := s.Agents[agent]; a.SkillStale || a.InstructionsStale {
+		a := s.Agents[agent]
+		switch {
+		case a.SkillStale || a.InstructionsStale && a.Skill:
 			flags = append(flags, "--"+string(agent))
+		case a.InstructionsStale:
+			unowned = append(unowned, "--"+string(agent))
 		}
+	}
+	if len(flags) == 0 && len(unowned) > 0 {
+		flags = unowned[:1]
 	}
 	if len(flags) == 0 {
 		return ""
+	}
+	if root != "." {
+		flags = append(flags, root) // run from elsewhere, init would update the wrong project
 	}
 	return "the ddslop skill or instructions an earlier ddslop installed are out of date: run `ddslop init " + strings.Join(flags, " ") + "` to update them"
 }
