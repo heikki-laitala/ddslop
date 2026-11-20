@@ -554,8 +554,8 @@ func TestTypeScriptRouteHandlersAreFeaturesCheckCompares(t *testing.T) {
 			fmt.Sprintf(handler, "get", "orders", "orders") + "\n" + fmt.Sprintf(handler, "get", "rooms", "rooms") +
 			"\nrouter.get(\"/users\", listUsers);\n\nexport default router;\n",
 		"src/users.ts":      "export async function listUsers(req, res) {\n  res.json(await loadUsers());\n}\n\nasync function loadUsers() {\n  return [];\n}\n",
-		"src/orders.ts":     "import { Router } from \"express\";\nimport { OrdersController } from \"./controller\";\n\nconst router = Router();\nconst orders = new OrdersController();\n\nrouter.post(\"/orders\", orders.create);\n",
-		"src/controller.ts": "export class OrdersController {\n  async create(req, res) {\n    res.json(await saveOrder(req.body));\n  }\n}\n\nasync function saveOrder(body) {\n  return body;\n}\n",
+		"src/orders.ts":     "import { Router } from \"express\";\nimport { OrdersController } from \"./controller\";\n\nconst router = Router();\nconst orders = new OrdersController();\n\nrouter.post(\"/orders\", orders.create);\nrouter.post(\"/refunds\", OrdersController.refund);\n",
+		"src/controller.ts": "export class OrdersController {\n  async create(req, res) {\n    res.json(await saveOrder(req.body));\n  }\n\n  static async refund(req, res) {\n    res.json(await refundOrder(req.body));\n  }\n}\n\nasync function saveOrder(body) {\n  return body;\n}\n\nasync function refundOrder(body) {\n  return body;\n}\n",
 	})
 
 	stdout, _ := runCode(t, 0, "flows", "--format", "json", root)
@@ -572,7 +572,8 @@ func TestTypeScriptRouteHandlersAreFeaturesCheckCompares(t *testing.T) {
 		} `json:"flows"`
 	}
 	decodeInto(t, stdout, &flows)
-	want := map[string][]string{"GET /users": {"listUsers", "loadUsers"}, "POST /orders": {"OrdersController.create", "saveOrder"}}
+	want := map[string][]string{"GET /users": {"listUsers", "loadUsers"}, "POST /orders": {"OrdersController.create", "saveOrder"},
+		"POST /refunds": {"OrdersController.refund", "refundOrder"}}
 	for _, f := range flows.Flows {
 		var names []string
 		for _, s := range f.Steps {

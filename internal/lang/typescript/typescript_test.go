@@ -837,7 +837,8 @@ export function wrap(err: unknown, fetchError: Error) {
 // on a router or server (named like one, or made by Router(), express()
 // and their kin) is a unit named after it, an entry point; so is an HTTP
 // method a Next.js route file exports, under its own name or another
-// (export { handler as POST }, beside other names), which ALL is not, and
+// (export { handler as POST }, beside other names) or re-exports (export
+// { GET } from "@/auth": a unit calling it), which ALL is not, and
 // nor is a function named like one exported under another name or as
 // the default. A route naming its
 // handler (router.get("/users", listUsers)) is a unit calling it. A call that only
@@ -901,6 +902,17 @@ export default router;
 	next := "export async function GET(req: Request) {\n  return Response.json(await list());\n}\n\nexport function ALL() {\n  return 1;\n}\n\n" +
 		"async function handler() {\n  return 1;\n}\n\nfunction PUT() {\n  return 1;\n}\n\nfunction DELETE() {\n  return 1;\n}\n\n" +
 		"export { handler as POST, handler as helper, PUT as update };\nexport default DELETE;\n"
+	reexport := "export { GET, handler as POST, helper } from \"@/auth\";\n"
+	units, _, err = Parse("src/app/api/auth/route.ts", []byte(reexport))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = testutil.Format(units, func(u unit.Unit) string {
+		c := u.Calls[0]
+		return fmt.Sprintf("%s entry=%v calls %s %s", u.Name, u.Entry, c.Qualifier, c.Name)
+	})
+	testutil.Lines(t, "re-exported handlers", got, []string{"GET entry=true calls @/auth GET", "POST entry=true calls @/auth handler"})
+
 	defaultNext := "export default function PATCH() {\n  return 1;\n}\n"
 	if units, _, _ := Parse("src/app/api/users/route.ts", []byte(defaultNext)); len(units) != 1 || units[0].Entry {
 		t.Errorf("a default-exported PATCH = %+v, want no entry point: the module exports only default", units)

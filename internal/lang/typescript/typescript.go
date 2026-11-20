@@ -3,6 +3,7 @@ package typescript
 
 import (
 	"errors"
+	"maps"
 	"path"
 	"path/filepath"
 	"slices"
@@ -240,6 +241,7 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 				u := &p.units[i]
 				u.Entry = u.Entry || declared[u.Name] && nextMethods[u.Name] || slices.ContainsFunc(p.exportedAs[u.Name], func(as string) bool { return nextMethods[as] })
 			}
+			p.reexportedHandlers(root)
 		}
 		addNoUses(p.decls.Reach.Optional, root, src)
 		marked = syntax.MarkIgnored(root, src, p.units, &p.decls)
@@ -593,14 +595,50 @@ func (p *parser) route(stmt *sitter.Node) (unit.Unit, bool) {
 	// registration is the route's unit, calling it, as the call graph
 	// resolves it wherever it is.
 	u := p.unit(name, stmt, stmt, false)
+	vars := maps.Clone(p.moduleVars)
+	if object := last.ChildByFieldName("object"); object != nil && object.Kind() == "identifier" && vars[object.Utf8Text(p.src)] == "" &&
+		source.Capitalized(object.Utf8Text(p.src)) {
+		vars[object.Utf8Text(p.src)] = p.typeOf(object) // a class's static method: OrdersController.create
+	}
 	var catches []string
 	other := 0
-	g := grammar{imports: p.imports, vars: p.moduleVars, otherThis: &other, catches: &catches, p: p}
+	g := grammar{imports: p.imports, vars: vars, otherThis: &other, catches: &catches, p: p}
 	if c, ok := g.callee(last, u.StartLine, p.src); ok {
 		u.Calls = append(u.Calls, c)
 	}
 	u.Entry = true
 	return u, true
+}
+
+// reexportedHandlers adds, for each HTTP method a route file re-exports
+// from another module (export { GET } from "@/auth"), a unit of the
+// export named after the method and calling the handler there.
+func (p *parser) reexportedHandlers(root *sitter.Node) {
+	for i := uint(0); i < root.NamedChildCount(); i++ {
+		n := root.NamedChild(i)
+		source := n.ChildByFieldName("source")
+		if n.Kind() != "export_statement" || source == nil {
+			continue
+		}
+		for j := uint(0); j < n.NamedChildCount(); j++ {
+			clause := n.NamedChild(j)
+			for k := uint(0); clause.Kind() == "export_clause" && k < clause.NamedChildCount(); k++ {
+				spec := clause.NamedChild(k)
+				name, as := spec.ChildByFieldName("name"), spec.ChildByFieldName("alias")
+				if as == nil {
+					as = name
+				}
+				if spec.Kind() != "export_specifier" || name == nil || !nextMethods[as.Utf8Text(p.src)] {
+					continue
+				}
+				u := p.unit(as.Utf8Text(p.src), n, n, true)
+				u.Entry, u.External = true, true
+				u.Calls = append(u.Calls, unit.Call{Kind: unit.PathCall, Qualifier: strings.Trim(source.Utf8Text(p.src), "\"'`"),
+					Name: name.Utf8Text(p.src), Line: u.StartLine})
+				p.units = append(p.units, u)
+			}
+		}
+	}
 }
 
 // routeFile reports whether the file is a Next.js route file, whose HTTP
