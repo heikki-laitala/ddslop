@@ -673,7 +673,8 @@ func (p *parser) madeHandlers() {
 		}
 		args := value.ChildByFieldName("arguments")
 		for i := uint(0); args != nil && i < args.NamedChildCount(); i++ {
-			if arg := unwrapped(args.NamedChild(i)); arg.Kind() == "identifier" && p.isFunctionName(arg.Utf8Text(p.src)) {
+			// a function: one of the module's, an import, or a method (controller.get)
+			if arg := unwrapped(args.NamedChild(i)); arg.Kind() == "member_expression" || arg.Kind() == "identifier" && p.isFunctionName(arg.Utf8Text(p.src)) {
 				if c, ok := p.reference(arg, u.StartLine); ok {
 					given = append(given, c)
 				}
