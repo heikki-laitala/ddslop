@@ -205,7 +205,7 @@ func (g grammar) bind(binding *sitter.Node, src []byte) {
 // in functions are part of them.
 func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var marked error
-	p := &parser{file: file, src: src, test: IsTestPath(file)}
+	p := &parser{file: file, src: src, test: IsTestPath(file), routers: map[string]bool{}}
 	err := syntax.Parse(languageOf(file), src, func(root *sitter.Node) {
 		p.imports = imports(root, src)
 		p.decls.WholeImports = wholeImports(root, src)
@@ -234,7 +234,7 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 		if p.routeFile() {
 			for i := range p.units {
 				u := &p.units[i]
-				u.Entry = u.Entry || u.Public && httpMethods[strings.ToLower(u.Name)] && u.Name == strings.ToUpper(u.Name)
+				u.Entry = u.Entry || u.Public && nextMethods[u.Name]
 			}
 		}
 		addNoUses(p.decls.Reach.Optional, root, src)
@@ -413,6 +413,9 @@ type parser struct {
 	imports map[string]imported
 	units   []unit.Unit
 	decls   unit.Decls
+	// routers are the names the module binds to a call making a router or
+	// server (see routerMakers).
+	routers map[string]bool
 }
 
 // declaration records the units and declarations of a top-level
@@ -433,6 +436,9 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 		for i := uint(0); i < n.NamedChildCount(); i++ {
 			d := n.NamedChild(i)
 			name, value := d.ChildByFieldName("name"), d.ChildByFieldName("value")
+			if name != nil && value != nil && makesRouter(unwrapped(value), p.src) {
+				p.routers[name.Utf8Text(p.src)] = true
+			}
 			if name != nil && value != nil && unwrapped(value).Kind() == "object" {
 				p.typedAs(d, name.Utf8Text(p.src), d.ChildByFieldName("type"))
 			}
@@ -500,8 +506,41 @@ var routeOptions = map[string]bool{
 	"runtime": true, "preferredRegion": true, "maxDuration": true,
 }
 
-// httpMethods are the methods a route is registered or exported for.
-var httpMethods = map[string]bool{"get": true, "post": true, "put": true, "patch": true, "delete": true, "head": true, "options": true, "all": true}
+// httpMethods are the methods a router registers routes for, and
+// nextMethods those a Next.js route file exports handlers for.
+var (
+	httpMethods = map[string]bool{"get": true, "post": true, "put": true, "patch": true, "delete": true, "head": true, "options": true, "all": true}
+	nextMethods = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true, "HEAD": true, "OPTIONS": true}
+)
+
+// routerMakers are the calls that make a router or server (Router(),
+// express(), express.Router(), new Hono(), Fastify()).
+var routerMakers = map[string]bool{"Router": true, "express": true, "Hono": true, "Fastify": true, "fastify": true, "createRouter": true}
+
+// makesRouter reports whether a value is a call making a router or server.
+func makesRouter(value *sitter.Node, src []byte) bool {
+	var callee *sitter.Node
+	switch value.Kind() {
+	case "call_expression":
+		callee = value.ChildByFieldName("function")
+	case "new_expression":
+		callee = value.ChildByFieldName("constructor")
+	}
+	if callee == nil {
+		return false
+	}
+	name := callee.Utf8Text(src)
+	return routerMakers[name[strings.LastIndex(name, ".")+1:]]
+}
+
+// isRouter reports whether a name holds a router or server: one the
+// module binds to a call making one, or named like one (app, router,
+// server, api, userRouter, adminRoutes), not a client ($, axios, http).
+func (p *parser) isRouter(name string) bool {
+	lower := strings.ToLower(name)
+	return p.routers[name] || lower == "api" ||
+		strings.HasSuffix(lower, "app") || strings.HasSuffix(lower, "router") || strings.HasSuffix(lower, "routes") || strings.HasSuffix(lower, "server")
+}
 
 // route returns the handler of a route a module registers in a statement,
 // as a unit named after the route ("GET /account/me"): a call of an HTTP
@@ -516,9 +555,10 @@ func (p *parser) route(stmt *sitter.Node) (unit.Unit, bool) {
 	if callee == nil || callee.Kind() != "member_expression" || args == nil || args.NamedChildCount() < 2 {
 		return unit.Unit{}, false
 	}
-	method := callee.ChildByFieldName("property")
+	method, receiver := callee.ChildByFieldName("property"), callee.ChildByFieldName("object")
 	first, last := args.NamedChild(0), unwrapped(args.NamedChild(args.NamedChildCount()-1))
-	if method == nil || !httpMethods[method.Utf8Text(p.src)] || (first.Kind() != "string" && first.Kind() != "template_string") || !isFunction(last) {
+	if method == nil || !httpMethods[method.Utf8Text(p.src)] || receiver == nil || receiver.Kind() != "identifier" || !p.isRouter(receiver.Utf8Text(p.src)) ||
+		(first.Kind() != "string" && first.Kind() != "template_string") || !isFunction(last) {
 		return unit.Unit{}, false
 	}
 	path := strings.Trim(first.Utf8Text(p.src), "\"'`")

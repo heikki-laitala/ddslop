@@ -795,6 +795,7 @@ func TestUnitsRecordTheirErrorForms(t *testing.T) {
   } catch (failure) {
     if (failure instanceof NotFoundError) return null;
     if (failure.code === "ENOENT" || failure.name !== "AbortError") return null;
+    if ((failure as NodeJS.ErrnoException).code === "EACCES") return null;
     if (failure.message === "closed" || failure.message.includes("busy")) return null;
     if (/timeout/.test(failure.message)) return null;
     if (e.code === "Enter" || e.key === "x") return null;
@@ -813,15 +814,16 @@ export function wrap(err: unknown, fetchError: Error) {
 			"5 error-checks instanceof/code",
 			"6 error-checks instanceof/code",
 			"6 error-checks instanceof/code",
-			"7 error-checks message",
-			"7 error-checks message",
+			"7 error-checks instanceof/code",
 			"8 error-checks message",
-			"10 error-wrapping cause",
+			"8 error-checks message",
+			"9 error-checks message",
+			"11 error-wrapping cause",
 		},
 		"wrap": {
-			"15 error-checks instanceof/code",
-			"15 error-wrapping message",
-			"17 error-wrapping message",
+			"16 error-checks instanceof/code",
+			"16 error-wrapping message",
+			"18 error-wrapping message",
 		},
 	} {
 		got := testutil.Format(unitNamed(t, "src/load.ts", src, name).Forms, func(f unit.Form) string {
@@ -832,9 +834,11 @@ export function wrap(err: unknown, fetchError: Error) {
 }
 
 // A route a module registers (router.get("/path", ...middleware, handler))
-// is a unit named after it, an entry point; so is an HTTP method a Next.js
-// route file exports. A call that only looks like one (a path-less key, a
-// non-function last argument) is none, and nor is a route file's helper.
+// on a router or server (named like one, or made by Router(), express()
+// and their kin) is a unit named after it, an entry point; so is an HTTP
+// method a Next.js route file exports, which ALL is not. A call that only
+// looks like one (a path-less key, a non-function last argument, a
+// client's request: $.get) is none, and nor is a route file's helper.
 func TestRouteHandlersAreEntryPoints(t *testing.T) {
 	src := `import { Router } from "express";
 
@@ -851,6 +855,16 @@ router.post(` + "`/account/logout`" + `, (req, res) => {
 
 axios.get("/api/x", { timeout: 1 });
 cache.get("key", () => 1);
+$.get("/fragment", (data) => render(data));
+
+const api = express.Router();
+api.delete("/sessions/:id", (req, res) => {
+  res.end();
+});
+
+userRouter.put("/users/:id", (req, res) => {
+  res.end();
+});
 
 export default router;
 `
@@ -864,10 +878,12 @@ export default router;
 	testutil.Lines(t, "route units", got, []string{
 		"GET /account/me 5-8 entry=true",
 		"POST /account/logout 10-12 entry=true",
+		"DELETE /sessions/:id 19-21 entry=true",
+		"PUT /users/:id 23-25 entry=true",
 	})
 
-	next := "export async function GET(req: Request) {\n  return Response.json(await list());\n}\n\nexport function helper() {\n  return 1;\n}\n"
-	for file, want := range map[string]string{"src/app/api/users/route.ts": "GET entry=true; helper entry=false", "src/app/api/users/list.ts": "GET entry=false; helper entry=false"} {
+	next := "export async function GET(req: Request) {\n  return Response.json(await list());\n}\n\nexport function ALL() {\n  return 1;\n}\n"
+	for file, want := range map[string]string{"src/app/api/users/route.ts": "GET entry=true; ALL entry=false", "src/app/api/users/list.ts": "GET entry=false; ALL entry=false"} {
 		units, _, err := Parse(file, []byte(next))
 		if err != nil {
 			t.Fatal(err)

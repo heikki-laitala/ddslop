@@ -83,9 +83,14 @@ func errorForm(n *sitter.Node, src []byte, isError func(name string) bool) unit.
 	return form
 }
 
-// isErrorName reports whether n is a name holding an error.
+// isErrorName reports whether n is a name holding an error, asserted or
+// not: (err as NodeJS.ErrnoException), as a catch's unknown needs.
 func isErrorName(n *sitter.Node, src []byte, isError func(name string) bool) bool {
-	return n != nil && n.Kind() == "identifier" && isError(n.Utf8Text(src))
+	if n == nil {
+		return false
+	}
+	n = unwrapped(n)
+	return n.Kind() == "identifier" && isError(n.Utf8Text(src))
 }
 
 // hasCause reports whether n is an object literal with a cause property.
