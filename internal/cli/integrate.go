@@ -150,9 +150,13 @@ func staleHintOf(root string, s integrate.Status) string {
 	return "the ddslop skill or instructions an earlier ddslop installed are out of date: run `ddslop init " + strings.Join(args, " ") + "` to update them"
 }
 
-// shellQuote returns an argument as a shell reads it back: quoted when it
-// holds anything but letters, digits and /._-.
+// shellQuote returns a path as a shell reads it back: quoted when it
+// holds anything but letters, digits and /._-, and from ./ when it starts
+// with a dash, which a flag does.
 func shellQuote(arg string) string {
+	if strings.HasPrefix(arg, "-") {
+		arg = "./" + arg
+	}
 	if strings.Trim(arg, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-") == "" {
 		return arg
 	}

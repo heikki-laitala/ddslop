@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/heikki-laitala/ddslop/internal/integrate"
 	"github.com/heikki-laitala/ddslop/internal/testutil"
 )
 
@@ -180,4 +181,20 @@ func TestStatsDescribesTheIndexWithoutSyncing(t *testing.T) {
 	testutil.WriteFiles(t, root, map[string]string{"new.rs": orders})
 	stdout, _ := runCode(t, 0, "stats", root)
 	wantContains(t, stdout, "files: 3 (1 generated)", "functions: 2 (1 test)", indexPath)
+}
+
+// The hint passes the project's path as init reads it back: none for the
+// current directory, quoted for the shell, and never as a flag.
+func TestStaleHintSpellsThePathAsAnArgument(t *testing.T) {
+	stale := integrate.Status{Agents: map[integrate.Agent]integrate.AgentStatus{integrate.Claude: {Skill: true, SkillStale: true}}}
+	for root, want := range map[string]string{
+		".":       "`ddslop init --claude`",
+		"repo":    "`ddslop init --claude repo`",
+		"my repo": "`ddslop init --claude 'my repo'`",
+		"-repo":   "`ddslop init --claude ./-repo`",
+	} {
+		if got := staleHintOf(root, stale); !strings.Contains(got, want) {
+			t.Errorf("staleHintOf(%q) = %q, want %s", root, got, want)
+		}
+	}
 }
