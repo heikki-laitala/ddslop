@@ -60,7 +60,22 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Compare with rustc
-        run: cargo --version && make oracle ORACLE_CASES=300
+        run: cargo --version && make oracle-rust ORACLE_CASES=300
+
+  compiler-oracles:
+    # Go and TypeScript too-public and dead-code suggestions, applied to
+    # generated code, which go vet and tsc must still accept.
+    name: Go and TypeScript suggestions against their compilers
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Apply Go suggestions and go vet
+        run: make oracle-go ORACLE_CASES=150
+      - name: Apply TypeScript suggestions and run tsc
+        run: node --version && make oracle-ts ORACLE_CASES=200
 
   latest-release:
     name: Latest release

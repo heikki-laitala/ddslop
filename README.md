@@ -368,7 +368,7 @@ make build   # bin/ddslop
 make test    # tests with the race detector
 make cover   # tests with an 80% coverage gate
 make lint    # golangci-lint and markdownlint
-make oracle  # Rust too-public against rustc on generated crates (needs cargo)
+make oracle  # too-public and dead-code against rustc, go vet and tsc on generated code
 ```
 
 Contributors and coding agents follow [AGENTS.md](AGENTS.md).

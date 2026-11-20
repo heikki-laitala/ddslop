@@ -42,7 +42,7 @@ func TestTooPublicAgreesWithRustcOnReachability(t *testing.T) {
 		files := crateFiles(mods)
 		root := repo(t, files)
 		unreachable := rustcUnreachable(t, root, target, seed, files)
-		reported := tooPublicNames(t, root)
+		reported := candidateNames(t, root)["too-public"]
 		for _, m := range mods[1:] { // a root item is reachable by its own path: too-public narrows it on purpose
 			for _, it := range m.items {
 				switch {
@@ -277,15 +277,17 @@ func rustcUnreachable(t *testing.T, root, target string, seed uint64, files map[
 	return unreachable
 }
 
-// tooPublicNames returns the names of the items check reports too public.
-func tooPublicNames(t *testing.T, root string) map[string]bool {
+// candidateNames returns, for each kind of candidate check reports at
+// root, the names of the items it reports.
+func candidateNames(t *testing.T, root string) map[string]map[string]bool {
 	t.Helper()
 	_, stdout, _ := run("check", "--format", "json", root)
-	names := map[string]bool{}
+	names := map[string]map[string]bool{}
 	for _, c := range decodeJSON[targetReport](t, stdout).Candidates {
-		if c.Kind == "too-public" {
-			names[c.Occurrences[0].Name] = true
+		if names[c.Kind] == nil {
+			names[c.Kind] = map[string]bool{}
 		}
+		names[c.Kind][c.Occurrences[0].Name] = true
 	}
 	return names
 }

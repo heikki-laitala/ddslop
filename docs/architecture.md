@@ -1119,7 +1119,7 @@ flattened, the other half of cleaning up generated code:
   names (`mod holder { mod held; }` is `holder/held.rs`); one it cannot
   place, under a `#[cfg]` or a `#[path]` inside an inline module, counts
   as outside. Which items re-exports expose is checked against the
-  compiler: an opt-in test (`make oracle`) generates crates whose modules
+  compiler: an opt-in test (`make oracle-rust`) generates crates whose modules
   are all `pub(crate)`, with random re-exports (globs, named, aliases,
   chains, `self::`, `super::`, `crate::`, inline and `#[path]` modules),
   and fails when too-public reports an item rustc's `unreachable_pub`
@@ -1147,7 +1147,14 @@ flattened, the other half of cleaning up generated code:
   already be taken (`MaxRetries` beside a `maxRetries` variable), and another is
   then needed. On a 100-file Go service, 12 candidates; unexporting all
   of them (one under another name) built, vetted and compiled the tests
-  cleanly. On ddslop itself, 7, which it unexports.
+  cleanly. On ddslop itself, 7, which it unexports. The suggestions are
+  checked against the compiler: an opt-in test (`make oracle-go`)
+  generates modules whose internal packages export functions, constants
+  and iota groups used at random (from the package, a constrained file, its
+  own and its external tests, another package, `package main`, a
+  comment), unexports what too-public reports and deletes what dead code
+  reports, and fails unless `go vet` still accepts the module, tests
+  included, for linux, windows and darwin.
   In TypeScript, the library is one file of a private package (see dead
   code), and the suggestion is to remove `export`: a module's scope is its
   file. A file another file imports whole (`import * as`, `import()`) is
@@ -1158,7 +1165,11 @@ flattened, the other half of cleaning up generated code:
   method signature, which declares it. A clause that renames a name
   (`export { load as fetch }`) exports it under another name, which is
   left out as a default export is. Class methods are left out: their
-  visibility is the class's.
+  visibility is the class's. As for Go, an opt-in test (`make oracle-ts`)
+  applies too-public's and dead code's suggestions to generated private
+  packages (exports used from their file, an import, a namespace import, an
+  `export *` barrel, an aliased re-export, a test file or a comment) and
+  fails unless `tsc`, strict and with `noUnusedLocals`, still accepts them.
 - **Pass-through wrappers** (`pass-through`, `inline-wrapper`): a function
   whose body is one call, possibly awaited, passing its parameters on in
   order, as is or borrowed. Constructors (`Self(x)`), delegation to a field
