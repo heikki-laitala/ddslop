@@ -74,6 +74,11 @@ jobs:
           go-version-file: go.mod
       - name: Apply Go suggestions and go vet
         run: make oracle-go ORACLE_CASES=150
+      - name: Cache the TypeScript download
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-typescript-5.9
       - name: Apply TypeScript suggestions and run tsc
         run: node --version && make oracle-ts ORACLE_CASES=200
 

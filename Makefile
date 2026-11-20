@@ -9,6 +9,8 @@ COVER_MIN         ?= 80
 COVER_PROFILE     := coverage.out
 ORACLE_CASES      ?= 300
 ORACLE_SEED       ?= 0
+TSC_VERSION       ?= 5.9
+TSC_DIR           := $(CURDIR)/bin/tsc
 
 .DEFAULT_GOAL := help
 
@@ -42,9 +44,13 @@ oracle-rust: ## Compare Rust too-public with rustc on generated crates (ORACLE_C
 oracle-go: ## Apply Go too-public and dead-code suggestions to generated modules and go vet them (ORACLE_CASES, ORACLE_SEED)
 	DDSLOP_GO_CASES=$(ORACLE_CASES) DDSLOP_GO_SEED=$(ORACLE_SEED) $(GO) test -count=1 -timeout 1h -run TestGoSuggestionsKeepTheModuleBuilding -v ./internal/cli
 
-oracle-ts: ## Apply TypeScript too-public and dead-code suggestions to generated packages and run tsc (ORACLE_CASES, ORACLE_SEED; needs npx or DDSLOP_TSC)
-	@[ -n "$$DDSLOP_TSC" ] || command -v npx >/dev/null || { echo "make oracle-ts needs npx, or DDSLOP_TSC set to a tsc command"; exit 1; }
-	DDSLOP_TS_CASES=$(ORACLE_CASES) DDSLOP_TS_SEED=$(ORACLE_SEED) $(GO) test -count=1 -timeout 1h -run TestTypeScriptSuggestionsKeepThePackageCompiling -v ./internal/cli
+oracle-ts: ## Apply TypeScript too-public and dead-code suggestions to generated packages and run tsc (ORACLE_CASES, ORACLE_SEED; needs npm or DDSLOP_TSC)
+	@if [ -z "$$DDSLOP_TSC" ]; then \
+		command -v npm >/dev/null || { echo "make oracle-ts needs npm, or DDSLOP_TSC set to a tsc command"; exit 1; }; \
+		npm install --silent --no-save --prefix $(TSC_DIR) typescript@$(TSC_VERSION); \
+	fi
+	DDSLOP_TSC="$${DDSLOP_TSC:-node $(TSC_DIR)/node_modules/typescript/bin/tsc}" \
+		DDSLOP_TS_CASES=$(ORACLE_CASES) DDSLOP_TS_SEED=$(ORACLE_SEED) $(GO) test -count=1 -timeout 1h -run TestTypeScriptSuggestionsKeepThePackageCompiling -v ./internal/cli
 
 notices: ## Regenerate THIRD_PARTY_NOTICES.md from the compiled-in modules
 	scripts/notices.sh > THIRD_PARTY_NOTICES.md
