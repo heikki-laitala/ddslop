@@ -147,6 +147,26 @@ func TestStatusUpdatesSharedInstructionsThroughTheInstalledAgent(t *testing.T) {
 	}
 }
 
+// Instructions files of their own each get updated, through an agent
+// without a skill when no other updates the file; a path the shell would
+// split is quoted.
+func TestStatusUpdatesEveryStaleInstructionsFile(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "my repo")
+	testutil.WriteFiles(t, root, map[string]string{"a.rs": users})
+	run("init", "--claude", root)
+	old, err := os.ReadFile("../integrate/templates/former/1.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFiles(t, root, map[string]string{
+		".claude/skills/ddslop/SKILL.md": "an earlier ddslop's skill\n",
+		"AGENTS.md":                      "# Project\n\n" + string(old),
+	})
+
+	_, stdout, _ := run("status", root)
+	wantContains(t, stdout, "run `ddslop init --claude --codex '"+root+"'`")
+}
+
 func TestStatsDescribesTheIndexWithoutSyncing(t *testing.T) {
 	root := repo(t, map[string]string{
 		"a.rs":     users,

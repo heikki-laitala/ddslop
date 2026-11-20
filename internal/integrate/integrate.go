@@ -65,6 +65,9 @@ var (
 type AgentStatus struct {
 	Skill, Instructions           bool
 	SkillStale, InstructionsStale bool
+	// InstructionsFile is the real file of the agent's instructions,
+	// which agents may share through a symlink.
+	InstructionsFile string
 }
 
 // Status says what ddslop has installed in a project.
@@ -145,6 +148,7 @@ func Check(root string) (Status, error) {
 			}
 			a.SkillStale = installed != current
 		}
+		a.InstructionsFile = resolve(filepath.Join(root, t.instructions))
 		instructions, err := readFile(filepath.Join(root, t.instructions))
 		if err != nil {
 			return s, err

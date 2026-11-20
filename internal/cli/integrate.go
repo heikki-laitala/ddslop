@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/heikki-laitala/ddslop/internal/index"
@@ -113,32 +114,49 @@ func staleHint(root string) string {
 	return staleHintOf(root, s)
 }
 
-// staleHintOf is staleHint for the status of the project at root. An old
-// section is updated through an agent whose skill is installed: agents
-// may share their instructions (CLAUDE.md linking to AGENTS.md), and init
-// would install the other's skill too. Only when none has one is the
-// first agent sharing it named.
+// staleHintOf is staleHint for the status of the project at root: the
+// agents whose skill is out of date, and for each out-of-date instructions
+// file, which agents may share through a symlink, one agent updating it,
+// whose skill is installed if any is, as init installs the skill too.
 func staleHintOf(root string, s integrate.Status) string {
-	var flags, unowned []string
+	chosen := map[integrate.Agent]bool{}
 	for _, agent := range integrate.Agents {
-		a := s.Agents[agent]
-		switch {
-		case a.SkillStale || a.InstructionsStale && a.Skill:
-			flags = append(flags, "--"+string(agent))
-		case a.InstructionsStale:
-			unowned = append(unowned, "--"+string(agent))
+		if s.Agents[agent].SkillStale {
+			chosen[agent] = true
 		}
 	}
-	if len(flags) == 0 && len(unowned) > 0 {
-		flags = unowned[:1]
+	files := map[string][]integrate.Agent{} // out-of-date instructions, with the agents sharing them
+	for _, agent := range integrate.Agents {
+		if a := s.Agents[agent]; a.InstructionsStale {
+			files[a.InstructionsFile] = append(files[a.InstructionsFile], agent)
+		}
 	}
-	if len(flags) == 0 {
+	for _, agents := range files {
+		installed := slices.IndexFunc(agents, func(agent integrate.Agent) bool { return s.Agents[agent].Skill })
+		chosen[agents[max(installed, 0)]] = true
+	}
+	var args []string
+	for _, agent := range integrate.Agents {
+		if chosen[agent] {
+			args = append(args, "--"+string(agent))
+		}
+	}
+	if len(args) == 0 {
 		return ""
 	}
 	if root != "." {
-		flags = append(flags, root) // run from elsewhere, init would update the wrong project
+		args = append(args, shellQuote(root)) // run from elsewhere, init would update the wrong project
 	}
-	return "the ddslop skill or instructions an earlier ddslop installed are out of date: run `ddslop init " + strings.Join(flags, " ") + "` to update them"
+	return "the ddslop skill or instructions an earlier ddslop installed are out of date: run `ddslop init " + strings.Join(args, " ") + "` to update them"
+}
+
+// shellQuote returns an argument as a shell reads it back: quoted when it
+// holds anything but letters, digits and /._-.
+func shellQuote(arg string) string {
+	if strings.Trim(arg, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-") == "" {
+		return arg
+	}
+	return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
 }
 
 func presence(ok bool) string {
