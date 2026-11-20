@@ -781,3 +781,52 @@ import /* types */ { type Query } from "../db/query";
 		return fmt.Sprintf("%s %d", im.Module, im.Line)
 	}), []string{"../db/client 1", "../db 4", "./polyfill 5"})
 }
+
+// A function records how it checks and wraps errors: by its class or a
+// stable field (instanceof, err.code, err.name: one form), by its message (compared,
+// searched or matched), and wrapping with { cause } or into the message.
+// An error is a catch clause's parameter, err, error or a name ending in
+// Error or Err; an event's code is no error's, and a constructor not
+// named like an error wraps nothing.
+func TestUnitsRecordTheirErrorForms(t *testing.T) {
+	src := `export async function load(path: string, e: KeyboardEvent) {
+  try {
+    return await read(path);
+  } catch (failure) {
+    if (failure instanceof NotFoundError) return null;
+    if (failure.code === "ENOENT" || failure.name !== "AbortError") return null;
+    if (failure.message === "closed" || failure.message.includes("busy")) return null;
+    if (/timeout/.test(failure.message)) return null;
+    if (e.code === "Enter" || e.key === "x") return null;
+    throw new LoadError("load " + path, { cause: failure });
+  }
+}
+
+export function wrap(err: unknown, fetchError: Error) {
+  if (fetchError instanceof TypeError) throw new Error(` + "`fetch: ${fetchError.message}`" + `);
+  const label = new Label(fetchError.message);
+  throw new HttpError("load: " + String(err));
+}
+`
+	for name, want := range map[string][]string{
+		"load": {
+			"5 error-checks instanceof/code",
+			"6 error-checks instanceof/code",
+			"6 error-checks instanceof/code",
+			"7 error-checks message",
+			"7 error-checks message",
+			"8 error-checks message",
+			"10 error-wrapping cause",
+		},
+		"wrap": {
+			"15 error-checks instanceof/code",
+			"15 error-wrapping message",
+			"17 error-wrapping message",
+		},
+	} {
+		got := testutil.Format(unitNamed(t, "src/load.ts", src, name).Forms, func(f unit.Form) string {
+			return fmt.Sprintf("%d %s %s", f.Line, f.Concern, f.Form)
+		})
+		testutil.Lines(t, name+" forms", got, want)
+	}
+}

@@ -66,7 +66,18 @@ type grammar struct {
 	// otherThis counts the open nested functions, but arrow functions,
 	// that have a this of their own: in them this is no class instance.
 	otherThis *int
-	p         *parser
+	// catches are the parameters of the catch clauses around the node
+	// visited, innermost last: errors, whatever their names.
+	catches *[]string
+	p       *parser
+}
+
+// isError reports whether a name holds an error: a catch clause's
+// parameter, or err, error or a name ending in Error or Err. A plain e is
+// often an event, whose code is a key's.
+func (g grammar) isError(name string) bool {
+	return slices.Contains(*g.catches, name) || name == "err" || name == "error" ||
+		strings.HasSuffix(name, "Error") || strings.HasSuffix(name, "Err")
 }
 
 // Prefix keeps TypeScript's symbols apart from other languages'
@@ -106,6 +117,9 @@ func (grammar) Statements(kind string) bool { return kind == "statement_block" }
 
 // Visit records calls and counts early returns outside nested functions.
 func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
+	if form := errorForm(n, s.Src, g.isError); form.Form != "" {
+		s.Forms = append(s.Forms, form)
+	}
 	switch {
 	case n.Kind() == "call_expression":
 		if c, ok := g.call(n, s.Src); ok {
@@ -124,6 +138,13 @@ func (g grammar) Visit(s *syntax.Shaper, n *sitter.Node) func() {
 		restore := syntax.Scope(g.vars) // the loop's or catch's own variable
 		g.bind(n.ChildByFieldName("left"), s.Src)
 		g.bind(n.ChildByFieldName("parameter"), s.Src)
+		if param := n.ChildByFieldName("parameter"); param != nil && param.Kind() == "identifier" {
+			*g.catches = append(*g.catches, param.Utf8Text(s.Src))
+			return func() {
+				*g.catches = (*g.catches)[:len(*g.catches)-1]
+				restore()
+			}
+		}
 		return restore
 	case n.Kind() == "statement_block":
 		return syntax.Scope(g.vars) // a block's variables are its own
@@ -894,7 +915,8 @@ func (p *parser) unit(name string, n, fn *sitter.Node, public bool) unit.Unit {
 		vars[param.Utf8Text(p.src)] = "" // x => f(x)
 	}
 	otherThis := 0
-	g := grammar{fn: syntax.Span(fn), imports: p.imports, vars: vars, otherThis: &otherThis, p: p}
+	var catches []string
+	g := grammar{fn: syntax.Span(fn), imports: p.imports, vars: vars, otherThis: &otherThis, catches: &catches, p: p}
 	eachParam(fn, func(param, name, typ *sitter.Node) {
 		if name != nil {
 			vars[name.Utf8Text(p.src)] = p.typeOf(typ)
@@ -922,6 +944,7 @@ func (p *parser) unit(name string, n, fn *sitter.Node, public bool) unit.Unit {
 
 		StringMatches: s.Matches,
 		Public:        public,
+		Forms:         s.Forms,
 	}
 }
 

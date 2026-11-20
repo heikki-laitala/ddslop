@@ -19,6 +19,7 @@ import (
 	"github.com/heikki-laitala/ddslop/internal/index"
 	"github.com/heikki-laitala/ddslop/internal/lang/golang"
 	"github.com/heikki-laitala/ddslop/internal/lang/rust"
+	"github.com/heikki-laitala/ddslop/internal/lang/typescript"
 	"github.com/heikki-laitala/ddslop/internal/report"
 	"github.com/heikki-laitala/ddslop/internal/unit"
 )
@@ -344,12 +345,14 @@ func buildMap(root, lang string, files []index.File, opts mapOptions) (mapJSON, 
 		}
 		m.Features = append(m.Features, fj)
 	}
-	var idiomatic map[string]string // TypeScript records no forms yet
+	var idiomatic map[string]string
 	switch lang {
 	case "go":
 		idiomatic = golang.IdiomaticForms
 	case "rust":
 		idiomatic = rust.IdiomaticForms
+	case "typescript":
+		idiomatic = typescript.IdiomaticForms
 	}
 	for _, id := range codemap.Idioms(g, helperGroup, idiomatic) {
 		ij := idiomJSON{Concern: id.Concern, Convention: id.Convention, Idiomatic: id.Idiomatic,
