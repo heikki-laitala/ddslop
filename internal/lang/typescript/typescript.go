@@ -205,7 +205,7 @@ func (g grammar) bind(binding *sitter.Node, src []byte) {
 // in functions are part of them.
 func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var marked error
-	p := &parser{file: file, src: src, test: IsTestPath(file), routers: map[string]bool{}, exportedAs: map[string][]string{}}
+	p := &parser{file: file, src: src, test: IsTestPath(file), routers: map[string]bool{}, exportedAs: map[string][]string{}, moduleVars: map[string]string{}}
 	err := syntax.Parse(languageOf(file), src, func(root *sitter.Node) {
 		p.imports = imports(root, src)
 		p.decls.WholeImports = wholeImports(root, src)
@@ -230,9 +230,9 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 			}
 		}
 		p.decls.Reach.Optional = map[string]int{}
-		declared := map[string]bool{} // exported in their declarations, under their own names
+		declared := map[string]bool{} // exported in their declarations, under their own names: not as the default
 		for _, u := range p.units {
-			declared[u.Name] = declared[u.Name] || u.Public
+			declared[u.Name] = declared[u.Name] || u.Public && !u.External
 		}
 		p.markExported(root)
 		if p.routeFile() {
@@ -423,6 +423,9 @@ type parser struct {
 	// routers are the names the module binds to a call making a router or
 	// server (see routerMakers).
 	routers map[string]bool
+	// moduleVars are the types the module's own variables are stated or
+	// made with (see parser.declaredType), for a route handler named on one.
+	moduleVars map[string]string
 	// exportedAs are the names export clauses and a default export give the
 	// module's names (export { handler as GET }: handler as GET).
 	exportedAs map[string][]string
@@ -448,6 +451,9 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 			name, value := d.ChildByFieldName("name"), d.ChildByFieldName("value")
 			if name != nil && value != nil && makesRouter(unwrapped(value), p.src) {
 				p.routers[name.Utf8Text(p.src)] = true
+			}
+			if typ := p.declaredType(d); name != nil && name.Kind() == "identifier" && typ != "" {
+				p.moduleVars[name.Utf8Text(p.src)] = typ // const orders = new OrdersController()
 			}
 			if name != nil && value != nil && unwrapped(value).Kind() == "object" {
 				p.typedAs(d, name.Utf8Text(p.src), d.ChildByFieldName("type"))
@@ -589,7 +595,7 @@ func (p *parser) route(stmt *sitter.Node) (unit.Unit, bool) {
 	u := p.unit(name, stmt, stmt, false)
 	var catches []string
 	other := 0
-	g := grammar{imports: p.imports, vars: map[string]string{}, otherThis: &other, catches: &catches, p: p}
+	g := grammar{imports: p.imports, vars: p.moduleVars, otherThis: &other, catches: &catches, p: p}
 	if c, ok := g.callee(last, u.StartLine, p.src); ok {
 		u.Calls = append(u.Calls, c)
 	}

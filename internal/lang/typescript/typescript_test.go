@@ -901,6 +901,10 @@ export default router;
 	next := "export async function GET(req: Request) {\n  return Response.json(await list());\n}\n\nexport function ALL() {\n  return 1;\n}\n\n" +
 		"async function handler() {\n  return 1;\n}\n\nfunction PUT() {\n  return 1;\n}\n\nfunction DELETE() {\n  return 1;\n}\n\n" +
 		"export { handler as POST, handler as helper, PUT as update };\nexport default DELETE;\n"
+	defaultNext := "export default function PATCH() {\n  return 1;\n}\n"
+	if units, _, _ := Parse("src/app/api/users/route.ts", []byte(defaultNext)); len(units) != 1 || units[0].Entry {
+		t.Errorf("a default-exported PATCH = %+v, want no entry point: the module exports only default", units)
+	}
 	for file, want := range map[string]string{
 		"src/app/api/users/route.ts": "GET entry=true; ALL entry=false; handler entry=true; PUT entry=false; DELETE entry=false",
 		"src/app/api/users/list.ts":  "GET entry=false; ALL entry=false; handler entry=false; PUT entry=false; DELETE entry=false",

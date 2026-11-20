@@ -553,7 +553,9 @@ func TestTypeScriptRouteHandlersAreFeaturesCheckCompares(t *testing.T) {
 		"src/routes.ts": "import { Router } from \"express\";\nimport { listUsers } from \"./users\";\n\nconst router = Router();\n\n" +
 			fmt.Sprintf(handler, "get", "orders", "orders") + "\n" + fmt.Sprintf(handler, "get", "rooms", "rooms") +
 			"\nrouter.get(\"/users\", listUsers);\n\nexport default router;\n",
-		"src/users.ts": "export async function listUsers(req, res) {\n  res.json(await loadUsers());\n}\n\nasync function loadUsers() {\n  return [];\n}\n",
+		"src/users.ts":      "export async function listUsers(req, res) {\n  res.json(await loadUsers());\n}\n\nasync function loadUsers() {\n  return [];\n}\n",
+		"src/orders.ts":     "import { Router } from \"express\";\nimport { OrdersController } from \"./controller\";\n\nconst router = Router();\nconst orders = new OrdersController();\n\nrouter.post(\"/orders\", orders.create);\n",
+		"src/controller.ts": "export class OrdersController {\n  async create(req, res) {\n    res.json(await saveOrder(req.body));\n  }\n}\n\nasync function saveOrder(body) {\n  return body;\n}\n",
 	})
 
 	stdout, _ := runCode(t, 0, "flows", "--format", "json", root)
@@ -570,14 +572,15 @@ func TestTypeScriptRouteHandlersAreFeaturesCheckCompares(t *testing.T) {
 		} `json:"flows"`
 	}
 	decodeInto(t, stdout, &flows)
+	want := map[string][]string{"GET /users": {"listUsers", "loadUsers"}, "POST /orders": {"OrdersController.create", "saveOrder"}}
 	for _, f := range flows.Flows {
-		if f.Entry.Name == "GET /users" {
-			var names []string
-			for _, s := range f.Steps {
-				names = append(names, s.Name)
-			}
-			if !slices.Contains(names, "listUsers") || !slices.Contains(names, "loadUsers") {
-				t.Errorf("GET /users reaches %v, want listUsers and loadUsers", names)
+		var names []string
+		for _, s := range f.Steps {
+			names = append(names, s.Name)
+		}
+		for _, w := range want[f.Entry.Name] {
+			if !slices.Contains(names, w) {
+				t.Errorf("%s reaches %v, want %s", f.Entry.Name, names, w)
 			}
 		}
 	}
