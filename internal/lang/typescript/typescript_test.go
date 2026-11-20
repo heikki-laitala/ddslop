@@ -894,8 +894,9 @@ export default router;
 	// A route naming its handler calls it, so its feature reaches it,
 	// however the module imports it.
 	for _, u := range units[4:] {
-		if len(u.Calls) == 0 || u.Calls[len(u.Calls)-1].Name != map[string]string{"GET /users": "listUsers", "POST /orders": "create"}[u.Name] {
-			t.Errorf("%s calls %+v, want its handler last", u.Name, u.Calls)
+		handler := map[string]string{"GET /users": "listUsers", "POST /orders": "create"}[u.Name]
+		if !slices.ContainsFunc(u.Calls, func(c unit.Call) bool { return c.Name == handler }) {
+			t.Errorf("%s calls %+v, want its handler %s", u.Name, u.Calls, handler)
 		}
 	}
 

@@ -586,28 +586,49 @@ func (p *parser) route(stmt *sitter.Node) (unit.Unit, bool) {
 		return unit.Unit{}, false
 	}
 	name := strings.ToUpper(method.Utf8Text(p.src)) + " " + path
-	if !named {
-		u := p.unit(name, last, last, false)
-		u.Entry = true
-		return u, true
-	}
 	// A handler defined elsewhere (router.get("/users", listUsers)): the
 	// registration is the route's unit, calling it, as the call graph
-	// resolves it wherever it is.
-	u := p.unit(name, stmt, stmt, false)
+	// resolves it wherever it is. Either way the route calls the
+	// middleware before it (requireAuth), which every request runs.
+	var u unit.Unit
+	refs := make([]*sitter.Node, 0, args.NamedChildCount())
+	for i := uint(1); i+1 < args.NamedChildCount(); i++ {
+		refs = append(refs, unwrapped(args.NamedChild(i)))
+	}
+	if named {
+		u = p.unit(name, stmt, stmt, false)
+		refs = append(refs, last)
+	} else {
+		u = p.unit(name, last, last, false)
+	}
+	var middleware []unit.Call
+	for _, ref := range refs {
+		if c, ok := p.reference(ref, u.StartLine); ok {
+			middleware = append(middleware, c)
+		}
+	}
+	u.Calls = append(middleware, u.Calls...)
+	u.Entry = true
+	return u, true
+}
+
+// reference returns the call of a function a route names to be called (a
+// handler or a middleware: listUsers, orders.create, OrdersController.create),
+// resolved as a call in the module's scope: a capitalised name no module
+// variable types is a class, whose static method it names.
+func (p *parser) reference(ref *sitter.Node, line int) (unit.Call, bool) {
+	if ref.Kind() != "identifier" && ref.Kind() != "member_expression" {
+		return unit.Call{}, false
+	}
 	vars := maps.Clone(p.moduleVars)
-	if object := last.ChildByFieldName("object"); object != nil && object.Kind() == "identifier" && vars[object.Utf8Text(p.src)] == "" &&
+	if object := ref.ChildByFieldName("object"); object != nil && object.Kind() == "identifier" && vars[object.Utf8Text(p.src)] == "" &&
 		source.Capitalized(object.Utf8Text(p.src)) {
-		vars[object.Utf8Text(p.src)] = p.typeOf(object) // a class's static method: OrdersController.create
+		vars[object.Utf8Text(p.src)] = p.typeOf(object)
 	}
 	var catches []string
 	other := 0
 	g := grammar{imports: p.imports, vars: vars, otherThis: &other, catches: &catches, p: p}
-	if c, ok := g.callee(last, u.StartLine, p.src); ok {
-		u.Calls = append(u.Calls, c)
-	}
-	u.Entry = true
-	return u, true
+	return g.callee(ref, line, p.src)
 }
 
 // reexportedHandlers adds, for each HTTP method a route file re-exports
