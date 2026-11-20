@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -525,4 +526,36 @@ func TestExcludedFilesDoNotUseExports(t *testing.T) {
 	_, stdout, _ := run("check", "--format", "json", root)
 
 	testutil.Lines(t, "unused", candidateLines(decode(t, stdout), "dead-code"), []string{"typescript dead-code [src/main.ts forgotten]"})
+}
+
+// Routes an Express module registers are features: flows lists them, and
+// check compares their handlers, which no named function held before.
+func TestTypeScriptRouteHandlersAreFeaturesCheckCompares(t *testing.T) {
+	handler := `router.%s("/%s/:id", async (req, res) => {
+  const id = req.params.id;
+  const row = await db.query.%s.findFirst({ where: (r, { eq }) => eq(r.id, id) });
+  if (!row) {
+    res.status(404).json({ error: "not found" });
+    return;
+  }
+  const actor = await resolveActor(req, row.hotelId);
+  if (!actor) {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  res.json(row);
+});
+`
+	root := repo(t, map[string]string{
+		"package.json": `{"name": "api", "private": true}`,
+		"src/routes.ts": "import { Router } from \"express\";\n\nconst router = Router();\n\n" +
+			fmt.Sprintf(handler, "get", "orders", "orders") + "\n" + fmt.Sprintf(handler, "get", "rooms", "rooms") + "\n\nexport default router;\n",
+	})
+
+	stdout, _ := runCode(t, 0, "flows", "--format", "json", root)
+	wantContains(t, stdout, `"GET /orders/:id"`, `"GET /rooms/:id"`)
+	_, stdout, _ = run("check", "--format", "json", root)
+	testutil.Lines(t, "copies", candidateLines(decode(t, stdout), "renamed-clone"), []string{
+		"typescript renamed-clone [src/routes.ts GET /orders/:id, src/routes.ts GET /rooms/:id]",
+	})
 }
