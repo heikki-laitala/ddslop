@@ -5,17 +5,13 @@ agent a fix it can apply, and show it the codebase's conventions before
 it writes the next copy.**
 
 > [!NOTE]
-> **ddslop supports Rust, Go and TypeScript.** Every detector works for
-> Rust and Go, except setup-teardown, which Go does not need: its
-> `defer` already is the idiom. In TypeScript (`.ts`, `.tsx`, `.mts`,
-> `.cts`) it finds exact, renamed and near-miss copies, copied blocks,
-> types and constants declared again, wrappers that only pass their
-> parameters on, parameters passed together, strings switched on in
-> many functions, unused exports of private packages, exports only their
-> own file uses, directories depending on each other in a loop and
-> single-implementation interfaces, and `ddslop map` describes its
-> layers and shared helpers; feature flows and idioms are in progress.
-> Files in other languages are not analysed.
+> **ddslop supports Rust, Go and TypeScript** (`.ts`, `.tsx`, `.mts`,
+> `.cts`). Every detector works for all three, except setup-teardown,
+> which Go and TypeScript do not need: Go's `defer`, and TypeScript's
+> `try`/`finally` or a library's transaction callback, already are the
+> idiom. TypeScript's features start at its route handlers
+> (`router.get("/path", handler)`, a Next.js route file's `GET`). Files in
+> other languages are not analysed.
 
 Coding agents regenerate rather than reuse. Each session that cannot see
 the helper written in the last one writes it again, a little differently:

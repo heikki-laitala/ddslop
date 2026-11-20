@@ -19,7 +19,9 @@ const flowsUsage = `usage: ddslop flows [flags] [path]
 
 Lists the features of the code under path (default "."): every entry point
 and the functions it reaches. Entry points are methods implementing a trait
-declared in generated code, such as OpenAPI server traits. Calls are
+declared in generated code, such as OpenAPI server traits, and TypeScript
+route handlers: a route a module registers (router.get("/path", handler))
+and an HTTP method a Next.js route file exports. Calls are
 resolved by name, without type information: ambiguous calls (a method name
 defined by several types) and calls inside macros are not followed, and
 test code is left out. The summary says how many calls were resolved.

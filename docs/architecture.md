@@ -430,7 +430,12 @@ as a caller of its shared methods (`CreateAPIKey`, `EnsureTenant`,
 Setup-teardown is not built for Go: `defer x.Close()` is Go's own idiom
 for it (18 times in that service, 2 in ddslop), and transactions, the
 case a closure helper would serve, appear two or three times per
-codebase, below the five functions the detector asks for.
+codebase, below the five functions the detector asks for. Nor for
+TypeScript, measured on a 590-file Express app and a Next.js monorepo:
+a value opened and closed in one function (`pool.connect()` then
+`client.release()` in a `finally`) appears a handful of times, and
+transactions go through the library's callback (`db.transaction(async tx
+=> ...)`), which already is the closure helper.
 On a 100-file Go service: 43 candidates and 12.2% duplication, led by an
 authentication check in 14 handlers; with declarations, a client package
 re-declaring the server's response types (`MemoryItem`, `SearchResponse`,
@@ -630,8 +635,9 @@ Hono have none.
 `directories`, as `packages` would read as npm packages): a directory is
 a module, as a Go package is, and its layers, breaks, cycles and shared
 helpers come from the calls resolved above, workspace packages included.
-It records no forms yet, so it has no idioms, and finds no entry points,
-so it has no features. On Excalidraw (about 4 seconds) the layers follow
+It records how code checks and wraps errors (see Idioms), and its entry
+points are route handlers (see Entry points), so it has idioms and
+features too. On Excalidraw (about 4 seconds) the layers follow
 its packages, `common` and `math` at the bottom, then `element`,
 `excalidraw` and the app, and the shared helpers are what new code
 should reuse (`t`, `pointFrom`, `arrayToMap`); on tRPC its examples
@@ -1473,7 +1479,18 @@ registration:
 Also supported: explicit entry points (`--entry pkg.Func`), and a generic
 fallback (exported functions with no callers).
 
-As built: entry points are methods implementing a trait declared in a
+As built: TypeScript's are route handlers. A module-level call of an HTTP
+method with a path and a handler (`router.get("/account/me", auth, async
+(req, res) => {...})`, as Express, Hono and Fastify register routes) makes
+the handler a unit named after its route (`GET /account/me`): before,
+inline handlers belonged to no unit, so on a 590-file Express app 136
+handlers, most of its route files' 15,800 lines, went unanalysed. A
+Next.js route file's exported HTTP method (`export async function GET`)
+is one too. They are marked `Unit.Entry`. On that app the handlers
+added 59 candidates: near-miss families of handlers that each load a
+record, answer 404 and check access, copied blocks, a parallel flow and 4
+shared preambles (the same session check at the top of handlers across
+files). Otherwise, entry points are methods implementing a trait declared in a
 generated file, which covers OpenAPI-generated server traits (the index
 keeps each file's declared traits, including generated files'). On
 a large Rust codebase that finds 189 entry points, including the 81
@@ -2176,6 +2193,26 @@ nothing to `check`; and on the Rust workspace the 6 functions of
 its one `setup-teardown` candidate turned out to open two different
 values (`client.transaction()` and `bounded(...)`), grouped by the
 `map_err` after them until the opener looked through it.
+
+TypeScript's error forms come from syntax as well
+(`typescript.IdiomaticForms`: `instanceof/code` and `cause`). An error is
+checked by its class or a stable field, one form as Go's `errors.Is` and
+`errors.As` are: `err instanceof NotFoundError`, `err.code === "ENOENT"`,
+a `DOMException`'s `err.name === "AbortError"` (the platform's way to tell
+those apart, often after `instanceof Error`); or by its message,
+compared, searched (`err.message.includes`) or matched
+(`/x/.test(err.message)`). A new error of a class named like one
+(`new HttpError(...)`) wraps another as its ES2022 `{ cause }`, or spells
+it into its message (`err.message`, `String(err)`, `err` in a template or
+a `+`). An error is a `catch` clause's parameter, or `err`, `error` or a
+name ending in `Error` or `Err`; a plain `e` is not, being as often an
+event, whose `e.code` is a key's. Measured on a Next.js monorepo, errors
+are checked by class or field in 79 of 80 checks, the other a message
+compared, and on a 590-file Express app in all 49; both mostly wrap into
+the message (7 of 8, and all 8), which the map reports as their
+convention beside the idiomatic `{ cause }`. Telling `code` and `name`
+apart from `instanceof` reported five `DOMException` name checks as
+drift, all correct code, so they are one form.
 
 Rust's error forms come from syntax too. A check is a pattern
 `Err(Path::Variant ..)` whose last segment is upper case (in a `match`
