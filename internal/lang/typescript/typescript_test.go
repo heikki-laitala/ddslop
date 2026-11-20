@@ -837,7 +837,9 @@ export function wrap(err: unknown, fetchError: Error) {
 // on a router or server (named like one, or made by Router(), express()
 // and their kin) is a unit named after it, an entry point; so is an HTTP
 // method a Next.js route file exports, under its own name or another
-// (export { handler as POST }), which ALL is not. A route naming its
+// (export { handler as POST }, beside other names), which ALL is not, and
+// nor is a function named like one exported under another name or as
+// the default. A route naming its
 // handler (router.get("/users", listUsers)) is a unit calling it. A call that only
 // looks like one (a path-less key, a non-function last argument, a
 // client's request: $.get) is none, and nor is a route file's helper.
@@ -896,10 +898,12 @@ export default router;
 		}
 	}
 
-	next := "export async function GET(req: Request) {\n  return Response.json(await list());\n}\n\nexport function ALL() {\n  return 1;\n}\n\nasync function handler() {\n  return 1;\n}\n\nexport { handler as POST };\n"
+	next := "export async function GET(req: Request) {\n  return Response.json(await list());\n}\n\nexport function ALL() {\n  return 1;\n}\n\n" +
+		"async function handler() {\n  return 1;\n}\n\nfunction PUT() {\n  return 1;\n}\n\nfunction DELETE() {\n  return 1;\n}\n\n" +
+		"export { handler as POST, handler as helper, PUT as update };\nexport default DELETE;\n"
 	for file, want := range map[string]string{
-		"src/app/api/users/route.ts": "GET entry=true; ALL entry=false; handler entry=true",
-		"src/app/api/users/list.ts":  "GET entry=false; ALL entry=false; handler entry=false",
+		"src/app/api/users/route.ts": "GET entry=true; ALL entry=false; handler entry=true; PUT entry=false; DELETE entry=false",
+		"src/app/api/users/list.ts":  "GET entry=false; ALL entry=false; handler entry=false; PUT entry=false; DELETE entry=false",
 	} {
 		units, _, err := Parse(file, []byte(next))
 		if err != nil {

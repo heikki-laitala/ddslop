@@ -205,7 +205,7 @@ func (g grammar) bind(binding *sitter.Node, src []byte) {
 // in functions are part of them.
 func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var marked error
-	p := &parser{file: file, src: src, test: IsTestPath(file), routers: map[string]bool{}, nextAliases: map[string]bool{}}
+	p := &parser{file: file, src: src, test: IsTestPath(file), routers: map[string]bool{}, exportedAs: map[string][]string{}}
 	err := syntax.Parse(languageOf(file), src, func(root *sitter.Node) {
 		p.imports = imports(root, src)
 		p.decls.WholeImports = wholeImports(root, src)
@@ -230,11 +230,15 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 			}
 		}
 		p.decls.Reach.Optional = map[string]int{}
+		declared := map[string]bool{} // exported in their declarations, under their own names
+		for _, u := range p.units {
+			declared[u.Name] = declared[u.Name] || u.Public
+		}
 		p.markExported(root)
 		if p.routeFile() {
 			for i := range p.units {
 				u := &p.units[i]
-				u.Entry = u.Entry || u.Public && (nextMethods[u.Name] || p.nextAliases[u.Name])
+				u.Entry = u.Entry || declared[u.Name] && nextMethods[u.Name] || slices.ContainsFunc(p.exportedAs[u.Name], func(as string) bool { return nextMethods[as] })
 			}
 		}
 		addNoUses(p.decls.Reach.Optional, root, src)
@@ -261,6 +265,7 @@ func (p *parser) markExported(root *sitter.Node) {
 		if v := n.ChildByFieldName("value"); v != nil && v.Kind() == "identifier" {
 			name := v.Utf8Text(p.src)
 			names[name], external[name] = true, true
+			p.exportedAs[name] = append(p.exportedAs[name], "default")
 		}
 		for j := uint(0); j < n.NamedChildCount(); j++ {
 			clause := n.NamedChild(j)
@@ -274,11 +279,12 @@ func (p *parser) markExported(root *sitter.Node) {
 				}
 				source.AddWords(p.decls.Reach.Optional, spec.Utf8Text(p.src))
 				if name := spec.ChildByFieldName("name"); name != nil {
-					names[name.Utf8Text(p.src)] = true
+					local, as := name.Utf8Text(p.src), name.Utf8Text(p.src)
+					names[local] = true
 					if alias := spec.ChildByFieldName("alias"); alias != nil {
-						external[name.Utf8Text(p.src)] = true
-						p.nextAliases[name.Utf8Text(p.src)] = nextMethods[alias.Utf8Text(p.src)]
+						external[local], as = true, alias.Utf8Text(p.src)
 					}
+					p.exportedAs[local] = append(p.exportedAs[local], as)
 				}
 			}
 		}
@@ -417,9 +423,9 @@ type parser struct {
 	// routers are the names the module binds to a call making a router or
 	// server (see routerMakers).
 	routers map[string]bool
-	// nextAliases are the names an export clause exports under an HTTP
-	// method's (export { handler as GET }).
-	nextAliases map[string]bool
+	// exportedAs are the names export clauses and a default export give the
+	// module's names (export { handler as GET }: handler as GET).
+	exportedAs map[string][]string
 }
 
 // declaration records the units and declarations of a top-level
