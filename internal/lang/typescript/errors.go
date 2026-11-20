@@ -54,6 +54,11 @@ func errorForm(n *sitter.Node, src []byte, isError func(name string) bool) unit.
 		}
 	case "call_expression":
 		callee, args := n.ChildByFieldName("function"), n.ChildByFieldName("arguments")
+		if callee != nil && callee.Kind() == "identifier" && strings.HasSuffix(callee.Utf8Text(src), "Error") && args != nil {
+			// the built-in error constructors are callable without new: Error("x", { cause })
+			form.Concern, form.Form = wrapping(args, src, isError)
+			break
+		}
 		if callee == nil || callee.Kind() != "member_expression" || args == nil {
 			break
 		}
@@ -67,20 +72,25 @@ func errorForm(n *sitter.Node, src []byte, isError func(name string) bool) unit.
 		}
 	case "new_expression":
 		constructor, args := n.ChildByFieldName("constructor"), n.ChildByFieldName("arguments")
-		if constructor == nil || args == nil || !strings.HasSuffix(constructor.Utf8Text(src), "Error") {
-			break
-		}
-		for i := uint(0); i < args.NamedChildCount(); i++ {
-			if arg := args.NamedChild(i); hasCause(arg, src) {
-				form.Concern, form.Form = unit.ErrorWrapping, "cause"
-				return form
-			}
-		}
-		if spellsError(args, src, isError) {
-			form.Concern, form.Form = unit.ErrorWrapping, "message"
+		if constructor != nil && args != nil && strings.HasSuffix(constructor.Utf8Text(src), "Error") {
+			form.Concern, form.Form = wrapping(args, src, isError)
 		}
 	}
 	return form
+}
+
+// wrapping returns how a new error's arguments wrap another, if they do:
+// as its { cause }, or spelt into its message.
+func wrapping(args *sitter.Node, src []byte, isError func(name string) bool) (concern, form string) {
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		if hasCause(args.NamedChild(i), src) {
+			return unit.ErrorWrapping, "cause"
+		}
+	}
+	if spellsError(args, src, isError) {
+		return unit.ErrorWrapping, "message"
+	}
+	return "", ""
 }
 
 // isErrorName reports whether n is a name holding an error, asserted or

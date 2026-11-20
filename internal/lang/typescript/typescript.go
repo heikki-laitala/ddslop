@@ -242,6 +242,7 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 				u.Entry = u.Entry || declared[u.Name] && nextMethods[u.Name] || slices.ContainsFunc(p.exportedAs[u.Name], func(as string) bool { return nextMethods[as] })
 			}
 			p.reexportedHandlers(root)
+			p.madeHandlers()
 		}
 		addNoUses(p.decls.Reach.Optional, root, src)
 		marked = syntax.MarkIgnored(root, src, p.units, &p.decls)
@@ -425,6 +426,9 @@ type parser struct {
 	// routers are the names the module binds to a call making a router or
 	// server (see routerMakers).
 	routers map[string]bool
+	// made are the module's variables a call makes, which may be a route
+	// handler a factory makes (const handler = NextAuth(options)).
+	made []made
 	// moduleVars are the types the module's own variables are stated or
 	// made with (see parser.declaredType), for a route handler named on one.
 	moduleVars map[string]string
@@ -456,6 +460,9 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 			}
 			if typ := p.declaredType(d); name != nil && name.Kind() == "identifier" && typ != "" {
 				p.moduleVars[name.Utf8Text(p.src)] = typ // const orders = new OrdersController()
+			}
+			if name != nil && name.Kind() == "identifier" && value != nil && unwrapped(value).Kind() == "call_expression" {
+				p.made = append(p.made, made{name.Utf8Text(p.src), d, exported}) // const handler = NextAuth(options)
 			}
 			if name != nil && value != nil && unwrapped(value).Kind() == "object" {
 				p.typedAs(d, name.Utf8Text(p.src), d.ChildByFieldName("type"))
@@ -592,13 +599,18 @@ func (p *parser) route(stmt *sitter.Node) (unit.Unit, bool) {
 	// middleware before it (requireAuth), which every request runs.
 	var u unit.Unit
 	refs := make([]*sitter.Node, 0, args.NamedChildCount())
+	inlineMiddleware := false
 	for i := uint(1); i+1 < args.NamedChildCount(); i++ {
 		refs = append(refs, unwrapped(args.NamedChild(i)))
+		inlineMiddleware = inlineMiddleware || isFunction(refs[len(refs)-1])
 	}
-	if named {
+	switch {
+	case named:
 		u = p.unit(name, stmt, stmt, false)
 		refs = append(refs, last)
-	} else {
+	case inlineMiddleware: // the middleware's body is the route's too
+		u = p.unit(name, stmt, last, false)
+	default:
 		u = p.unit(name, last, last, false)
 	}
 	var middleware []unit.Call
@@ -629,6 +641,47 @@ func (p *parser) reference(ref *sitter.Node, line int) (unit.Call, bool) {
 	other := 0
 	g := grammar{imports: p.imports, vars: vars, otherThis: &other, catches: &catches, p: p}
 	return g.callee(ref, line, p.src)
+}
+
+// made is a module variable a call makes: its name, its declarator and
+// whether its declaration exports it.
+type made struct {
+	name     string
+	decl     *sitter.Node
+	exported bool
+}
+
+// madeHandlers adds a unit for each variable a call makes that a route
+// file exports as an HTTP method (export const GET = withAuth(handler),
+// or const handler = NextAuth(options) and export { handler as GET }),
+// calling what the call does and the functions it is given.
+func (p *parser) madeHandlers() {
+	for _, m := range p.made {
+		asMethod := m.exported && nextMethods[m.name] || slices.ContainsFunc(p.exportedAs[m.name], func(as string) bool { return nextMethods[as] })
+		if !asMethod {
+			continue
+		}
+		u := p.unit(m.name, m.decl, m.decl, true)
+		u.Entry, u.External = true, true
+		var given []unit.Call
+		args := unwrapped(m.decl.ChildByFieldName("value")).ChildByFieldName("arguments")
+		for i := uint(0); args != nil && i < args.NamedChildCount(); i++ {
+			if arg := unwrapped(args.NamedChild(i)); arg.Kind() == "identifier" && p.isFunctionName(arg.Utf8Text(p.src)) {
+				if c, ok := p.reference(arg, u.StartLine); ok {
+					given = append(given, c)
+				}
+			}
+		}
+		u.Calls = append(given, u.Calls...)
+		p.units = append(p.units, u)
+	}
+}
+
+// isFunctionName reports whether a name is one of the module's functions
+// or an import, which may be one: not a value such as an options object.
+func (p *parser) isFunctionName(name string) bool {
+	_, imported := p.imports[name]
+	return imported || slices.ContainsFunc(p.units, func(u unit.Unit) bool { return u.Name == name })
 }
 
 // reexportedHandlers adds, for each HTTP method a route file re-exports
