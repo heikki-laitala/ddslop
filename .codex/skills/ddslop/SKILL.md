@@ -7,8 +7,9 @@ description: Finds duplicated code (exact, renamed and near-miss copies, copied 
 
 ddslop is a duplicate-code linter for Rust, Go and TypeScript (in
 TypeScript it finds copied code, types, constants, pass-through
-wrappers, parameter groups, string kinds, unused exports and
-single-implementation interfaces, and maps its layers and helpers;
+wrappers, parameter groups, string kinds, unused exports,
+single-implementation interfaces and directory cycles, and maps its
+layers and helpers;
 feature flows and idioms are Rust and Go only so far).
 It reports refactoring candidates as JSON, with exact file paths and line
 ranges, what differs between the copies, and a suggested action. It also
@@ -73,14 +74,14 @@ ddslop map --format json --crate <name> .
   deliberate, such as a composition root wiring everything together.
   Do not add to them; fix one only when asked.
 - `cycles`: groups of modules that call each other in a loop (Rust
-  modules within a crate; Go and Cargo forbid cycles between packages
-  and crates), with each pair calling each other directly (`links`: the
-  calls each way and a call site each way, the pair with the fewest
-  calls one way first), or a shortest `loop` when no pair does. In a
-  workspace map, `cycle_modules` per crate says where to look with
-  `--crate`. These are the layers' calls only; `check`'s
-  `dependency-cycle` also counts paths naming a module. ddslop does not
-  say which side is wrong: usually the call
+  modules within a crate, TypeScript directories; Go and Cargo forbid
+  cycles between packages and crates), with each pair calling each
+  other directly (`links`: the calls each way and a call site each way,
+  the pair with the fewest calls one way first), or a shortest `loop`
+  when no pair does. In a workspace map, `cycle_modules` per crate
+  says where to look with `--crate`. These are the layers' calls only;
+  `check`'s `dependency-cycle` also counts paths naming a module.
+  ddslop does not say which side is wrong: usually the call
   out of the lower-level module is (a `config` building another
   module's types). Never add a call that closes a new loop; untangle one
   only when asked.
@@ -215,7 +216,19 @@ What to do per `kind`:
   that was already there. If your change added that dependency, depend the
   other way round, or not at all; if the dependency was there before,
   leave the cycle unless asked. Mark a deliberate pair with
-  `ddslop:ignore` on one of its sites, saying why.
+  `ddslop:ignore` on one of its sites, saying why. In TypeScript the
+  modules are directories, depending on each other through calls and
+  relative or tsconfig-aliased imports (an `import type`, a re-export or
+  a dynamic `import()` is none); an occurrence named `import` is an
+  import line. Two directories are a cycle only when files of them
+  really loop. A directory that both imports directories below it and
+  is imported back by them, with no loop of files, is one candidate for
+  the upper directory with the action `move-shared-down`: `values` pairs
+  each directory below (`lib -> lib/card`) with the file of the upper
+  one it imports back (`lib/card -> lib/helpers.ts`), each occurrence
+  that import or call. Move those files down, out of the directory
+  wiring the others together (a `lib/shared/` beside the others), and
+  keep the wiring where it is.
 - `duplicate-type`: structs with the same field names, or enums with the
   same variants (often one error enum per module). Keep one type and
   use it everywhere. Differences list field types that differ; when one
@@ -229,11 +242,27 @@ What to do per `kind`:
   in the same crate. Replace the literals with the constant, widening its
   visibility (`pub(crate)`) if needed. Skip a literal that only happens to
   be spelled the same with another meaning.
-- `dead-code` (`delete-dead`): a public function of an unpublished crate
-  (Rust), or an exported function under `internal/` or in `package main`
-  (Go), whose name appears nowhere else in the repository. Delete it, and
-  anything only it used. Keep it if it is meant for code outside the
-  repository.
+- `dead-code` (`delete-dead`): a public function, constant or static of
+  an unpublished crate (Rust), an exported function or constant under
+  `internal/` or in `package main` (Go), or an export of a private
+  package (TypeScript), whose name appears nowhere else in the
+  repository. Delete it, with the doc comments and attributes above its
+  line range, and anything only it used. Keep it if it is meant for code
+  outside the repository.
+- `too-public` (`restrict-visibility`): a `pub` function, constant or
+  static of an unpublished crate's library (Rust) that only that library
+  uses: no other crate, test, binary, doc test, exported macro or
+  `pub use` names it. Make it `pub(crate)`, then run `cargo check`,
+  `cargo clippy` and `cargo test --doc`; revert it if any of them fails.
+  In Go, an exported function or constant of a package under `internal/`
+  that only its own package uses: unexport it, under a name the package
+  does not already declare (`MaxRetries` beside a `maxRetries` variable
+  needs another), then run `go build`, `go vet` and `go test`.
+  In TypeScript: an exported function or constant of a private package
+  that only its own file uses. Remove `export` (from its overload
+  signatures too, or its name from the `export { ... }` list), then run
+  the type check (`tsc --noEmit`) and the linter; revert it if either
+  fails.
 - `pass-through` (`inline-wrapper`): the function only passes its
   parameters to the `target`. Call the target directly and delete the
   wrapper, or rename the target if the wrapper's name is better. Keep
