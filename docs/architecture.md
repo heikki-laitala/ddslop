@@ -2420,7 +2420,8 @@ Every JSON candidate is self-contained:
   analysed lines (of the functions, structs and constants compared), the
   duplicated lines (every copy but one per duplication candidate, each
   line once, without lines only a near-miss member has) and their
-  percentage, and counts of unused functions, wrappers, single-
+  percentage, and counts of unused functions and constants
+  (`unused_functions`, named before constants counted), wrappers, single-
   implementation traits and parallel flows. Health always describes the
   whole analysed code, also in diff mode and with a baseline, so it can be
   tracked over time; it is comparable between runs of one ddslop version,

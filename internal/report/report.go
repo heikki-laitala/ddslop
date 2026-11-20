@@ -59,10 +59,12 @@ type Health struct {
 	// candidate, each line once, without lines only a near-miss member has.
 	DuplicatedLines    int     `json:"duplicated_lines"`
 	DuplicationPercent float64 `json:"duplication_percent"`
-	UnusedFunctions    int     `json:"unused_functions"`
-	Wrappers           int     `json:"wrappers"`
-	SingleImplTraits   int     `json:"single_impl_traits"`
-	ParallelFlows      int     `json:"parallel_flows"`
+	// UnusedFunctions counts the unused functions and constants: the
+	// field is named from before constants counted.
+	UnusedFunctions  int `json:"unused_functions"`
+	Wrappers         int `json:"wrappers"`
+	SingleImplTraits int `json:"single_impl_traits"`
+	ParallelFlows    int `json:"parallel_flows"`
 	// FailOver is the --fail-over limit, when one was given, and OverLimit
 	// whether the duplication percentage is above it.
 	FailOver  *float64 `json:"fail_over,omitempty"`
@@ -962,7 +964,7 @@ func WriteText(w io.Writer, r Report) error {
 		fmt.Fprintf(&b, "; %d declaration(s) marked ddslop:ignore", r.Summary.Ignored)
 	}
 	h := r.Summary.Health
-	fmt.Fprintf(&b, "\nDuplication %.1f%% (%d of %d lines); %d unused functions, %d wrappers, %d single-implementation traits, %d parallel flows\n",
+	fmt.Fprintf(&b, "\nDuplication %.1f%% (%d of %d lines); %d unused functions and constants, %d wrappers, %d single-implementation traits, %d parallel flows\n",
 		h.DuplicationPercent, h.DuplicatedLines, h.AnalysedLines, h.UnusedFunctions, h.Wrappers, h.SingleImplTraits, h.ParallelFlows)
 	if h.FailOver != nil {
 		verdict := "within"

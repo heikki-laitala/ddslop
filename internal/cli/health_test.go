@@ -45,7 +45,7 @@ fn in_namespace(principal: &str, token_id: u64) -> bool {
 	}
 
 	_, text, _ := run("check", "--format", "text", "--min-nodes", "20", root)
-	if !strings.Contains(text, "Duplication 37.5% (9 of 24 lines); 0 unused functions, 1 wrappers, 0 single-implementation traits, 0 parallel flows") {
+	if !strings.Contains(text, "Duplication 37.5% (9 of 24 lines); 0 unused functions and constants, 1 wrappers, 0 single-implementation traits, 0 parallel flows") {
 		t.Errorf("text output has no health line:\n%s", text)
 	}
 }

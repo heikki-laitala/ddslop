@@ -203,7 +203,7 @@ func writeTrend(w io.Writer, history []index.HealthEntry) error {
 		if revision == "" {
 			revision = "-"
 		}
-		fmt.Fprintf(&b, "  %s  %-14s %.1f%% duplicated (%d of %d lines); %d unused functions, %d wrappers  %s\n",
+		fmt.Fprintf(&b, "  %s  %-14s %.1f%% duplicated (%d of %d lines); %d unused functions and constants, %d wrappers  %s\n",
 			e.At.Local().Format("2006-01-02 15:04"), revision, h.DuplicationPercent, h.DuplicatedLines, h.AnalysedLines,
 			h.UnusedFunctions, h.Wrappers, e.Version)
 	}
