@@ -14,11 +14,7 @@ import (
 
 // Reach is unit.Reach of a file the parser does not analyse, such as a
 // generated one.
-func Reach(file syntax.Source) unit.Reach {
-	var reach unit.Reach
-	_ = syntax.Parse(language, file.Src, func(root *sitter.Node) { reach = reachOf(root, file) })
-	return reach
-}
+func (s Syntax) Reach() unit.Reach { return reachOf(s.root, s.file) }
 
 // reachOf finds how far a file's words reach (see unit.Reach).
 func reachOf(root *sitter.Node, file syntax.Source) unit.Reach {
@@ -114,12 +110,16 @@ func addExported(root *sitter.Node, src []byte, reach *unit.Reach) {
 		if exported || item.Kind() == "use_declaration" && isPublic(item, src) {
 			source.AddWords(words, item.Utf8Text(src))
 		}
-		if scope, ok := inlineScope(item, src); ok && item.Kind() == "use_declaration" && isPublic(item, src) {
-			var targets map[string][]string // the declaring module's, for a glob through aliases
-			for _, glob := range globs(item, src, "") {
-				if targets == nil {
-					targets = useTargets(item.Parent(), src)
-				}
+		if item.Kind() != "use_declaration" || !isPublic(item, src) {
+			return true
+		}
+		paths := globs(item, src, "")
+		if len(paths) == 0 {
+			return true
+		}
+		if scope, ok := inlineScope(item, src); ok { // walking up parents is costly: only for a glob
+			targets := useTargets(item.Parent(), src) // the declaring module's, for a glob through aliases
+			for _, glob := range paths {
 				for _, path := range ownPaths(glob, nil, func(name string) []string { return targets[name] }) {
 					reach.Globs = append(reach.Globs, fromFileModule(path, scope))
 				}

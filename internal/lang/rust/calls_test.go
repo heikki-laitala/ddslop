@@ -74,7 +74,7 @@ func TestTraitOfEnclosingImpl(t *testing.T) {
 }
 
 func TestTraitsListsDeclaredTraits(t *testing.T) {
-	if got := fmt.Sprint(Traits([]byte(callsSrc))); got != "[Local Other]" {
+	if got := fmt.Sprint(read([]byte(callsSrc), Syntax.Traits)); got != "[Local Other]" {
 		t.Errorf("Traits = %s, want [Local Other]", got)
 	}
 }

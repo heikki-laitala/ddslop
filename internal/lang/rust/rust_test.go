@@ -361,7 +361,7 @@ mod inline {
 
 mod production;
 `
-	if got := fmt.Sprint(TestModules([]byte(src))); got != "[real_ledger fixture]" {
+	if got := fmt.Sprint(read([]byte(src), Syntax.TestModules)); got != "[real_ledger fixture]" {
 		t.Errorf("TestModules = %s, want [real_ledger fixture]", got)
 	}
 }

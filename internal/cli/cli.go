@@ -1996,26 +1996,23 @@ func parseSource(file syntax.Source) (index.Parsed, error) {
 	path, src := file.Path, file.Src
 	language := languageOf(path)
 	if syntax.IsGenerated(src) {
-		var entries []string
+		parsed := index.Parsed{Generated: true, Words: source.Words(src)}
 		switch language {
 		case "go":
-			entries = golang.InterfaceMethods(src)
-		case "rust":
-			entries = rust.Traits(src)
-		}
-		parsed := index.Parsed{Generated: true, Traits: entries, Words: source.Words(src)}
-		if language == "go" {
+			parsed.Traits = golang.InterfaceMethods(src)
 			// An external test's (package text_test) words are no use from
 			// its package, and a test's or constrained file's not always.
 			parsed.Decls.Package, parsed.Decls.Reach = golang.PackageName(src), golang.Reach(path, src)
-		}
-		if language == "rust" {
-			// Its pub uses still re-export what they name.
-			parsed.Decls.Reach = rust.Reach(file)
-			// A generated module's names still resolve paths through it.
-			parsed.TopNames, parsed.TopExports, parsed.TopReexports = rust.TopNames(src), rust.TopExports(src), rust.TopReexports(src)
-			parsed.Modules, parsed.InlineModules = rust.DeclaredModules(src), rust.InlineModules(src)
-			_, parsed.TopImports = rust.Imports(src)
+		case "rust":
+			_ = rust.WithSyntax(file, func(s rust.Syntax) {
+				parsed.Traits = s.Traits()
+				// Its pub uses still re-export what they name.
+				parsed.Decls.Reach = s.Reach()
+				// A generated module's names still resolve paths through it.
+				parsed.TopNames, parsed.TopExports, parsed.TopReexports = s.TopNames(), s.TopExports(), s.TopReexports()
+				parsed.Modules, parsed.InlineModules = s.DeclaredModules(), s.InlineModules()
+				_, parsed.TopImports = s.Imports()
+			})
 		}
 		return parsed, nil
 	}
@@ -2052,18 +2049,22 @@ func languageOf(path string) string {
 // parseRust adds what only Rust files have: out-of-line test modules, the
 // traits a file declares, its imports and the paths naming other modules.
 func parseRust(file syntax.Source) (index.Parsed, error) {
-	units, decls, err := rust.ParseAs(file)
-	parsed := index.Parsed{Units: units, Decls: decls, TestModules: rust.TestModules(file.Src),
-		Modules: rust.DeclaredModules(file.Src), InlineModules: rust.InlineModules(file.Src), References: rust.ReferencesAs(file),
-		TopNames: rust.TopNames(file.Src), TopReexports: rust.TopReexports(file.Src), TopExports: rust.TopExports(file.Src)}
-	for _, t := range decls.Traits {
+	var parsed index.Parsed
+	var marked error
+	err := rust.WithSyntax(file, func(s rust.Syntax) {
+		parsed.Units, parsed.Decls, marked = s.Units()
+		parsed.TestModules, parsed.Modules, parsed.InlineModules = s.TestModules(), s.DeclaredModules(), s.InlineModules()
+		parsed.References = s.References()
+		parsed.TopNames, parsed.TopReexports, parsed.TopExports = s.TopNames(), s.TopReexports(), s.TopExports()
+		if !file.Test {
+			// Test files' imports are not dependencies of the code.
+			parsed.Imports, parsed.TopImports = s.Imports()
+		}
+	})
+	for _, t := range parsed.Decls.Traits {
 		parsed.Traits = append(parsed.Traits, t.Name)
 	}
-	if !file.Test {
-		// Test files' imports are not dependencies of the code.
-		parsed.Imports, parsed.TopImports = rust.Imports(file.Src)
-	}
-	return parsed, err
+	return parsed, errors.Join(err, marked)
 }
 
 // extractorVersion identifies the running binary by its content, so any

@@ -745,23 +745,27 @@ func Parse(path string, src []byte) ([]unit.Unit, unit.Decls, error) {
 // ParseAs is Parse with whether the file is test code by its place (see
 // IsTestPath) given: a library a manifest roots under tests/ is not.
 func ParseAs(file syntax.Source) ([]unit.Unit, unit.Decls, error) {
-	path, src := file.Path, file.Src
 	var units []unit.Unit
 	var decls unit.Decls
 	var marked error
-	err := syntax.Parse(language, src, func(root *sitter.Node) {
-		e := extractor{path: path, src: src, uses: map[[2]uint]map[string]string{}}
-		e.walk(root, scope{}, file.Test, nil)
-		units, decls = e.units, e.decls
-		decls.Reach = reachOf(root, file)
-		marked = syntax.MarkIgnored(root, src, units, &decls)
-	})
+	err := WithSyntax(file, func(s Syntax) { units, decls, marked = s.Units() })
+	return units, decls, errors.Join(err, marked)
+}
+
+// Units returns the file's units and other declarations (see Parse).
+func (s Syntax) Units() ([]unit.Unit, unit.Decls, error) {
+	path, src := s.file.Path, s.file.Src
+	e := extractor{path: path, src: src, uses: map[[2]uint]map[string]string{}}
+	e.walk(s.root, scope{}, s.file.Test, nil)
+	units, decls := e.units, e.decls
+	decls.Reach = reachOf(s.root, s.file)
+	marked := syntax.MarkIgnored(s.root, src, units, &decls)
 	if isBinaryPath(path) {
 		for i := range units {
 			units[i].Forms = slices.DeleteFunc(units[i].Forms, func(f unit.Form) bool { return f.Concern == unit.ErrorValues })
 		}
 	}
-	return units, decls, errors.Join(err, marked)
+	return units, decls, marked
 }
 
 // isBinaryPath reports whether a file belongs to a binary by Cargo's
@@ -775,9 +779,9 @@ func isBinaryPath(path string) bool {
 		strings.HasPrefix(path, "src/bin/") || strings.Contains(path, "/src/bin/")
 }
 
-// Traits returns the names of the traits a file declares, in source order.
-func Traits(src []byte) []string {
-	_, decls, _ := Parse("", src)
+// Traits returns the names of the traits the file declares, in source order.
+func (s Syntax) Traits() []string {
+	_, decls, _ := s.Units()
 	var names []string
 	for _, t := range decls.Traits {
 		names = append(names, t.Name)
@@ -842,12 +846,16 @@ func ownPaths(path string, declared map[string]bool, imports func(name string) [
 // declarations, not those of an inline module, a function or a block,
 // with each glob (use a::b::*) under "*" and its source.
 func Imports(src []byte) (all, top map[string]string) {
-	_ = syntax.Parse(language, src, func(root *sitter.Node) {
-		all, top = importsOf(root, src), usesIn(root, src)
-		// A glob names no one item: only the root's are followed, through
-		// their source modules' items.
-		maps.DeleteFunc(all, func(name, _ string) bool { return strings.HasPrefix(name, "*") })
-	})
+	_ = WithSyntax(syntax.Source{Src: src}, func(s Syntax) { all, top = s.Imports() })
+	return all, top
+}
+
+// Imports returns the file's imports (see Imports).
+func (s Syntax) Imports() (all, top map[string]string) {
+	all, top = importsOf(s.root, s.file.Src), usesIn(s.root, s.file.Src)
+	// A glob names no one item: only the root's are followed, through
+	// their source modules' items.
+	maps.DeleteFunc(all, func(name, _ string) bool { return strings.HasPrefix(name, "*") })
 	return all, top
 }
 
@@ -1933,12 +1941,10 @@ func manifestValues(cargoToml []byte, key string, sections ...string) []string {
 	return out
 }
 
-// DeclaredModules returns the modules a file declares out of line (mod
+// DeclaredModules returns the modules the file declares out of line (mod
 // name;), at its top level, in source order: each one's name, or the file
 // a #[path] attribute places it in, ending in .rs.
-func DeclaredModules(src []byte) []string {
-	return topModules(src, false, moduleEntry)
-}
+func (s Syntax) DeclaredModules() []string { return s.topModules(false, moduleEntry) }
 
 // moduleEntry is how DeclaredModules names a module: the file a #[path]
 // attribute places it in, else its name.
@@ -1961,13 +1967,13 @@ func pathAttribute(attr string) (string, bool) {
 	return tomlString(strings.TrimSpace(value)), true
 }
 
-// TestModules returns the names of the modules a file declares out of
+// TestModules returns the names of the modules the file declares out of
 // line under #[cfg(test)] ("#[cfg(test)] mod name;"): their files hold
 // test code.
 //
 // Only declarations at the top level of the file are considered.
-func TestModules(src []byte) []string {
-	return topModules(src, false, func(name string, attrs []string) string {
+func (s Syntax) TestModules() []string {
+	return s.topModules(false, func(name string, attrs []string) string {
 		if slices.ContainsFunc(attrs, isCfgTest) {
 			return name
 		}
@@ -1975,31 +1981,31 @@ func TestModules(src []byte) []string {
 	})
 }
 
-// InlineModules returns the names of the modules a file declares inline
-// (mod name { ... }) at its top level, in source order.
-func InlineModules(src []byte) []string {
-	return topModules(src, true, func(name string, _ []string) string { return name })
+// InlineModules returns the names of the modules the file declares
+// inline (mod name { ... }) at its top level, in source order.
+func (s Syntax) InlineModules() []string {
+	return s.topModules(true, func(name string, _ []string) string { return name })
 }
 
 // topModules returns, for the modules a file declares at its top level,
 // inline ones or out-of-line ones, what entry makes of each one's name and
 // attributes, "" leaving it out.
-func topModules(src []byte, inline bool, entry func(name string, attrs []string) string) []string {
-	return topItems(src, func(item *sitter.Node, _ []string) bool {
+func (s Syntax) topModules(inline bool, entry func(name string, attrs []string) string) []string {
+	return s.topItems(func(item *sitter.Node, _ []string) bool {
 		return item.Kind() == "mod_item" && (item.ChildByFieldName("body") != nil) == inline
 	}, entry)
 }
 
 // topItems returns, for each item at the top of a file that keep accepts,
 // what entry makes of its name and attributes, "" leaving it out.
-func topItems(src []byte, keep func(item *sitter.Node, attrs []string) bool, entry func(name string, attrs []string) string) []string {
+func (s Syntax) topItems(keep func(item *sitter.Node, attrs []string) bool, entry func(name string, attrs []string) string) []string {
 	var names []string
-	topLevel(src, func(item *sitter.Node, attrs []string) {
+	s.topLevel(func(item *sitter.Node, attrs []string) {
 		if !keep(item, attrs) {
 			return
 		}
 		if name := item.ChildByFieldName("name"); name != nil {
-			if e := entry(name.Utf8Text(src), attrs); e != "" {
+			if e := entry(name.Utf8Text(s.file.Src), attrs); e != "" {
 				names = append(names, e)
 			}
 		}
@@ -2007,14 +2013,12 @@ func topItems(src []byte, keep func(item *sitter.Node, attrs []string) bool, ent
 	return names
 }
 
-// topLevel parses src and calls visit with each item at the top of the
-// file and the attributes written above it.
-func topLevel(src []byte, visit func(item *sitter.Node, attrs []string)) {
-	_ = syntax.Parse(language, src, func(root *sitter.Node) {
-		eachItem(root, src, func(item *sitter.Node, attrs []string) bool {
-			visit(item, attrs)
-			return false
-		})
+// topLevel calls visit with each item at the top of the file and the
+// attributes written above it.
+func (s Syntax) topLevel(visit func(item *sitter.Node, attrs []string)) {
+	eachItem(s.root, s.file.Src, func(item *sitter.Node, attrs []string) bool {
+		visit(item, attrs)
+		return false
 	})
 }
 
@@ -2024,37 +2028,38 @@ var topItemKinds = map[string]bool{
 	"trait_item": true, "const_item": true, "static_item": true, "macro_definition": true,
 }
 
-// TopNames returns the names a file declares in its own scope: its
+// TopNames returns the names the file declares in its own scope: its
 // top-level functions, types, traits, constants, statics and macros, not
 // those of an inline module, nor test code's.
-func TopNames(src []byte) []string {
-	return topItems(src, func(item *sitter.Node, attrs []string) bool {
+func (s Syntax) TopNames() []string {
+	return s.topItems(func(item *sitter.Node, attrs []string) bool {
 		return topItemKinds[item.Kind()] && !slices.ContainsFunc(attrs, isCfgTest)
 	}, func(name string, _ []string) string { return strings.TrimPrefix(name, "r#") })
 }
 
-// TopExports returns the names a file's own scope makes visible outside
-// its module: what a glob of the module supplies of its own. They are
-// TopNames' items with a visibility, and its public modules.
-func TopExports(src []byte) []string {
-	return topItems(src, func(item *sitter.Node, attrs []string) bool {
-		return (topItemKinds[item.Kind()] || item.Kind() == "mod_item") && visible(item, src) &&
+// TopExports returns the names the file's own scope makes visible
+// outside its module: what a glob of the module supplies of its own. They
+// are TopNames' items with a visibility, and its public modules.
+func (s Syntax) TopExports() []string {
+	return s.topItems(func(item *sitter.Node, attrs []string) bool {
+		return (topItemKinds[item.Kind()] || item.Kind() == "mod_item") && visible(item, s.file.Src) &&
 			!slices.ContainsFunc(attrs, isCfgTest)
 	}, func(name string, _ []string) string { return strings.TrimPrefix(name, "r#") })
 }
 
-// TopReexports returns the names a file's top-level use declarations with
-// a visibility (pub, pub(crate)) bring in, each with its path: what a glob
-// of the file's module supplies besides its items. A visible glob (pub use
-// a::*) is kept under "*" and its source. Test code's uses are left out.
-func TopReexports(src []byte) map[string]string {
+// TopReexports returns the names the file's top-level use declarations
+// with a visibility (pub, pub(crate)) bring in, each with its path: what a
+// glob of the file's module supplies besides its items. A visible glob
+// (pub use a::*) is kept under "*" and its source. Test code's uses are
+// left out.
+func (s Syntax) TopReexports() map[string]string {
 	out := map[string]string{}
-	topLevel(src, func(item *sitter.Node, attrs []string) {
-		if item.Kind() != "use_declaration" || slices.ContainsFunc(attrs, isCfgTest) || !visible(item, src) {
+	s.topLevel(func(item *sitter.Node, attrs []string) {
+		if item.Kind() != "use_declaration" || slices.ContainsFunc(attrs, isCfgTest) || !visible(item, s.file.Src) {
 			return
 		}
 		if arg := item.ChildByFieldName("argument"); arg != nil {
-			collectUse(arg, "", src, out)
+			collectUse(arg, "", s.file.Src, out)
 		}
 	})
 	return out

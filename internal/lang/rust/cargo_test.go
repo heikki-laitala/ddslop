@@ -90,7 +90,7 @@ func TestTargetPaths(t *testing.T) {
 // ending telling it from a name).
 func TestDeclaredModulesListAFilesOutOfLineModules(t *testing.T) {
 	src := []byte("mod cli;\npub mod store;\nmod inline { }\n#[cfg(test)]\nmod tests;\n#[path = \"commands/run.rs\"]\nmod run;\n")
-	if got, want := DeclaredModules(src), []string{"cli", "store", "tests", "commands/run.rs"}; !slices.Equal(got, want) {
+	if got, want := read(src, Syntax.DeclaredModules), []string{"cli", "store", "tests", "commands/run.rs"}; !slices.Equal(got, want) {
 		t.Errorf("DeclaredModules = %q, want %q", got, want)
 	}
 }
