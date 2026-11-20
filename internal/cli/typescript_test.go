@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -528,8 +529,9 @@ func TestExcludedFilesDoNotUseExports(t *testing.T) {
 	testutil.Lines(t, "unused", candidateLines(decode(t, stdout), "dead-code"), []string{"typescript dead-code [src/main.ts forgotten]"})
 }
 
-// Routes an Express module registers are features: flows lists them, and
-// check compares their handlers, which no named function held before.
+// Routes an Express module registers are features: flows lists them, a
+// route naming its handler reaching it in another file, and check compares
+// inline handlers, which no named function held before.
 func TestTypeScriptRouteHandlersAreFeaturesCheckCompares(t *testing.T) {
 	handler := `router.%s("/%s/:id", async (req, res) => {
   const id = req.params.id;
@@ -548,12 +550,37 @@ func TestTypeScriptRouteHandlersAreFeaturesCheckCompares(t *testing.T) {
 `
 	root := repo(t, map[string]string{
 		"package.json": `{"name": "api", "private": true}`,
-		"src/routes.ts": "import { Router } from \"express\";\n\nconst router = Router();\n\n" +
-			fmt.Sprintf(handler, "get", "orders", "orders") + "\n" + fmt.Sprintf(handler, "get", "rooms", "rooms") + "\n\nexport default router;\n",
+		"src/routes.ts": "import { Router } from \"express\";\nimport { listUsers } from \"./users\";\n\nconst router = Router();\n\n" +
+			fmt.Sprintf(handler, "get", "orders", "orders") + "\n" + fmt.Sprintf(handler, "get", "rooms", "rooms") +
+			"\nrouter.get(\"/users\", listUsers);\n\nexport default router;\n",
+		"src/users.ts": "export async function listUsers(req, res) {\n  res.json(await loadUsers());\n}\n\nasync function loadUsers() {\n  return [];\n}\n",
 	})
 
 	stdout, _ := runCode(t, 0, "flows", "--format", "json", root)
-	wantContains(t, stdout, `"GET /orders/:id"`, `"GET /rooms/:id"`)
+	wantContains(t, stdout, `"GET /orders/:id"`, `"GET /rooms/:id"`, `"GET /users"`)
+	// a route naming its handler reaches it, and what it calls, in another file
+	var flows struct {
+		Flows []struct {
+			Entry struct {
+				Name string `json:"name"`
+			} `json:"entry"`
+			Steps []struct {
+				Name string `json:"name"`
+			} `json:"steps"`
+		} `json:"flows"`
+	}
+	decodeInto(t, stdout, &flows)
+	for _, f := range flows.Flows {
+		if f.Entry.Name == "GET /users" {
+			var names []string
+			for _, s := range f.Steps {
+				names = append(names, s.Name)
+			}
+			if !slices.Contains(names, "listUsers") || !slices.Contains(names, "loadUsers") {
+				t.Errorf("GET /users reaches %v, want listUsers and loadUsers", names)
+			}
+		}
+	}
 	_, stdout, _ = run("check", "--format", "json", root)
 	testutil.Lines(t, "copies", candidateLines(decode(t, stdout), "renamed-clone"), []string{
 		"typescript renamed-clone [src/routes.ts GET /orders/:id, src/routes.ts GET /rooms/:id]",

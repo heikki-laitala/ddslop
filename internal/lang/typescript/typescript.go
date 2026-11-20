@@ -205,7 +205,7 @@ func (g grammar) bind(binding *sitter.Node, src []byte) {
 // in functions are part of them.
 func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var marked error
-	p := &parser{file: file, src: src, test: IsTestPath(file), routers: map[string]bool{}}
+	p := &parser{file: file, src: src, test: IsTestPath(file), routers: map[string]bool{}, nextAliases: map[string]bool{}}
 	err := syntax.Parse(languageOf(file), src, func(root *sitter.Node) {
 		p.imports = imports(root, src)
 		p.decls.WholeImports = wholeImports(root, src)
@@ -234,7 +234,7 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 		if p.routeFile() {
 			for i := range p.units {
 				u := &p.units[i]
-				u.Entry = u.Entry || u.Public && nextMethods[u.Name]
+				u.Entry = u.Entry || u.Public && (nextMethods[u.Name] || p.nextAliases[u.Name])
 			}
 		}
 		addNoUses(p.decls.Reach.Optional, root, src)
@@ -275,8 +275,9 @@ func (p *parser) markExported(root *sitter.Node) {
 				source.AddWords(p.decls.Reach.Optional, spec.Utf8Text(p.src))
 				if name := spec.ChildByFieldName("name"); name != nil {
 					names[name.Utf8Text(p.src)] = true
-					if spec.ChildByFieldName("alias") != nil {
+					if alias := spec.ChildByFieldName("alias"); alias != nil {
 						external[name.Utf8Text(p.src)] = true
+						p.nextAliases[name.Utf8Text(p.src)] = nextMethods[alias.Utf8Text(p.src)]
 					}
 				}
 			}
@@ -416,6 +417,9 @@ type parser struct {
 	// routers are the names the module binds to a call making a router or
 	// server (see routerMakers).
 	routers map[string]bool
+	// nextAliases are the names an export clause exports under an HTTP
+	// method's (export { handler as GET }).
+	nextAliases map[string]bool
 }
 
 // declaration records the units and declarations of a top-level
@@ -545,7 +549,8 @@ func (p *parser) isRouter(name string) bool {
 // route returns the handler of a route a module registers in a statement,
 // as a unit named after the route ("GET /account/me"): a call of an HTTP
 // method on a router or app whose first argument is a path ("/...") and
-// whose last a function, after any middleware (Express, Hono, Fastify).
+// whose last a function, after any middleware (Express, Hono, Fastify),
+// or the name of one, whose unit is then the registration.
 func (p *parser) route(stmt *sitter.Node) (unit.Unit, bool) {
 	call := stmt.NamedChild(0)
 	if call == nil || call.Kind() != "call_expression" {
@@ -557,15 +562,31 @@ func (p *parser) route(stmt *sitter.Node) (unit.Unit, bool) {
 	}
 	method, receiver := callee.ChildByFieldName("property"), callee.ChildByFieldName("object")
 	first, last := args.NamedChild(0), unwrapped(args.NamedChild(args.NamedChildCount()-1))
+	named := last.Kind() == "identifier" || last.Kind() == "member_expression"
 	if method == nil || !httpMethods[method.Utf8Text(p.src)] || receiver == nil || receiver.Kind() != "identifier" || !p.isRouter(receiver.Utf8Text(p.src)) ||
-		(first.Kind() != "string" && first.Kind() != "template_string") || !isFunction(last) {
+		(first.Kind() != "string" && first.Kind() != "template_string") || !isFunction(last) && !named {
 		return unit.Unit{}, false
 	}
 	path := strings.Trim(first.Utf8Text(p.src), "\"'`")
 	if !strings.HasPrefix(path, "/") {
 		return unit.Unit{}, false
 	}
-	u := p.unit(strings.ToUpper(method.Utf8Text(p.src))+" "+path, last, last, false)
+	name := strings.ToUpper(method.Utf8Text(p.src)) + " " + path
+	if !named {
+		u := p.unit(name, last, last, false)
+		u.Entry = true
+		return u, true
+	}
+	// A handler defined elsewhere (router.get("/users", listUsers)): the
+	// registration is the route's unit, calling it, as the call graph
+	// resolves it wherever it is.
+	u := p.unit(name, stmt, stmt, false)
+	var catches []string
+	other := 0
+	g := grammar{imports: p.imports, vars: map[string]string{}, otherThis: &other, catches: &catches, p: p}
+	if c, ok := g.callee(last, u.StartLine, p.src); ok {
+		u.Calls = append(u.Calls, c)
+	}
 	u.Entry = true
 	return u, true
 }

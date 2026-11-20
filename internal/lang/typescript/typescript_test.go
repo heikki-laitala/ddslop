@@ -836,7 +836,9 @@ export function wrap(err: unknown, fetchError: Error) {
 // A route a module registers (router.get("/path", ...middleware, handler))
 // on a router or server (named like one, or made by Router(), express()
 // and their kin) is a unit named after it, an entry point; so is an HTTP
-// method a Next.js route file exports, which ALL is not. A call that only
+// method a Next.js route file exports, under its own name or another
+// (export { handler as POST }), which ALL is not. A route naming its
+// handler (router.get("/users", listUsers)) is a unit calling it. A call that only
 // looks like one (a path-less key, a non-function last argument, a
 // client's request: $.get) is none, and nor is a route file's helper.
 func TestRouteHandlersAreEntryPoints(t *testing.T) {
@@ -866,6 +868,9 @@ userRouter.put("/users/:id", (req, res) => {
   res.end();
 });
 
+router.get("/users", requireAuth, listUsers);
+router.post("/orders", orders.create);
+
 export default router;
 `
 	units, _, err := Parse("src/routes/account.ts", []byte(src))
@@ -880,10 +885,22 @@ export default router;
 		"POST /account/logout 10-12 entry=true",
 		"DELETE /sessions/:id 19-21 entry=true",
 		"PUT /users/:id 23-25 entry=true",
+		"GET /users 27-27 entry=true",
+		"POST /orders 28-28 entry=true",
 	})
+	// A route naming its handler calls it, so its feature reaches it,
+	// however the module imports it.
+	for _, u := range units[4:] {
+		if len(u.Calls) == 0 || u.Calls[len(u.Calls)-1].Name != map[string]string{"GET /users": "listUsers", "POST /orders": "create"}[u.Name] {
+			t.Errorf("%s calls %+v, want its handler last", u.Name, u.Calls)
+		}
+	}
 
-	next := "export async function GET(req: Request) {\n  return Response.json(await list());\n}\n\nexport function ALL() {\n  return 1;\n}\n"
-	for file, want := range map[string]string{"src/app/api/users/route.ts": "GET entry=true; ALL entry=false", "src/app/api/users/list.ts": "GET entry=false; ALL entry=false"} {
+	next := "export async function GET(req: Request) {\n  return Response.json(await list());\n}\n\nexport function ALL() {\n  return 1;\n}\n\nasync function handler() {\n  return 1;\n}\n\nexport { handler as POST };\n"
+	for file, want := range map[string]string{
+		"src/app/api/users/route.ts": "GET entry=true; ALL entry=false; handler entry=true",
+		"src/app/api/users/list.ts":  "GET entry=false; ALL entry=false; handler entry=false",
+	} {
 		units, _, err := Parse(file, []byte(next))
 		if err != nil {
 			t.Fatal(err)

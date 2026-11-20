@@ -71,8 +71,13 @@ func importClause(clause *sitter.Node, module string, src []byte, names map[stri
 // call.
 // ddslop:ignore the Go adapter's classification over TypeScript's node kinds; each changes with its own grammar
 func (g grammar) call(n *sitter.Node, src []byte) (unit.Call, bool) {
-	fn := n.ChildByFieldName("function")
-	c := unit.Call{Line: syntax.Line(n.StartPosition())}
+	return g.callee(n.ChildByFieldName("function"), syntax.Line(n.StartPosition()), src)
+}
+
+// callee returns the call, at line, of fn: the expression a call calls,
+// or a function passed to be called (a route's handler).
+func (g grammar) callee(fn *sitter.Node, line int, src []byte) (unit.Call, bool) {
+	c := unit.Call{Line: line}
 	switch {
 	case fn == nil:
 		return c, false
