@@ -57,6 +57,11 @@ type Unit struct {
 	// unit: a program's main, or a function whose attributes export it or
 	// register it, such as #[no_mangle], #[tokio::main] or #[get("/")].
 	External bool
+	// Entry is true when a framework calls the unit for a request: a route
+	// handler a module registers (router.get("/path", handler)) or exports
+	// (a Next.js route file's GET). Entry points start features (see
+	// flow.Graph.Entries).
+	Entry bool
 	// Dispatched is true when the unit may be called through an interface
 	// without its name being written at the call: Go methods, which satisfy
 	// interfaces implicitly. Rust trait methods are marked by Trait.

@@ -231,6 +231,12 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 		}
 		p.decls.Reach.Optional = map[string]int{}
 		p.markExported(root)
+		if p.routeFile() {
+			for i := range p.units {
+				u := &p.units[i]
+				u.Entry = u.Entry || u.Public && httpMethods[strings.ToLower(u.Name)] && u.Name == strings.ToUpper(u.Name)
+			}
+		}
 		addNoUses(p.decls.Reach.Optional, root, src)
 		marked = syntax.MarkIgnored(root, src, p.units, &p.decls)
 	})
@@ -456,6 +462,10 @@ func (p *parser) declaration(n *sitter.Node, exported bool) {
 		case value.Kind() == "union_type":
 			p.union(n, value)
 		}
+	case "expression_statement":
+		if u, ok := p.route(n); ok {
+			p.units = append(p.units, u)
+		}
 	case "enum_declaration":
 		p.enum(n)
 	}
@@ -490,11 +500,51 @@ var routeOptions = map[string]bool{
 	"runtime": true, "preferredRegion": true, "maxDuration": true,
 }
 
+// httpMethods are the methods a route is registered or exported for.
+var httpMethods = map[string]bool{"get": true, "post": true, "put": true, "patch": true, "delete": true, "head": true, "options": true, "all": true}
+
+// route returns the handler of a route a module registers in a statement,
+// as a unit named after the route ("GET /account/me"): a call of an HTTP
+// method on a router or app whose first argument is a path ("/...") and
+// whose last a function, after any middleware (Express, Hono, Fastify).
+func (p *parser) route(stmt *sitter.Node) (unit.Unit, bool) {
+	call := stmt.NamedChild(0)
+	if call == nil || call.Kind() != "call_expression" {
+		return unit.Unit{}, false
+	}
+	callee, args := call.ChildByFieldName("function"), call.ChildByFieldName("arguments")
+	if callee == nil || callee.Kind() != "member_expression" || args == nil || args.NamedChildCount() < 2 {
+		return unit.Unit{}, false
+	}
+	method := callee.ChildByFieldName("property")
+	first, last := args.NamedChild(0), unwrapped(args.NamedChild(args.NamedChildCount()-1))
+	if method == nil || !httpMethods[method.Utf8Text(p.src)] || (first.Kind() != "string" && first.Kind() != "template_string") || !isFunction(last) {
+		return unit.Unit{}, false
+	}
+	path := strings.Trim(first.Utf8Text(p.src), "\"'`")
+	if !strings.HasPrefix(path, "/") {
+		return unit.Unit{}, false
+	}
+	u := p.unit(strings.ToUpper(method.Utf8Text(p.src))+" "+path, last, last, false)
+	u.Entry = true
+	return u, true
+}
+
+// routeFile reports whether the file is a Next.js route file, whose HTTP
+// method exports handle its route's requests.
+func (p *parser) routeFile() bool { return p.stem() == "route" }
+
+// stem returns the file's name without its directory and extension, by
+// which Next.js tells a page, layout or route file.
+func (p *parser) stem() string {
+	base := path.Base(filepath.ToSlash(p.file))
+	return strings.TrimSuffix(base, path.Ext(base))
+}
+
 // routeOption reports whether a constant the file exports is a Next.js
 // route option: a copy the framework asks every route for.
 func (p *parser) routeOption(name string) bool {
-	base := path.Base(filepath.ToSlash(p.file))
-	switch strings.TrimSuffix(base, path.Ext(base)) {
+	switch p.stem() {
 	case "page", "layout", "route", "opengraph-image", "twitter-image", "icon", "apple-icon", "sitemap", "robots", "manifest":
 		return routeOptions[name]
 	}

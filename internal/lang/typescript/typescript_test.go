@@ -830,3 +830,51 @@ export function wrap(err: unknown, fetchError: Error) {
 		testutil.Lines(t, name+" forms", got, want)
 	}
 }
+
+// A route a module registers (router.get("/path", ...middleware, handler))
+// is a unit named after it, an entry point; so is an HTTP method a Next.js
+// route file exports. A call that only looks like one (a path-less key, a
+// non-function last argument) is none, and nor is a route file's helper.
+func TestRouteHandlersAreEntryPoints(t *testing.T) {
+	src := `import { Router } from "express";
+
+const router = Router();
+
+router.get("/account/me", requireAuth, async (req, res) => {
+  const user = await load(req.user.id);
+  res.json(user);
+});
+
+router.post(` + "`/account/logout`" + `, (req, res) => {
+  res.end();
+});
+
+axios.get("/api/x", { timeout: 1 });
+cache.get("key", () => 1);
+
+export default router;
+`
+	units, _, err := Parse("src/routes/account.ts", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := testutil.Format(units, func(u unit.Unit) string {
+		return fmt.Sprintf("%s %d-%d entry=%v", u.Name, u.StartLine, u.EndLine, u.Entry)
+	})
+	testutil.Lines(t, "route units", got, []string{
+		"GET /account/me 5-8 entry=true",
+		"POST /account/logout 10-12 entry=true",
+	})
+
+	next := "export async function GET(req: Request) {\n  return Response.json(await list());\n}\n\nexport function helper() {\n  return 1;\n}\n"
+	for file, want := range map[string]string{"src/app/api/users/route.ts": "GET entry=true; helper entry=false", "src/app/api/users/list.ts": "GET entry=false; helper entry=false"} {
+		units, _, err := Parse(file, []byte(next))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := testutil.Format(units, func(u unit.Unit) string { return fmt.Sprintf("%s entry=%v", u.Name, u.Entry) })
+		if strings.Join(got, "; ") != want {
+			t.Errorf("%s: %s, want %s", file, strings.Join(got, "; "), want)
+		}
+	}
+}

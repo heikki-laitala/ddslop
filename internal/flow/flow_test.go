@@ -325,6 +325,19 @@ func TestBuildResolvesGoCalls(t *testing.T) {
 
 // Go methods implement generated interfaces implicitly: a method named
 // like one of the interface's methods is an entry point.
+// A unit its adapter marks as an entry point, such as a route handler,
+// starts a feature too, unless it is test code.
+func TestEntriesIncludeUnitsMarkedAsEntryPoints(t *testing.T) {
+	route := fn("src/routes.ts", "GET /users")
+	route.Entry = true
+	testRoute := fn("src/routes.test.ts", "GET /fake")
+	testRoute.Entry, testRoute.Test = true, true
+	g := Build(Inputs{}, []unit.Unit{fn("src/a.ts", "helper"), route, testRoute})
+	if got := fmt.Sprint(g.Entries(nil)); got != "[1]" {
+		t.Errorf("entries = %s, want [1]: the marked route, not the helper or the test's", got)
+	}
+}
+
 func TestEntriesIncludeGoMethodsNamedInGeneratedInterfaces(t *testing.T) {
 	handler := fn("api/server.go", "oapiServer.GetDocument")
 	handler.Dispatched = true

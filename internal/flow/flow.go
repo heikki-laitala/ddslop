@@ -1385,12 +1385,13 @@ func split(name string) (owner, short string) {
 
 // Entries returns the non-test units implementing one of the traits (Rust),
 // or methods named like one of them (Go implements interfaces implicitly,
-// so traits holds a generated interface's method names).
+// so traits holds a generated interface's method names), and those their
+// adapter marks as entry points (unit.Unit.Entry: route handlers).
 func (g *Graph) Entries(traits map[string]bool) []int {
 	var out []int
 	for i, u := range g.Units {
 		_, short := split(u.Name)
-		if !u.Test && (traits[u.Trait] || (u.Dispatched && traits[short])) {
+		if !u.Test && (u.Entry || traits[u.Trait] || (u.Dispatched && traits[short])) {
 			out = append(out, i)
 		}
 	}
