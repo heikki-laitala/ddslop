@@ -341,12 +341,10 @@ type alias struct {
 // block, module body or file declaring it.
 func aliasesIn(root *sitter.Node, src []byte) []alias {
 	var out []alias
-	var walk func(n *sitter.Node, module string)
-	walk = func(n *sitter.Node, module string) {
-		scope := n.Parent()
-		for scope != nil && scope.Kind() != "block" && scope.Kind() != "declaration_list" && scope.Kind() != "source_file" {
-			scope = scope.Parent()
-		}
+	// scope is the innermost block, module body or file around n, and
+	// parent n's parent: carried down, as Node.Parent searches from the root.
+	var walk func(n, scope, parent *sitter.Node, module string)
+	walk = func(n, scope, parent *sitter.Node, module string) {
 		bind := func(name string, segments []string) {
 			if scope != nil {
 				out = append(out, alias{name: name, module: module, segments: segments, start: scope.StartByte(), end: scope.EndByte()})
@@ -368,7 +366,7 @@ func aliasesIn(root *sitter.Node, src []byte) []alias {
 			}
 		case "type_parameters":
 			// a generic parameter hides an alias of its name in its item
-			if item := n.Parent(); item != nil {
+			if item := parent; item != nil {
 				for i := uint(0); i < n.NamedChildCount(); i++ {
 					p := n.NamedChild(i)
 					if name := p.ChildByFieldName("name"); name != nil && (p.Kind() == "type_parameter" || p.Kind() == "const_parameter") {
@@ -396,11 +394,16 @@ func aliasesIn(root *sitter.Node, src []byte) []alias {
 			}
 			return
 		}
+		inner := scope
+		switch n.Kind() {
+		case "block", "declaration_list", "source_file":
+			inner = n
+		}
 		for i := uint(0); i < n.NamedChildCount(); i++ {
-			walk(n.NamedChild(i), module)
+			walk(n.NamedChild(i), inner, n, module)
 		}
 	}
-	walk(root, "")
+	walk(root, nil, nil, "")
 	return out
 }
 
