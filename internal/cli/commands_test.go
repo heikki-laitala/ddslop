@@ -100,6 +100,31 @@ func TestInitSelectedAgentsStatusAndUninstall(t *testing.T) {
 	}
 }
 
+// A skill an earlier ddslop installed is out of date: status says so and
+// how to update it, and check warns on stderr, leaving its JSON alone,
+// until init brings it up to date.
+func TestStatusAndCheckSayASkillIsOutOfDate(t *testing.T) {
+	root := repo(t, map[string]string{"a.rs": users})
+	if code, _, stderr := run("init", "--claude", root); code != 0 {
+		t.Fatalf("init: exit %d, stderr %s", code, stderr)
+	}
+	if _, stderr := runCode(t, 0, "check", "--format", "json", root); strings.Contains(stderr, "out of date") {
+		t.Errorf("check warns about a current skill:\n%s", stderr)
+	}
+
+	testutil.WriteFiles(t, root, map[string]string{".claude/skills/ddslop/SKILL.md": "an earlier ddslop's skill\n"})
+	_, stdout, _ := run("status", root)
+	wantContains(t, stdout, "claude: skill (out of date), instructions", "ddslop init --claude")
+	stdout, stderr := runCode(t, 0, "check", "--format", "json", root)
+	wantContains(t, stderr, "out of date", "ddslop init --claude")
+	decodeJSON[targetReport](t, stdout)
+
+	run("init", "--claude", root)
+	if _, stderr := runCode(t, 0, "check", "--format", "json", root); strings.Contains(stderr, "out of date") {
+		t.Errorf("check still warns after init:\n%s", stderr)
+	}
+}
+
 func TestStatsDescribesTheIndexWithoutSyncing(t *testing.T) {
 	root := repo(t, map[string]string{
 		"a.rs":     users,

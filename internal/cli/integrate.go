@@ -57,7 +57,9 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 const statusUsage = `usage: ddslop status [path]
 
 Shows what ddslop has installed in the project at path (default "."):
-the .gitignore entry, the index and each agent's skill and instructions.
+the .gitignore entry, the index and each agent's skill and instructions,
+and which skills and instructions an earlier ddslop wrote, with the
+ddslop init command that updates them.
 
 Flags:
 `
@@ -78,17 +80,51 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		a := s.Agents[agent]
 		var parts []string
 		if a.Skill {
-			parts = append(parts, "skill")
+			parts = append(parts, "skill"+outOfDate(a.SkillStale))
 		}
 		if a.Instructions {
-			parts = append(parts, "instructions")
+			parts = append(parts, "instructions"+outOfDate(a.InstructionsStale))
 		}
 		if len(parts) == 0 {
 			parts = []string{"not installed"}
 		}
 		fmt.Fprintf(stdout, "%s: %s\n", agent, strings.Join(parts, ", "))
 	}
+	if hint := staleHintOf(s); hint != "" {
+		fmt.Fprintln(stdout, hint)
+	}
 	return exitClean
+}
+
+func outOfDate(stale bool) string {
+	if stale {
+		return " (out of date)"
+	}
+	return ""
+}
+
+// staleHint says how to update what an earlier ddslop installed in root
+// for agents, or "" when all of it is current or root has none.
+func staleHint(root string) string {
+	s, err := integrate.Check(root)
+	if err != nil {
+		return ""
+	}
+	return staleHintOf(s)
+}
+
+// staleHintOf is staleHint for a project's status.
+func staleHintOf(s integrate.Status) string {
+	var flags []string
+	for _, agent := range integrate.Agents {
+		if a := s.Agents[agent]; a.SkillStale || a.InstructionsStale {
+			flags = append(flags, "--"+string(agent))
+		}
+	}
+	if len(flags) == 0 {
+		return ""
+	}
+	return "the ddslop skill or instructions an earlier ddslop installed are out of date: run `ddslop init " + strings.Join(flags, " ") + "` to update them"
 }
 
 func presence(ok bool) string {

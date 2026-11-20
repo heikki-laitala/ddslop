@@ -206,6 +206,46 @@ func TestCheckReportsInstalledParts(t *testing.T) {
 	}
 }
 
+// A skill or section an earlier ddslop wrote is out of date: init brings
+// it up to date. A section edited by hand is the project's, not stale.
+func TestCheckReportsAnOutOfDateSkillAndSection(t *testing.T) {
+	root := t.TempDir()
+	install(t, root, Claude, Codex)
+	if got := checked(t, root)[Claude]; got.SkillStale || got.InstructionsStale {
+		t.Errorf("fresh install = %+v, want nothing out of date", got)
+	}
+
+	old, err := former.ReadFile("templates/former/1.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, ".claude/skills/ddslop/SKILL.md", "an earlier ddslop's skill\n")
+	write(t, root, "CLAUDE.md", "# Project\n\n"+string(old))
+	write(t, root, "AGENTS.md", "## ddslop\n\nOur own words.\n")
+	got := checked(t, root)
+	if c := got[Claude]; !c.SkillStale || !c.InstructionsStale {
+		t.Errorf("Claude status = %+v, want an out-of-date skill and section", c)
+	}
+	if c := got[Codex]; c.SkillStale || c.InstructionsStale {
+		t.Errorf("Codex status = %+v, want a current skill and a section edited by hand", c)
+	}
+
+	install(t, root, Claude)
+	if c := checked(t, root)[Claude]; c.SkillStale || c.InstructionsStale {
+		t.Errorf("after init = %+v, want nothing out of date", c)
+	}
+}
+
+// checked returns Check's agent statuses for root.
+func checked(t *testing.T, root string) map[Agent]AgentStatus {
+	t.Helper()
+	s, err := Check(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.Agents
+}
+
 func TestUninstallRemovesEverythingButOtherContent(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "CLAUDE.md", "# Project\n\nExisting rules.\n")

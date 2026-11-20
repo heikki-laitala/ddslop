@@ -60,9 +60,11 @@ var (
 	skill = template.Must(template.New("SKILL.md").Parse(skillTemplate))
 )
 
-// AgentStatus says what is installed for one agent.
+// AgentStatus says what is installed for one agent, and what of it an
+// earlier ddslop wrote, which init brings up to date.
 type AgentStatus struct {
-	Skill, Instructions bool
+	Skill, Instructions           bool
+	SkillStale, InstructionsStale bool
 }
 
 // Status says what ddslop has installed in a project.
@@ -96,12 +98,12 @@ func Install(root string, agents []Agent) ([]string, error) {
 			continue
 		}
 		t := targets[agent]
-		var content bytes.Buffer
-		if err := skill.Execute(&content, struct{ Claude bool }{agent == Claude}); err != nil {
+		content, err := skillFor(agent)
+		if err != nil {
 			return changes, err
 		}
 		path := filepath.Join(root, t.skillDir, "SKILL.md")
-		changed, err = writeFile(path, content.String())
+		changed, err = writeFile(path, content)
 		if err := note(changed, err, "installed %s skill -> %s", agent, path); err != nil {
 			return changes, err
 		}
@@ -134,13 +136,34 @@ func Check(root string) (Status, error) {
 	for _, agent := range Agents {
 		t := targets[agent]
 		var a AgentStatus
-		a.Skill = exists(filepath.Join(root, t.skillDir, "SKILL.md"))
-		if a.Instructions, err = hasLine(filepath.Join(root, t.instructions), sectionTitle); err != nil {
+		skillPath := filepath.Join(root, t.skillDir, "SKILL.md")
+		if a.Skill = exists(skillPath); a.Skill {
+			installed, err := readFile(skillPath)
+			current, renderErr := skillFor(agent)
+			if err = errors.Join(err, renderErr); err != nil {
+				return s, err
+			}
+			a.SkillStale = installed != current
+		}
+		instructions, err := readFile(filepath.Join(root, t.instructions))
+		if err != nil {
 			return s, err
+		}
+		if start, end, ok := findSection(instructions); ok {
+			text := instructions[start:end]
+			// one ddslop wrote, but not this one's: a section edited by hand is the project's
+			a.Instructions, a.InstructionsStale = true, ours(text) && strings.TrimSpace(text) != strings.TrimSpace(section)
 		}
 		s.Agents[agent] = a
 	}
 	return s, nil
+}
+
+// skillFor returns the skill this ddslop installs for an agent.
+func skillFor(agent Agent) (string, error) {
+	var content bytes.Buffer
+	err := skill.Execute(&content, struct{ Claude bool }{agent == Claude})
+	return content.String(), err
 }
 
 // Uninstall removes ddslop's skills, instruction sections and .gitignore

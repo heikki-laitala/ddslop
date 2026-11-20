@@ -2459,7 +2459,7 @@ ddslop check [path]          analyse and report (default command)
 ddslop index [path]          build or refresh .ddslop/index.db
 ddslop init [path]           set ddslop up for coding agents
 ddslop stats [path]          describe the index without updating it
-ddslop status [path]         show what ddslop has installed in a project
+ddslop status [path]         show what ddslop has installed in a project, and what is out of date
 ddslop uninstall [path]      remove the agent integration (--purge: the index too)
 ddslop version               print the version
 ddslop baseline [path]       record current duplication in .ddslop-baseline.json

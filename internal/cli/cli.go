@@ -374,6 +374,9 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
+	if hint := staleHint(root); hint != "" {
+		fmt.Fprintln(stderr, "ddslop: "+hint)
+	}
 	if limited {
 		if r.Summary.Health.OverLimit {
 			return exitFound

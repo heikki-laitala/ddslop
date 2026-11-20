@@ -99,6 +99,10 @@ replacing the binary, and is the only command that uses the network.
 `--version V` installs a particular release. A build from source is not
 replaced unless you add `--force`.
 
+A repository keeps the skill an earlier ddslop installed until you run
+`ddslop init` in it again. `ddslop check` and `ddslop status` say when it
+is out of date, and which `init` command updates it.
+
 ### Uninstall
 
 Remove ddslop from each repository you set it up in, then delete the
