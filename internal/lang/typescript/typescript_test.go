@@ -849,7 +849,9 @@ export function rethrow(err: Error) {
 // { GET } from "@/auth": a unit calling it), which ALL is not, and
 // nor is a function named like one exported under another name or as
 // the default. A route naming its
-// handler (router.get("/users", listUsers)) is a unit calling it. A call that only
+// handler (router.get("/users", listUsers)) is a unit calling it, also
+// in arrays of callbacks ([requireAuth, listUsers]); a handler a factory
+// makes has a unit for each method it is exported as. A call that only
 // looks like one (a path-less key, a non-function last argument, a
 // client's request: $.get) is none, and nor is a route file's helper.
 func TestRouteHandlersAreEntryPoints(t *testing.T) {
@@ -881,6 +883,8 @@ userRouter.put("/users/:id", (req, res) => {
 
 router.get("/users", requireAuth, listUsers);
 router.post("/orders", orders.create);
+router.get("/teams", [requireAuth, [audit]], listTeams);
+router.get("/admins", [requireAuth, listAdmins]);
 
 export default router;
 `
@@ -898,13 +902,18 @@ export default router;
 		"PUT /users/:id 23-25 entry=true",
 		"GET /users 27-27 entry=true",
 		"POST /orders 28-28 entry=true",
+		"GET /teams 29-29 entry=true",
+		"GET /admins 30-30 entry=true",
 	})
 	// A route naming its handler calls it, so its feature reaches it,
 	// however the module imports it.
 	for _, u := range units[4:] {
-		handler := map[string]string{"GET /users": "listUsers", "POST /orders": "create"}[u.Name]
+		handler := map[string]string{"GET /users": "listUsers", "POST /orders": "create", "GET /teams": "listTeams", "GET /admins": "listAdmins"}[u.Name]
 		if !slices.ContainsFunc(u.Calls, func(c unit.Call) bool { return c.Name == handler }) {
 			t.Errorf("%s calls %+v, want its handler %s", u.Name, u.Calls, handler)
+		}
+		if u.Name == "GET /teams" && !slices.ContainsFunc(u.Calls, func(c unit.Call) bool { return c.Name == "audit" }) {
+			t.Errorf("GET /teams calls %+v, want the middleware in its nested array (audit)", u.Calls)
 		}
 	}
 
@@ -922,7 +931,7 @@ export default router;
 	})
 	testutil.Lines(t, "re-exported handlers", got, []string{"GET entry=true calls @/auth GET", "POST entry=true calls @/auth handler"})
 
-	factories := "const handler = NextAuth(options);\nexport { handler as GET };\nexport const POST = withAuth(save);\nconst helper = make();\nexport const PUT = save;\nexport const PATCH = withAuth(orders.update);\n\nfunction save() {\n  return 1;\n}\n"
+	factories := "const handler = NextAuth(options);\nexport { handler as GET, handler as DELETE };\nexport const POST = withAuth(save);\nconst helper = make();\nexport const PUT = save;\nexport const PATCH = withAuth(orders.update);\n\nfunction save() {\n  return 1;\n}\n"
 	units, _, err = Parse("src/app/api/auth/route.ts", []byte(factories))
 	if err != nil {
 		t.Fatal(err)
@@ -934,7 +943,7 @@ export default router;
 		}
 		return fmt.Sprintf("%s entry=%v calls %s", u.Name, u.Entry, strings.Join(calls, " "))
 	})
-	testutil.Lines(t, "handlers a factory makes", got, []string{"save entry=false calls ", "handler entry=true calls NextAuth", "POST entry=true calls save withAuth", "PUT entry=true calls save", "PATCH entry=true calls update withAuth"})
+	testutil.Lines(t, "handlers a factory makes", got, []string{"save entry=false calls ", "GET entry=true calls NextAuth", "DELETE entry=true calls NextAuth", "POST entry=true calls save withAuth", "PUT entry=true calls save", "PATCH entry=true calls update withAuth"})
 
 	middleware := "import { Router } from \"express\";\nconst router = Router();\nrouter.get(\"/private\", (req, res, next) => authenticate(req, next), async (req, res) => render(res));\n"
 	units, _, err = Parse("src/routes/private.ts", []byte(middleware))
