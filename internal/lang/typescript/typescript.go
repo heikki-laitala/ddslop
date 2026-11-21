@@ -680,7 +680,10 @@ func (p *parser) madeHandlers() {
 		direct := m.exported && nextMethods[m.name] // export const GET = withAuth(handler)
 		var aliases []exportName                    // const handler = ...; export { handler as GET }
 		for _, e := range p.exportedAs[m.name] {
-			if e.method() {
+			switch {
+			case e.method() && e.as == m.name: // const GET = ...; export { GET }: the declaration is the entry
+				direct = true
+			case e.method():
 				aliases = append(aliases, e)
 			}
 		}
