@@ -206,7 +206,7 @@ func (g grammar) bind(binding *sitter.Node, src []byte) {
 // in functions are part of them.
 func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 	var marked error
-	p := &parser{file: file, src: src, test: IsTestPath(file), routers: map[string]bool{}, exportedAs: map[string][]string{}, moduleVars: map[string]string{}}
+	p := &parser{file: file, src: src, test: IsTestPath(file), routers: map[string]bool{}, exportedAs: map[string][]exportName{}, moduleVars: map[string]string{}}
 	err := syntax.Parse(languageOf(file), src, func(root *sitter.Node) {
 		p.imports = imports(root, src)
 		p.decls.WholeImports = wholeImports(root, src)
@@ -239,7 +239,7 @@ func Parse(file string, src []byte) ([]unit.Unit, unit.Decls, error) {
 		if p.routeFile() {
 			for i := range p.units {
 				u := &p.units[i]
-				u.Entry = u.Entry || declared[u.Name] && nextMethods[u.Name] || slices.ContainsFunc(p.exportedAs[u.Name], func(as string) bool { return nextMethods[as] })
+				u.Entry = u.Entry || declared[u.Name] && nextMethods[u.Name] || slices.ContainsFunc(p.exportedAs[u.Name], exportName.method)
 			}
 			p.reexportedHandlers(root)
 			p.madeHandlers()
@@ -268,7 +268,7 @@ func (p *parser) markExported(root *sitter.Node) {
 		if v := n.ChildByFieldName("value"); v != nil && v.Kind() == "identifier" {
 			name := v.Utf8Text(p.src)
 			names[name], external[name] = true, true
-			p.exportedAs[name] = append(p.exportedAs[name], "default")
+			p.exportedAs[name] = append(p.exportedAs[name], exportName{"default", n})
 		}
 		for j := uint(0); j < n.NamedChildCount(); j++ {
 			clause := n.NamedChild(j)
@@ -287,7 +287,7 @@ func (p *parser) markExported(root *sitter.Node) {
 					if alias := spec.ChildByFieldName("alias"); alias != nil {
 						external[local], as = true, alias.Utf8Text(p.src)
 					}
-					p.exportedAs[local] = append(p.exportedAs[local], as)
+					p.exportedAs[local] = append(p.exportedAs[local], exportName{as, spec})
 				}
 			}
 		}
@@ -434,7 +434,7 @@ type parser struct {
 	moduleVars map[string]string
 	// exportedAs are the names export clauses and a default export give the
 	// module's names (export { handler as GET }: handler as GET).
-	exportedAs map[string][]string
+	exportedAs map[string][]exportName
 }
 
 // declaration records the units and declarations of a top-level
@@ -673,27 +673,44 @@ type made struct {
 // names that a route file exports as an HTTP method (export const GET =
 // withAuth(handler), const handler = NextAuth(options) and export {
 // handler as GET, handler as POST }, or export const GET = handler), a
-// unit for each method it is exported as, calling what the call does and
-// the functions it is given (see given).
+// unit calling what the call does and the functions it is given (see
+// given), and a unit for each method an export clause gives it.
 func (p *parser) madeHandlers() {
 	for _, m := range p.made {
-		var methods []string // what Next.js dispatches to it: each an entry point of its own
-		if m.exported && nextMethods[m.name] {
-			methods = append(methods, m.name)
-		}
-		for _, as := range p.exportedAs[m.name] {
-			if nextMethods[as] {
-				methods = append(methods, as)
+		direct := m.exported && nextMethods[m.name] // export const GET = withAuth(handler)
+		var aliases []exportName                    // const handler = ...; export { handler as GET }
+		for _, e := range p.exportedAs[m.name] {
+			if e.method() {
+				aliases = append(aliases, e)
 			}
 		}
-		for _, method := range methods {
-			u := p.unit(method, m.decl, m.decl, true)
-			u.Entry, u.External = true, true
-			u.Calls = append(p.given(unwrapped(m.decl.ChildByFieldName("value")), u.StartLine), u.Calls...)
-			p.units = append(p.units, u)
+		if !direct && len(aliases) == 0 {
+			continue
+		}
+		u := p.unit(m.name, m.decl, m.decl, true)
+		u.Entry, u.External = direct, true
+		u.Calls = append(p.given(unwrapped(m.decl.ChildByFieldName("value")), u.StartLine), u.Calls...)
+		p.units = append(p.units, u)
+		// Each method an alias exports is an entry point of its own, a unit
+		// of the export calling the handler: not another copy of its code.
+		for _, a := range aliases {
+			e := p.unit(a.as, a.at, a.at, true)
+			e.Entry, e.External = true, true
+			e.Calls = append(e.Calls, unit.Call{Kind: unit.FreeCall, Name: m.name, Line: e.StartLine})
+			p.units = append(p.units, e)
 		}
 	}
 }
+
+// exportName is a name an export clause or a default export gives one of
+// the module's names, and where.
+type exportName struct {
+	as string
+	at *sitter.Node
+}
+
+// method reports whether the export is a Next.js route handler's name.
+func (e exportName) method() bool { return nextMethods[e.as] }
 
 // given returns the calls of the functions a made handler's value names:
 // the handler itself (export const GET = handler), or those a factory is
