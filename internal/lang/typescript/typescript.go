@@ -590,6 +590,9 @@ func (p *parser) route(stmt *sitter.Node) (unit.Unit, bool) {
 	var callbacks []*sitter.Node
 	var flatten func(n *sitter.Node)
 	flatten = func(n *sitter.Node) {
+		if n.IsExtra() {
+			return // a comment among the callbacks
+		}
 		if n = unwrapped(n); n.Kind() != "array" {
 			callbacks = append(callbacks, n)
 			return

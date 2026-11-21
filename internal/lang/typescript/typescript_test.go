@@ -884,7 +884,8 @@ userRouter.put("/users/:id", (req, res) => {
 router.get("/users", requireAuth, listUsers);
 router.post("/orders", orders.create);
 router.get("/teams", [requireAuth, [audit]], listTeams);
-router.get("/admins", [requireAuth, listAdmins]);
+router.get("/admins", [requireAuth, listAdmins /* audited */]);
+router.get("/audits", listAudits /* audited */);
 
 export default router;
 `
@@ -904,11 +905,12 @@ export default router;
 		"POST /orders 28-28 entry=true",
 		"GET /teams 29-29 entry=true",
 		"GET /admins 30-30 entry=true",
+		"GET /audits 31-31 entry=true",
 	})
 	// A route naming its handler calls it, so its feature reaches it,
 	// however the module imports it.
 	for _, u := range units[4:] {
-		handler := map[string]string{"GET /users": "listUsers", "POST /orders": "create", "GET /teams": "listTeams", "GET /admins": "listAdmins"}[u.Name]
+		handler := map[string]string{"GET /users": "listUsers", "POST /orders": "create", "GET /teams": "listTeams", "GET /admins": "listAdmins", "GET /audits": "listAudits"}[u.Name]
 		if !slices.ContainsFunc(u.Calls, func(c unit.Call) bool { return c.Name == handler }) {
 			t.Errorf("%s calls %+v, want its handler %s", u.Name, u.Calls, handler)
 		}
