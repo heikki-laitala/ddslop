@@ -584,7 +584,27 @@ func (p *parser) route(stmt *sitter.Node) (unit.Unit, bool) {
 		return unit.Unit{}, false
 	}
 	method, receiver := callee.ChildByFieldName("property"), callee.ChildByFieldName("object")
-	first, last := args.NamedChild(0), unwrapped(args.NamedChild(args.NamedChildCount()-1))
+	first := args.NamedChild(0)
+	// the callbacks after the path, arrays of them flattened (Express
+	// takes [requireAuth, listUsers] as it does requireAuth, listUsers)
+	var callbacks []*sitter.Node
+	var flatten func(n *sitter.Node)
+	flatten = func(n *sitter.Node) {
+		if n = unwrapped(n); n.Kind() != "array" {
+			callbacks = append(callbacks, n)
+			return
+		}
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			flatten(n.NamedChild(i))
+		}
+	}
+	for i := uint(1); i < args.NamedChildCount(); i++ {
+		flatten(args.NamedChild(i))
+	}
+	if len(callbacks) == 0 {
+		return unit.Unit{}, false
+	}
+	last := callbacks[len(callbacks)-1]
 	named := last.Kind() == "identifier" || last.Kind() == "member_expression"
 	if method == nil || !httpMethods[method.Utf8Text(p.src)] || receiver == nil || receiver.Kind() != "identifier" || !p.isRouter(receiver.Utf8Text(p.src)) ||
 		(first.Kind() != "string" && first.Kind() != "template_string") || !isFunction(last) && !named {
@@ -600,12 +620,8 @@ func (p *parser) route(stmt *sitter.Node) (unit.Unit, bool) {
 	// resolves it wherever it is. Either way the route calls the
 	// middleware before it (requireAuth), which every request runs.
 	var u unit.Unit
-	refs := make([]*sitter.Node, 0, args.NamedChildCount())
-	inlineMiddleware := false
-	for i := uint(1); i+1 < args.NamedChildCount(); i++ {
-		refs = append(refs, unwrapped(args.NamedChild(i)))
-		inlineMiddleware = inlineMiddleware || isFunction(refs[len(refs)-1])
-	}
+	refs := slices.Clone(callbacks[:len(callbacks)-1])
+	inlineMiddleware := slices.ContainsFunc(refs, isFunction)
 	switch {
 	case named:
 		u = p.unit(name, stmt, stmt, false)
@@ -653,36 +669,50 @@ type made struct {
 	exported bool
 }
 
-// madeHandlers adds a unit for each variable a call makes, or another
-// function names, that a route file exports as an HTTP method (export
-// const GET = withAuth(handler), const handler = NextAuth(options) and
-// export { handler as GET }, or export const GET = handler), calling what
-// the call does and the functions it is given, or the function named.
+// madeHandlers adds, for each variable a call makes or another function
+// names that a route file exports as an HTTP method (export const GET =
+// withAuth(handler), const handler = NextAuth(options) and export {
+// handler as GET, handler as POST }, or export const GET = handler), a
+// unit for each method it is exported as, calling what the call does and
+// the functions it is given (see given).
 func (p *parser) madeHandlers() {
 	for _, m := range p.made {
-		asMethod := m.exported && nextMethods[m.name] || slices.ContainsFunc(p.exportedAs[m.name], func(as string) bool { return nextMethods[as] })
-		if !asMethod {
-			continue
+		var methods []string // what Next.js dispatches to it: each an entry point of its own
+		if m.exported && nextMethods[m.name] {
+			methods = append(methods, m.name)
 		}
-		u := p.unit(m.name, m.decl, m.decl, true)
-		u.Entry, u.External = true, true
-		var given []unit.Call
-		value := unwrapped(m.decl.ChildByFieldName("value"))
-		if c, ok := p.reference(value, u.StartLine); ok { // export const GET = handler
-			given = append(given, c)
-		}
-		args := value.ChildByFieldName("arguments")
-		for i := uint(0); args != nil && i < args.NamedChildCount(); i++ {
-			// a function: one of the module's, an import, or a method (controller.get)
-			if arg := unwrapped(args.NamedChild(i)); arg.Kind() == "member_expression" || arg.Kind() == "identifier" && p.isFunctionName(arg.Utf8Text(p.src)) {
-				if c, ok := p.reference(arg, u.StartLine); ok {
-					given = append(given, c)
-				}
+		for _, as := range p.exportedAs[m.name] {
+			if nextMethods[as] {
+				methods = append(methods, as)
 			}
 		}
-		u.Calls = append(given, u.Calls...)
-		p.units = append(p.units, u)
+		for _, method := range methods {
+			u := p.unit(method, m.decl, m.decl, true)
+			u.Entry, u.External = true, true
+			u.Calls = append(p.given(unwrapped(m.decl.ChildByFieldName("value")), u.StartLine), u.Calls...)
+			p.units = append(p.units, u)
+		}
 	}
+}
+
+// given returns the calls of the functions a made handler's value names:
+// the handler itself (export const GET = handler), or those a factory is
+// given (withAuth(save)), each one of the module's functions, an import or
+// a method (controller.get), not a value such as an options object.
+func (p *parser) given(value *sitter.Node, line int) []unit.Call {
+	var calls []unit.Call
+	if c, ok := p.reference(value, line); ok {
+		calls = append(calls, c)
+	}
+	args := value.ChildByFieldName("arguments")
+	for i := uint(0); args != nil && i < args.NamedChildCount(); i++ {
+		if arg := unwrapped(args.NamedChild(i)); arg.Kind() == "member_expression" || arg.Kind() == "identifier" && p.isFunctionName(arg.Utf8Text(p.src)) {
+			if c, ok := p.reference(arg, line); ok {
+				calls = append(calls, c)
+			}
+		}
+	}
+	return calls
 }
 
 // isFunctionName reports whether a name is one of the module's functions
